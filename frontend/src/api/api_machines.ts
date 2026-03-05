@@ -1,0 +1,16 @@
+import apiClient from './client'
+import type { Machine, ImportResult } from '../types'
+
+export const machinesApi = {
+  list: ()                        => apiClient.get<Machine[]>('/machines/').then(r => r.data),
+  get:  (id: number)              => apiClient.get<Machine>(`/machines/${id}`).then(r => r.data),
+  create: (payload: object)       => apiClient.post<Machine>('/machines/', payload).then(r => r.data),
+  update: (id: number, p: object) => apiClient.patch<Machine>(`/machines/${id}`, p).then(r => r.data),
+  delete: (id: number)            => apiClient.delete(`/machines/${id}`),
+  assignments: (id: number)       => apiClient.get(`/assignments/machine/${id}`).then(r => r.data),
+  importCsv: (file: File)         => {
+    const fd = new FormData(); fd.append('file', file)
+    return apiClient.post<ImportResult>('/import/machines', fd).then(r => r.data)
+  },
+  downloadTemplate: ()            => apiClient.get('/import/template/machines', { responseType: 'blob' }),
+}
