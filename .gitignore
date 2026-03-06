@@ -15,3 +15,6 @@ frontend/.env
 *.sqlite
 .DS_Store
 Thumbs.db
+
+*.zip
+*.tar.gz
