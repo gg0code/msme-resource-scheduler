@@ -1,0 +1,4 @@
+Role card	Email			Password	
+Owner		owner@msme.com		12345678
+Scheduler	scheduler@msme.com	abcdefgh
+Viewer		viewer@msme.com		12345678
