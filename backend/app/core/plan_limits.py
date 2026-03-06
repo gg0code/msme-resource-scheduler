@@ -16,16 +16,18 @@ from app.models.auth import User, Tenant
 # None = unlimited. Change numbers here only — applies everywhere automatically.
 PLAN_LIMITS: dict[str, dict[str, Optional[int]]] = {
     "free": {
-        "employees": 10,
-        "jobs":       5,
-        "machines":   5,
-        "skills":    20,
+        "employees":     10,
+        "jobs":           5,
+        "machines":       5,
+        "skills":        20,
+        "raw_materials":  5,   # max raw material lines per job on free plan
     },
     "paid": {
-        "employees": None,
-        "jobs":      None,
-        "machines":  None,
-        "skills":    None,
+        "employees":     None,
+        "jobs":          None,
+        "machines":      None,
+        "skills":        None,
+        "raw_materials": None,
     },
 }
 

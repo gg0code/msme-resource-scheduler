@@ -77,7 +77,51 @@ function BlinkDot({ icon }: { icon: string }) {
   return <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 inline-block ${map[icon] ?? 'bg-gray-300'}`} />
 }
 
-type TabType = 'jobs' | 'machines'
+// ─── Timer badge icons on bar ─────────────────────────────────────────────
+function TimerBadges({ job, x, y, barW }: { job: GanttJob; x: number; y: number; barW: number }) {
+  // Only show if bar is wide enough (>90px)
+  if (barW < 90) return null
+  const t = job.timer_status ?? 'idle'
+  const s = job.status
+
+  // Pick which badges to show based on state
+  const badges: { icon: string; color: string; title: string }[] = []
+  if (t === 'idle' && s !== 'Completed' && s !== 'Stopped')
+    badges.push({ icon: '▶', color: '#16a34a', title: 'Ready to Start' })
+  if (t === 'running')
+    badges.push({ icon: '⏸', color: '#ca8a04', title: 'Running — can Pause' })
+  if (t === 'paused')
+    badges.push({ icon: '↺', color: '#2563eb', title: 'Paused — can Resume' })
+  if (t === 'running' || t === 'paused') {
+    badges.push({ icon: '✕', color: '#111827', title: 'Stop' })
+    badges.push({ icon: '●', color: '#2563eb', title: 'End' })
+  }
+
+  const badgeW = 16
+  const gap = 3
+  const totalW = badges.length * (badgeW + gap) - gap
+  // Right-align badges inside bar with 6px margin
+  const startX = x + barW - totalW - 8
+
+  return (
+    <>
+      {badges.map((b, i) => {
+        const bx = startX + i * (badgeW + gap)
+        return (
+          <g key={i}>
+            <rect x={bx} y={y + ROW_H/2 - 9} width={badgeW} height={18} rx={3}
+              fill="rgba(0,0,0,0.25)" />
+            <text x={bx + badgeW/2} y={y + ROW_H/2 + 5}
+              fill={b.color} fontSize={9} fontWeight={700}
+              textAnchor="middle" style={{ userSelect: 'none' }}>
+              {b.icon}
+            </text>
+          </g>
+        )
+      })}
+    </>
+  )
+}
 type ZoomLevel = 'day' | 'week' | 'month'
 type FilterPriority = 'all' | 'high' | 'medium' | 'low'
 
@@ -225,6 +269,7 @@ export default function GanttPage() {
               : job.name}
           </text>
         )}
+        {w > 90 && <TimerBadges job={job} x={x+1} y={rowY} barW={w} />}
       </g>
     )
   }
@@ -355,14 +400,18 @@ export default function GanttPage() {
       {/* ── Chart ── */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* Label column */}
-        <div className="flex-shrink-0 border-r border-gray-200" style={{ width: LABEL_W }}>
-          <div className="border-b border-gray-200 bg-gray-50 flex items-end px-3 pb-2" style={{ height: HEADER_H }}>
+        {/* Label column — scrolls vertically in sync */}
+        <div className="flex-shrink-0 border-r border-gray-200 flex flex-col" style={{ width: LABEL_W }}>
+          <div className="border-b border-gray-200 bg-gray-50 flex items-end px-3 pb-2 flex-shrink-0" style={{ height: HEADER_H }}>
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
               {activeTab === 'jobs' ? 'Job' : 'Machine / Job'}
             </span>
           </div>
-          <div style={{ height: chartHeight, overflowY: 'hidden' }}>
+          <div className="overflow-y-auto flex-1" id="gantt-label-scroll" onScroll={e => {
+            const chart = document.getElementById('gantt-chart-scroll')
+            if (chart) chart.scrollTop = (e.target as HTMLElement).scrollTop
+          }}>
+            <div style={{ height: chartHeight }}>
             {activeTab === 'jobs'
               ? filtered.map(job => (
                   <div key={job.id} onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)}
@@ -396,11 +445,15 @@ export default function GanttPage() {
                   </div>
                 ))
             }
+            </div>
           </div>
         </div>
 
-        {/* Scrollable chart */}
-        <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden">
+        {/* Scrollable chart — horizontal AND vertical */}
+        <div ref={scrollRef} id="gantt-chart-scroll" className="flex-1 overflow-x-auto overflow-y-auto" onScroll={e => {
+          const label = document.getElementById('gantt-label-scroll')
+          if (label) label.scrollTop = (e.target as HTMLElement).scrollTop
+        }}>
           <div style={{ width: totalDays * COL_W }}>
 
             {/* Date header */}

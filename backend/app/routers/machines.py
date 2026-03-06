@@ -21,10 +21,11 @@ from app.models.auth import User
 router = APIRouter()
 
 
-def _sync_skill_reqs(db: Session, machine: Machine, reqs: list):
+def _sync_skill_reqs(db: Session, machine: Machine, reqs: list, tenant_id: int):
     db.query(MachineSkillRequirement).filter(MachineSkillRequirement.machine_id == machine.id).delete()
     for r in reqs:
         db.add(MachineSkillRequirement(
+            tenant_id=tenant_id,
             machine_id=machine.id,
             skill_id=r.skill_id,
             min_skill_level=r.min_skill_level,
@@ -75,7 +76,7 @@ def create_machine(
     machine = Machine(**data)
     db.add(machine)
     db.flush()
-    _sync_skill_reqs(db, machine, payload.skill_requirements)
+    _sync_skill_reqs(db, machine, payload.skill_requirements, current_user.tenant_id)
     db.commit()
     db.refresh(machine)
     return machine
@@ -98,7 +99,7 @@ def update_machine(
     for field, value in data.items():
         setattr(m, field, value)
     if payload.skill_requirements is not None:
-        _sync_skill_reqs(db, m, payload.skill_requirements)
+        _sync_skill_reqs(db, m, payload.skill_requirements, current_user.tenant_id)
     db.commit()
     db.refresh(m)
     return m

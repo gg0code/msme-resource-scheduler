@@ -13,6 +13,7 @@ import {
   Users, ClipboardCheck, AlertTriangle, UserCheck, Factory,
   Play, Pause, Square, RotateCcw, Clock, Package,
 } from 'lucide-react'
+import { usePlanLimits, LimitedButton, PlanLimitBanner, RawMaterialLimitHint } from '../components/PlanLimitGuard'
 
 // ── Types ──────────────────────────────────────────────
 interface Skill    { id: number; name: string; is_premium: boolean }
@@ -252,6 +253,7 @@ export default function Jobs() {
   const { data: machines = [] } = useQuery<Machine[]>({
     queryKey:['machines'], queryFn:() => apiClient.get('/machines/').then(r => r.data),
   })
+  const { planLimits } = usePlanLimits()
 
   const getSkillName = useCallback((id: number) => skills.find(s => s.id === id)?.name ?? `Skill#${id}`, [skills])
   const getEmpName   = useCallback((id: number) => {
@@ -301,7 +303,7 @@ export default function Jobs() {
       }
       qc.invalidateQueries({queryKey:['jobs']})
       qc.invalidateQueries({queryKey:['dashboard']})
-      // Auto-run availability check on the new job
+      qc.invalidateQueries({queryKey:['plan-limits']})
       setTimeout(() => runAvailCheck(newJobId), 500)
       closeWizard()
       showToast('Job created! Running availability check...')
@@ -321,7 +323,7 @@ export default function Jobs() {
 
   const deleteJobMut = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/jobs/${id}`),
-    onSuccess: () => { qc.invalidateQueries({queryKey:['jobs']}); qc.invalidateQueries({queryKey:['dashboard']}); setDeleteId(null); showToast('Job deleted!') },
+    onSuccess: () => { qc.invalidateQueries({queryKey:['jobs']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); setDeleteId(null); showToast('Job deleted!') },
   })
 
   const timerMut = useMutation({
@@ -442,6 +444,8 @@ export default function Jobs() {
 
   // Raw material helpers
   const matTotal = (mats: RawMat[]) => mats.reduce((s,m)=>s+m.quantity*m.unit_cost,0)
+  const rawMatLimit = planLimits?.limits?.raw_materials?.limit ?? null
+  const rawMatLimitReached = (count: number) => rawMatLimit !== null && count >= rawMatLimit
 
   // Toggle conflict expand
   function toggleConflict(id: number) {
@@ -462,10 +466,12 @@ export default function Jobs() {
           <h2 className="text-xl font-bold text-gray-800">Jobs</h2>
           <p className="text-sm text-gray-500 mt-0.5">{filtered.length} of {jobs.length} jobs shown.</p>
         </div>
-        <button onClick={openWizard} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg">
+        <LimitedButton resource="jobs" planLimits={planLimits} onClick={openWizard}>
           <Plus size={16}/> New Job
-        </button>
+        </LimitedButton>
       </div>
+
+      <PlanLimitBanner resource="jobs" planLimits={planLimits} label="jobs" />
 
       {toast && <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-sm"><Check size={15}/>{toast}</div>}
 
@@ -1167,10 +1173,16 @@ export default function Jobs() {
                       <p className="text-xs text-gray-400">Add materials needed for this job with quantities and costs.</p>
                     </div>
                     <button onClick={()=>setRawMats(m=>[...m,emptyMat()])}
-                      className="flex items-center gap-1.5 text-xs text-orange-600 border border-orange-200 rounded-lg px-3 py-1.5">
+                      disabled={rawMatLimitReached(rawMats.length)}
+                      className={`flex items-center gap-1.5 text-xs border rounded-lg px-3 py-1.5 transition-colors ${
+                        rawMatLimitReached(rawMats.length)
+                          ? 'text-gray-400 border-gray-200 cursor-not-allowed'
+                          : 'text-orange-600 border-orange-200 hover:bg-orange-50'
+                      }`}>
                       <Plus size={12}/> Add Material
                     </button>
                   </div>
+                  <RawMaterialLimitHint current={rawMats.length} planLimits={planLimits} />
                   {rawMats.length===0 && (
                     <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center text-sm text-gray-400">
                       No raw materials added yet.
@@ -1599,7 +1611,15 @@ export default function Jobs() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs font-medium text-gray-600 flex items-center gap-1"><Package size={12} className="text-orange-500"/>Raw Materials</label>
-                  <button onClick={()=>setEditRawMats(m=>[...m,emptyMat()])} className="text-xs text-orange-600 flex items-center gap-1"><Plus size={12}/>Add</button>
+                  <div className="flex items-center gap-2">
+                    <RawMaterialLimitHint current={editRawMats.length} planLimits={planLimits} />
+                    <button
+                      onClick={()=>setEditRawMats(m=>[...m,emptyMat()])}
+                      disabled={rawMatLimitReached(editRawMats.length)}
+                      className={`text-xs flex items-center gap-1 ${rawMatLimitReached(editRawMats.length) ? 'text-gray-300 cursor-not-allowed' : 'text-orange-600'}`}>
+                      <Plus size={12}/>Add
+                    </button>
+                  </div>
                 </div>
                 {editRawMats.map((mat,i)=>(
                   <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-center">

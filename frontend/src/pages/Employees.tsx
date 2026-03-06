@@ -1,6 +1,7 @@
 // src/pages/Employees.tsx — table with expandable assignment rows
 
 import { useState, useMemo } from 'react'
+import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import CsvImport from '../components/common/CsvImport'
@@ -9,6 +10,7 @@ import {
   Search, X, Check, ChevronUp, ChevronDown, IndianRupee,
   ChevronRight, CalendarDays, Briefcase,
 } from 'lucide-react'
+import { usePlanLimits, LimitedButton, PlanLimitBanner } from '../components/PlanLimitGuard'
 
 interface Skill         { id: number; name: string }
 interface EmployeeSkill { id: number; skill_id: number; skill_level: string }
@@ -151,6 +153,7 @@ export default function Employees() {
   const { data: skills = [] } = useQuery<Skill[]>({
     queryKey:['skills'], queryFn:() => apiClient.get('/skills/').then(r => r.data),
   })
+  const { planLimits } = usePlanLimits()
 
   const departments = useMemo(() => {
     const d = new Set(employees.map(e => e.department).filter(Boolean) as string[])
@@ -184,7 +187,7 @@ export default function Employees() {
 
   const createEmp = useMutation({
     mutationFn: (p: object) => apiClient.post('/employees/', p),
-    onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); closeForm(); showToast('Employee added!') },
+    onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); closeForm(); showToast('Employee added!') },
   })
   const updateEmp = useMutation({
     mutationFn: ({id,payload}:{id:number;payload:object}) => apiClient.patch(`/employees/${id}`, payload),
@@ -192,11 +195,11 @@ export default function Employees() {
   })
   const deleteEmp = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/employees/${id}`),
-    onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); setDeleteId(null); showToast('Employee deleted!') },
+    onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); setDeleteId(null); showToast('Employee deleted!') },
   })
 
   function openCreate() { setEditingEmp(null); setForm(emptyForm()); setShowForm(true) }
-  function openEdit(emp: Employee, e: React.MouseEvent) {
+  function openEdit(emp: Employee, e: MouseEvent) {
     e.stopPropagation()
     setEditingEmp(emp)
     setForm({
@@ -249,11 +252,13 @@ export default function Employees() {
         </div>
         <div className="flex items-center gap-2">
           <CsvImport resource="employees" onSuccess={() => qc.invalidateQueries({queryKey:['employees']})}/>
-          <button onClick={openCreate} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg">
+          <LimitedButton resource="employees" planLimits={planLimits} onClick={openCreate}>
             <Plus size={16}/> Add Employee
-          </button>
+          </LimitedButton>
         </div>
       </div>
+
+      <PlanLimitBanner resource="employees" planLimits={planLimits} label="employees" />
 
       {toast && <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-sm"><Check size={15}/>{toast}</div>}
 

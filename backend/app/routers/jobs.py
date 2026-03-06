@@ -17,8 +17,8 @@ from datetime import datetime
 from app.database import get_db
 from app.models.job import Job, JobSkillRequirement, JobAssignment
 from app.core.dependencies import get_current_user, require_role
-from app.core.plan_limits import check_plan_limit
-from app.models.auth import User
+from app.core.plan_limits import check_plan_limit, get_limit
+from app.models.auth import User, Tenant
 
 router = APIRouter()
 
@@ -131,6 +131,20 @@ def create_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("proprietor", "scheduler")),
 ):
+    # Check raw materials plan limit
+    if payload.raw_materials:
+        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+        plan = (getattr(tenant, "plan", None) or "free").lower()
+        rm_limit = get_limit(plan, "raw_materials")
+        if rm_limit is not None and len(payload.raw_materials) > rm_limit:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=402, detail={
+                "error": "plan_limit_reached",
+                "message": f"Your free plan allows up to {rm_limit} raw material lines per job. Upgrade to add more.",
+                "resource": "raw_materials", "limit": rm_limit,
+                "current": len(payload.raw_materials), "upgrade_required": True,
+            })
+
     job = Job(
         tenant_id=current_user.tenant_id,
         name=payload.name, customer=payload.customer, description=payload.description,
@@ -145,7 +159,7 @@ def create_job(
     db.add(job)
     db.flush()
     for r in payload.skill_requirements:
-        db.add(JobSkillRequirement(job_id=job.id, skill_id=r.skill_id,
+        db.add(JobSkillRequirement(tenant_id=current_user.tenant_id, job_id=job.id, skill_id=r.skill_id,
             min_skill_level=r.min_skill_level, employees_required=r.employees_required))
     db.commit()
     db.refresh(job)
@@ -181,10 +195,22 @@ def update_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     for field, value in payload.model_dump(exclude_unset=True).items():
-        if field == "skill_requirements":
+        if field == "raw_materials" and value is not None:
+            tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+            plan = (getattr(tenant, "plan", None) or "free").lower()
+            rm_limit = get_limit(plan, "raw_materials")
+            if rm_limit is not None and len(value) > rm_limit:
+                raise HTTPException(status_code=402, detail={
+                    "error": "plan_limit_reached",
+                    "message": f"Your free plan allows up to {rm_limit} raw material lines per job. Upgrade to add more.",
+                    "resource": "raw_materials", "limit": rm_limit,
+                    "current": len(value), "upgrade_required": True,
+                })
+            setattr(job, field, value)
+        elif field == "skill_requirements":
             db.query(JobSkillRequirement).filter(JobSkillRequirement.job_id == job_id).delete()
             for r in (value or []):
-                db.add(JobSkillRequirement(job_id=job_id, skill_id=r["skill_id"],
+                db.add(JobSkillRequirement(tenant_id=current_user.tenant_id, job_id=job_id, skill_id=r["skill_id"],
                     min_skill_level=r["min_skill_level"], employees_required=r["employees_required"]))
         else:
             setattr(job, field, value)

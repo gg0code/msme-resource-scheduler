@@ -21,10 +21,10 @@ from app.models.auth import User
 router = APIRouter()
 
 
-def _sync_skills(db: Session, employee: Employee, skills_data: list):
+def _sync_skills(db: Session, employee: Employee, skills_data: list, tenant_id: int):
     db.query(EmployeeSkill).filter(EmployeeSkill.employee_id == employee.id).delete()
     for s in skills_data:
-        db.add(EmployeeSkill(employee_id=employee.id, skill_id=s.skill_id, skill_level=s.skill_level))
+        db.add(EmployeeSkill(tenant_id=tenant_id, employee_id=employee.id, skill_id=s.skill_id, skill_level=s.skill_level))
 
 
 @router.get("/", response_model=List[EmployeeOut])
@@ -70,7 +70,7 @@ def create_employee(
     emp = Employee(**data)
     db.add(emp)
     db.flush()
-    _sync_skills(db, emp, payload.skills)
+    _sync_skills(db, emp, payload.skills, current_user.tenant_id)
     db.commit()
     db.refresh(emp)
     return emp
@@ -93,7 +93,7 @@ def update_employee(
     for field, value in data.items():
         setattr(emp, field, value)
     if payload.skills is not None:
-        _sync_skills(db, emp, payload.skills)
+        _sync_skills(db, emp, payload.skills, current_user.tenant_id)
     db.commit()
     db.refresh(emp)
     return emp

@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import CsvImport from '../components/common/CsvImport'
 import { Plus, Pencil, Trash2, Loader2, AlertCircle, Factory, Search, X, Check, ChevronRight, ChevronDown, CalendarDays, Briefcase, IndianRupee } from 'lucide-react'
+import { usePlanLimits, LimitedButton, PlanLimitBanner } from '../components/PlanLimitGuard'
 
 interface Skill { id: number; name: string }
 interface MachineSkillReq { id: number; skill_id: number; min_skill_level: string; employees_required: number }
@@ -122,8 +123,7 @@ export default function Machines() {
   const { data: skills = [] } = useQuery<Skill[]>({
     queryKey:['skills'], queryFn:() => apiClient.get('/skills/').then(r => r.data),
   })
-
-  // Unique filter options derived from data
+  const { planLimits } = usePlanLimits()
   const types = useMemo(() => ['All', ...Array.from(new Set(machines.map(m => m.machine_type).filter(Boolean) as string[])).sort()], [machines])
   const bays  = useMemo(() => ['All', ...Array.from(new Set(machines.map(m => m.location_bay).filter(Boolean) as string[])).sort()], [machines])
 
@@ -140,7 +140,7 @@ export default function Machines() {
 
   const createMachine = useMutation({
     mutationFn: (p: object) => apiClient.post('/machines/', p),
-    onSuccess: () => { qc.invalidateQueries({queryKey:['machines']}); qc.invalidateQueries({queryKey:['dashboard']}); closeForm(); showToast('Machine added!') },
+    onSuccess: () => { qc.invalidateQueries({queryKey:['machines']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); closeForm(); showToast('Machine added!') },
   })
   const updateMachine = useMutation({
     mutationFn: ({id, payload}: {id:number; payload:object}) => apiClient.patch(`/machines/${id}`, payload),
@@ -148,7 +148,7 @@ export default function Machines() {
   })
   const deleteMachine = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/machines/${id}`),
-    onSuccess: () => { qc.invalidateQueries({queryKey:['machines']}); qc.invalidateQueries({queryKey:['dashboard']}); setDeleteId(null); showToast('Machine deleted!') },
+    onSuccess: () => { qc.invalidateQueries({queryKey:['machines']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); setDeleteId(null); showToast('Machine deleted!') },
   })
 
   function openCreate() { setEditingMachine(null); setForm(emptyForm()); setShowForm(true) }
@@ -199,11 +199,13 @@ export default function Machines() {
         </div>
         <div className="flex items-center gap-2">
           <CsvImport resource="machines" onSuccess={() => qc.invalidateQueries({queryKey:['machines']})}/>
-          <button onClick={openCreate} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg transition-colors">
+          <LimitedButton resource="machines" planLimits={planLimits} onClick={openCreate}>
             <Plus size={16}/> Add Machine
-          </button>
+          </LimitedButton>
         </div>
       </div>
+
+      <PlanLimitBanner resource="machines" planLimits={planLimits} label="machines" />
 
       {toast && <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-sm"><Check size={15}/>{toast}</div>}
 

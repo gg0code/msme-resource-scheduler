@@ -7,6 +7,7 @@
 //   - Auto-poll every POLL_INTERVAL_MS for conflict resolution detection
 
 import { useState, useEffect, useCallback } from 'react'
+import type { ReactNode } from 'react'
 import {
   Play, Pause, RotateCcw, Square, CheckCircle2,
   AlertCircle, Loader2, Clock, CalendarDays,
@@ -317,7 +318,33 @@ function JobCard({ job, onAction, actionLoading }: JobCardProps) {
   )
 }
 
-// ─── Main Dashboard ────────────────────────────────────────────────────────
+// ─── Collapsible Section ───────────────────────────────────────────────────
+interface SectionProps {
+  title: string
+  count: number
+  colorClass: string
+  icon?: ReactNode
+  defaultOpen?: boolean
+  children: ReactNode
+}
+function CollapsibleSection({ title, count, colorClass, icon, defaultOpen = true, children }: SectionProps) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <section>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg mb-2 transition-colors hover:bg-gray-50 ${open ? 'bg-gray-50' : 'bg-white border border-gray-200'}`}
+      >
+        <span className={`text-sm font-semibold flex items-center gap-2 ${colorClass}`}>
+          {icon}
+          {title} <span className="text-xs font-normal opacity-70">({count})</span>
+        </span>
+        {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+      </button>
+      {open && <div className="space-y-2">{children}</div>}
+    </section>
+  )
+}
 export default function Dashboard() {
   const [now, setNow] = useState(new Date())
   const [data, setData] = useState<DashboardData | null>(null)
@@ -399,8 +426,9 @@ export default function Dashboard() {
 
   const jobs = data?.jobs ?? []
   const activeJobs = jobs.filter(j => j.timer_status === 'running')
-  const conflictJobs = jobs.filter(j => j.has_conflict)
-  const pendingJobs = jobs.filter(j => j.timer_status === 'idle' && j.status !== 'Completed' && j.status !== 'Stopped')
+  const pausedJobs = jobs.filter(j => j.timer_status === 'paused')
+  const conflictJobs = jobs.filter(j => j.has_conflict && j.timer_status !== 'running' && j.timer_status !== 'paused')
+  const readyJobs = jobs.filter(j => j.timer_status === 'idle' && !j.has_conflict && j.status !== 'Completed' && j.status !== 'Stopped')
   const doneJobs = jobs.filter(j => j.status === 'Completed' || j.status === 'Stopped')
 
   const endModalJob = endModalJobId ? jobs.find(j => j.id === endModalJobId) : null
@@ -462,60 +490,76 @@ export default function Dashboard() {
 
       {/* Running jobs */}
       {activeJobs.length > 0 && (
-        <section>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            Running ({activeJobs.length})
-          </h3>
-          <div className="space-y-2">
-            {activeJobs.map(j => (
-              <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
-            ))}
-          </div>
-        </section>
+        <CollapsibleSection
+          title="Running"
+          count={activeJobs.length}
+          colorClass="text-green-700"
+          defaultOpen={true}
+          icon={<span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block" />}
+        >
+          {activeJobs.map(j => (
+            <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+          ))}
+        </CollapsibleSection>
       )}
 
       {/* Conflict jobs */}
       {conflictJobs.length > 0 && (
-        <section>
-          <h3 className="text-sm font-semibold text-red-600 mb-2 flex items-center gap-2">
-            <AlertCircle size={14} />
-            Needs Attention — Conflicts ({conflictJobs.length})
-          </h3>
-          <div className="space-y-2">
-            {conflictJobs.map(j => (
-              <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
-            ))}
-          </div>
-        </section>
+        <CollapsibleSection
+          title="Needs Attention — Conflicts"
+          count={conflictJobs.length}
+          colorClass="text-red-600"
+          defaultOpen={true}
+          icon={<AlertCircle size={14} />}
+        >
+          {conflictJobs.map(j => (
+            <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+          ))}
+        </CollapsibleSection>
+      )}
+
+      {/* Paused jobs */}
+      {pausedJobs.length > 0 && (
+        <CollapsibleSection
+          title="Paused"
+          count={pausedJobs.length}
+          colorClass="text-yellow-700"
+          defaultOpen={true}
+          icon={<Pause size={13} />}
+        >
+          {pausedJobs.map(j => (
+            <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+          ))}
+        </CollapsibleSection>
       )}
 
       {/* Pending (idle, no conflict) */}
-      {pendingJobs.filter(j => !j.has_conflict).length > 0 && (
-        <section>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">
-            Ready to Start ({pendingJobs.filter(j => !j.has_conflict).length})
-          </h3>
-          <div className="space-y-2">
-            {pendingJobs.filter(j => !j.has_conflict).map(j => (
-              <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
-            ))}
-          </div>
-        </section>
+      {readyJobs.length > 0 && (
+        <CollapsibleSection
+          title="Ready to Start"
+          count={readyJobs.length}
+          colorClass="text-gray-700"
+          defaultOpen={true}
+          icon={<span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse inline-block" />}
+        >
+          {readyJobs.map(j => (
+            <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+          ))}
+        </CollapsibleSection>
       )}
 
       {/* Completed / Stopped */}
       {doneJobs.length > 0 && (
-        <section>
-          <h3 className="text-sm font-semibold text-gray-500 mb-2">
-            Completed / Stopped ({doneJobs.length})
-          </h3>
-          <div className="space-y-2">
-            {doneJobs.map(j => (
-              <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
-            ))}
-          </div>
-        </section>
+        <CollapsibleSection
+          title="Completed / Stopped"
+          count={doneJobs.length}
+          colorClass="text-gray-500"
+          defaultOpen={false}
+        >
+          {doneJobs.map(j => (
+            <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+          ))}
+        </CollapsibleSection>
       )}
 
       {jobs.length === 0 && (
