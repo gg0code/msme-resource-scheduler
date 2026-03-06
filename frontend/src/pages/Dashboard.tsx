@@ -1,23 +1,32 @@
-// src/pages/Dashboard.tsx
-// -----------------------
-// Main dashboard showing live clock, current date, week number, summary cards,
-// jobs-by-status breakdown, and upcoming jobs this week.
-// Clock updates every second via setInterval. Dashboard data refreshes every 30s.
+// src/pages/Dashboard.tsx — V2.0
+// Full job board with:
+//   - Status icons (green blink / red / arrow / blue / black)
+//   - Timer controls: Start, Pause, Resume, Stop (✕), End
+//   - Cost grid: Tentative Cost | Tentative Profit / Actual Cost | Actual Profit
+//   - Conflict banners, greyed Start button
+//   - Auto-poll every POLL_INTERVAL_MS for conflict resolution detection
 
-import { useQuery } from '@tanstack/react-query'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import {
+  Play, Pause, RotateCcw, Square, CheckCircle2,
+  AlertCircle, Loader2, Clock, CalendarDays,
+  BriefcaseBusiness, Factory, Users, ChevronDown, ChevronUp,
+  TrendingUp, TrendingDown,
+} from 'lucide-react'
 import apiClient from '../api/client'
-import { BriefcaseBusiness, Factory, Users, AlertCircle, Loader2, Clock, CalendarDays } from 'lucide-react'
+import timerApi from '../api/api_timer'
+import EndJobModal from '../components/EndJobModal'
+import type { DashboardData, DashboardJob } from '../api/api_dashboard'
 
-interface DashboardData {
-  total_active_jobs: number
-  available_machines: number
-  available_employees: number
-  jobs_by_status: Record<string, number>
-  upcoming_jobs_this_week: {
-    id: number; name: string; start_date: string; end_date: string
-    priority: string; status: string; tentative_profit: number | null
-  }[]
+// ─── Poll interval ─────────────────────────────────────────────────────────
+// Change this value to adjust how often dashboard checks for conflict resolution.
+// Unit: milliseconds. Default: 30 seconds.
+const POLL_INTERVAL_MS = 30_000
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+function fmt(n: number | null | undefined): string {
+  if (n == null) return '—'
+  return `₹${Math.round(n).toLocaleString('en-IN')}`
 }
 
 function getWeekNumber(d: Date): number {
@@ -28,61 +37,399 @@ function getWeekNumber(d: Date): number {
   return Math.ceil((((date.valueOf() - yearStart.valueOf()) / 86400000) + 1) / 7)
 }
 
-const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December']
 
 const priorityColour: Record<string, string> = {
-  Critical:'bg-red-100 text-red-700', High:'bg-orange-100 text-orange-700',
-  Medium:'bg-yellow-100 text-yellow-700', Low:'bg-gray-100 text-gray-600',
-}
-const statusColour: Record<string, string> = {
-  'Scheduled':'bg-green-100 text-green-700', 'Pending Assignment':'bg-blue-100 text-blue-700',
-  'In Progress':'bg-purple-100 text-purple-700', 'Draft':'bg-gray-100 text-gray-600',
-  'Completed':'bg-teal-100 text-teal-700', 'Cancelled':'bg-red-100 text-red-600',
+  Critical: 'bg-red-100 text-red-700',
+  High: 'bg-orange-100 text-orange-700',
+  Medium: 'bg-yellow-100 text-yellow-700',
+  Low: 'bg-gray-100 text-gray-600',
 }
 
+// ─── Status Icon ───────────────────────────────────────────────────────────
+function StatusIcon({ icon }: { icon: string }) {
+  if (icon === 'in_progress') {
+    return (
+      <span className="inline-flex items-center justify-center w-5 h-5">
+        <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5">
+          <path d="M5 4l11 6-11 6V4z" fill="#16a34a" />
+        </svg>
+      </span>
+    )
+  }
+  const dot: Record<string, string> = {
+    ready: 'bg-green-500',
+    conflict: 'bg-red-500',
+    completed: 'bg-blue-500',
+    stopped: 'bg-gray-900',
+  }
+  const color = dot[icon] ?? 'bg-gray-400'
+  const blink = icon === 'ready' ? 'animate-pulse' : ''
+  return (
+    <span className={`inline-block w-3 h-3 rounded-full ${color} ${blink} flex-shrink-0`} />
+  )
+}
+
+// ─── Cost Grid ─────────────────────────────────────────────────────────────
+function CostGrid({ job }: { job: DashboardJob }) {
+  return (
+    <div className="grid grid-cols-2 gap-2 mt-2">
+      <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+        <p className="text-xs text-amber-600 font-medium">Tentative Cost</p>
+        <p className="text-sm font-bold text-amber-800">{fmt(job.tentative_cost)}</p>
+      </div>
+      <div className={`border rounded-lg px-3 py-2 ${job.tentative_profit >= 0 ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+        <p className={`text-xs font-medium ${job.tentative_profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+          Tentative Profit
+        </p>
+        <div className="flex items-center gap-1">
+          {job.tentative_profit >= 0
+            ? <TrendingUp size={12} className="text-green-600" />
+            : <TrendingDown size={12} className="text-red-500" />
+          }
+          <p className={`text-sm font-bold ${job.tentative_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+            {fmt(job.tentative_profit)}
+          </p>
+        </div>
+      </div>
+
+      {job.actual_cost != null && (
+        <>
+          <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+            <p className="text-xs text-blue-600 font-medium">Actual Cost</p>
+            <p className="text-sm font-bold text-blue-800">{fmt(job.actual_cost)}</p>
+          </div>
+          <div className={`border rounded-lg px-3 py-2 ${(job.actual_profit ?? 0) >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
+            <p className={`text-xs font-medium ${(job.actual_profit ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+              Actual Profit
+            </p>
+            <div className="flex items-center gap-1">
+              {(job.actual_profit ?? 0) >= 0
+                ? <TrendingUp size={12} className="text-emerald-600" />
+                : <TrendingDown size={12} className="text-red-500" />
+              }
+              <p className={`text-sm font-bold ${(job.actual_profit ?? 0) >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                {fmt(job.actual_profit)}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Job Card ──────────────────────────────────────────────────────────────
+interface JobCardProps {
+  job: DashboardJob
+  onAction: (jobId: number, action: 'start' | 'pause' | 'resume' | 'stop' | 'end') => void
+  actionLoading: Record<string, boolean>
+}
+
+function JobCard({ job, onAction, actionLoading }: JobCardProps) {
+  const [expanded, setExpanded] = useState(false)
+  const loading = actionLoading[job.id] ?? false
+  const t = job.timer_status
+
+  const canStart = t === 'idle' && !job.has_conflict && job.status !== 'Completed' && job.status !== 'Stopped'
+  const canPause = t === 'running'
+  const canResume = t === 'paused'
+  const canStop = t === 'running' || t === 'paused'
+  const canEnd = t === 'running' || t === 'paused'
+  const isDone = job.status === 'Completed' || job.status === 'Stopped'
+
+  return (
+    <div className={`bg-white rounded-xl border shadow-sm overflow-hidden transition-all ${
+      job.has_conflict ? 'border-red-200' : 'border-gray-200'
+    }`}>
+      {/* Main row */}
+      <div className="px-4 py-3">
+        <div className="flex items-start gap-3">
+          {/* Status icon */}
+          <div className="mt-0.5">
+            <StatusIcon icon={job.status_icon} />
+          </div>
+
+          {/* Job info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-semibold text-gray-900 truncate">{job.name}</span>
+              {job.customer && (
+                <span className="text-xs text-gray-400">· {job.customer}</span>
+              )}
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColour[job.priority] ?? 'bg-gray-100 text-gray-600'}`}>
+                {job.priority}
+              </span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                {job.status}
+              </span>
+            </div>
+
+            {/* Dates */}
+            <p className="text-xs text-gray-400 mt-0.5">
+              {job.start_date} → {job.end_date}
+            </p>
+
+            {/* Conflict warning */}
+            {job.has_conflict && (
+              <div className="mt-1.5 flex items-start gap-1.5 text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1.5">
+                <AlertCircle size={12} className="mt-0.5 flex-shrink-0" />
+                <span>{job.conflict_reasons[0] ?? 'Resource conflict detected'}</span>
+              </div>
+            )}
+
+            {/* Cost grid */}
+            <CostGrid job={job} />
+          </div>
+
+          {/* Controls */}
+          {!isDone && (
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {/* Start */}
+              <button
+                onClick={() => onAction(job.id, 'start')}
+                disabled={!canStart || loading}
+                title={job.has_conflict ? 'Resolve conflicts to start' : 'Start job'}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  canStart && !loading
+                    ? 'text-green-600 hover:bg-green-50'
+                    : 'text-gray-300 cursor-not-allowed'
+                }`}
+              >
+                <Play size={16} fill={canStart ? '#16a34a' : '#d1d5db'} />
+              </button>
+
+              {/* Pause */}
+              {canPause && (
+                <button
+                  onClick={() => onAction(job.id, 'pause')}
+                  disabled={loading}
+                  title="Pause job"
+                  className="p-1.5 rounded-lg text-yellow-600 hover:bg-yellow-50 transition-colors"
+                >
+                  <Pause size={16} />
+                </button>
+              )}
+
+              {/* Resume */}
+              {canResume && (
+                <button
+                  onClick={() => onAction(job.id, 'resume')}
+                  disabled={loading}
+                  title="Resume job"
+                  className="p-1.5 rounded-lg text-green-600 hover:bg-green-50 transition-colors"
+                >
+                  <RotateCcw size={16} />
+                </button>
+              )}
+
+              {/* End (complete) */}
+              {canEnd && (
+                <button
+                  onClick={() => onAction(job.id, 'end')}
+                  disabled={loading}
+                  title="End job (complete)"
+                  className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors"
+                >
+                  <CheckCircle2 size={16} />
+                </button>
+              )}
+
+              {/* Stop early (black cross) */}
+              {canStop && (
+                <button
+                  onClick={() => onAction(job.id, 'stop')}
+                  disabled={loading}
+                  title="Stop job early"
+                  className="p-1.5 rounded-lg text-gray-900 hover:bg-gray-100 transition-colors"
+                >
+                  <Square size={15} />
+                </button>
+              )}
+
+              {loading && <Loader2 size={14} className="animate-spin text-gray-400 ml-1" />}
+            </div>
+          )}
+
+          {/* Expand toggle */}
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="text-gray-300 hover:text-gray-500 transition-colors ml-1"
+          >
+            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 text-xs text-gray-600 space-y-1.5">
+          <div className="flex gap-2">
+            <span className="text-gray-400 w-24">Employees</span>
+            <span>{job.assigned_employees.map(e => e.full_name).join(', ') || 'None'}</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-gray-400 w-24">Machines</span>
+            <span>{job.assigned_machines.map(m => m.name).join(', ') || 'None'}</span>
+          </div>
+          {job.actual_start_at && (
+            <div className="flex gap-2">
+              <span className="text-gray-400 w-24">Started</span>
+              <span>{new Date(job.actual_start_at).toLocaleString('en-IN')}</span>
+            </div>
+          )}
+          {job.actual_end_at && (
+            <div className="flex gap-2">
+              <span className="text-gray-400 w-24">Ended</span>
+              <span>{new Date(job.actual_end_at).toLocaleString('en-IN')}</span>
+            </div>
+          )}
+          {/* Full cost breakdown */}
+          {job.tentative_breakdown && (
+            <div className="mt-2 pt-2 border-t border-gray-200">
+              <p className="font-medium text-gray-500 mb-1">Tentative Breakdown</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                <span className="text-gray-400">Employee Cost</span><span>{fmt(job.tentative_breakdown.employee_cost)}</span>
+                <span className="text-gray-400">Machine Cost</span><span>{fmt(job.tentative_breakdown.machine_cost)}</span>
+                <span className="text-gray-400">Materials</span><span>{fmt(job.tentative_breakdown.material_cost)}</span>
+                <span className="text-gray-400">Misc</span><span>{fmt(job.tentative_breakdown.misc_cost)}</span>
+                <span className="text-gray-400">Hours</span><span>{job.tentative_breakdown.hours} hrs</span>
+              </div>
+            </div>
+          )}
+          {job.actual_breakdown && (
+            <div className="mt-2 pt-2 border-t border-gray-200">
+              <p className="font-medium text-gray-500 mb-1">Actual Breakdown</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                <span className="text-gray-400">Employee Cost</span><span>{fmt(job.actual_breakdown.employee_cost)}</span>
+                <span className="text-gray-400">Machine Cost</span><span>{fmt(job.actual_breakdown.machine_cost)}</span>
+                <span className="text-gray-400">Materials</span><span>{fmt(job.actual_breakdown.material_cost)}</span>
+                <span className="text-gray-400">Misc</span><span>{fmt(job.actual_breakdown.misc_cost)}</span>
+                <span className="text-gray-400">Hours</span><span>{job.actual_breakdown.hours} hrs</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Main Dashboard ────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [now, setNow] = useState(new Date())
-  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t) }, [])
+  const [data, setData] = useState<DashboardData | null>(null)
+  const [loadingData, setLoadingData] = useState(true)
+  const [dataError, setDataError] = useState(false)
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+  const [endModalJobId, setEndModalJobId] = useState<number | null>(null)
 
-  const { data, isLoading, isError } = useQuery<DashboardData>({
-    queryKey: ['dashboard'],
-    queryFn: () => apiClient.get('/dashboard/').then(r => r.data),
-    refetchInterval: 30_000,
-  })
+  // Live clock
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  // Fetch dashboard data
+  const fetchData = useCallback(() => {
+    apiClient.get('/dashboard/')
+      .then(r => { setData(r.data); setDataError(false) })
+      .catch(() => setDataError(true))
+      .finally(() => setLoadingData(false))
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+    // Auto-poll every POLL_INTERVAL_MS to detect conflict resolution
+    // and keep timer states in sync across users.
+    const interval = setInterval(fetchData, POLL_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [fetchData])
+
+  const setLoading = (jobId: number, val: boolean) =>
+    setActionLoading(prev => ({ ...prev, [jobId]: val }))
+
+  const handleAction = async (jobId: number, action: 'start' | 'pause' | 'resume' | 'stop' | 'end') => {
+    if (action === 'end') {
+      setEndModalJobId(jobId)
+      return
+    }
+    setLoading(jobId, true)
+    try {
+      if (action === 'start') await timerApi.start(jobId)
+      else if (action === 'pause') await timerApi.pause(jobId)
+      else if (action === 'resume') await timerApi.resume(jobId)
+      else if (action === 'stop') await timerApi.stop(jobId)
+      fetchData()
+    } catch (e: any) {
+      alert(e?.response?.data?.detail ?? `Failed to ${action} job`)
+    } finally {
+      setLoading(jobId, false)
+    }
+  }
+
+  const handleEndConfirm = async (employeeIds: number[], machineIds: number[]) => {
+    if (!endModalJobId) return
+    setLoading(endModalJobId, true)
+    try {
+      await timerApi.end(endModalJobId, { employee_ids: employeeIds, machine_ids: machineIds })
+      setEndModalJobId(null)
+      fetchData()
+    } finally {
+      setLoading(endModalJobId, false)
+    }
+  }
 
   const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   const dateStr = `${DAYS[now.getDay()]}, ${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`
-  const weekNo  = getWeekNumber(now)
+  const weekNo = getWeekNumber(now)
 
-  if (isLoading) return <div className="flex items-center gap-2 text-gray-500 mt-10 justify-center"><Loader2 className="animate-spin" size={20}/>Loading dashboard...</div>
-  if (isError)   return <div className="flex items-center gap-2 text-red-500 mt-10 justify-center"><AlertCircle size={20}/>Failed to load dashboard.</div>
+  if (loadingData) return (
+    <div className="flex items-center gap-2 text-gray-500 mt-10 justify-center">
+      <Loader2 className="animate-spin" size={20} />Loading dashboard...
+    </div>
+  )
+  if (dataError) return (
+    <div className="flex items-center gap-2 text-red-500 mt-10 justify-center">
+      <AlertCircle size={20} />Failed to load dashboard.
+    </div>
+  )
+
+  const jobs = data?.jobs ?? []
+  const activeJobs = jobs.filter(j => j.timer_status === 'running')
+  const conflictJobs = jobs.filter(j => j.has_conflict)
+  const pendingJobs = jobs.filter(j => j.timer_status === 'idle' && j.status !== 'Completed' && j.status !== 'Stopped')
+  const doneJobs = jobs.filter(j => j.status === 'Completed' || j.status === 'Stopped')
+
+  const endModalJob = endModalJobId ? jobs.find(j => j.id === endModalJobId) : null
 
   const cards = [
-    { label:'Active Jobs',         value:data!.total_active_jobs,   icon:BriefcaseBusiness, colour:'text-blue-600',   bg:'bg-blue-50'   },
-    { label:'Available Machines',  value:data!.available_machines,  icon:Factory,           colour:'text-green-600',  bg:'bg-green-50'  },
-    { label:'Available Employees', value:data!.available_employees, icon:Users,             colour:'text-purple-600', bg:'bg-purple-50' },
+    { label: 'Active Jobs', value: data!.total_active_jobs, icon: BriefcaseBusiness, colour: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Available Machines', value: data!.available_machines, icon: Factory, colour: 'text-green-600', bg: 'bg-green-50' },
+    { label: 'Available Employees', value: data!.available_employees, icon: Users, colour: 'text-purple-600', bg: 'bg-purple-50' },
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-xl font-bold text-gray-800">Dashboard</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Live overview of jobs, machines and employees.</p>
+          <p className="text-sm text-gray-500 mt-0.5">Live job board — auto-refreshes every 30s</p>
         </div>
-        {/* Live date / time / week panel */}
         <div className="bg-white border border-gray-200 rounded-xl px-5 py-3 flex items-center gap-5 text-sm shadow-sm">
           <div className="flex items-center gap-2 text-gray-700">
-            <Clock size={15} className="text-blue-500"/>
+            <Clock size={15} className="text-blue-500" />
             <span className="font-mono font-bold text-lg tracking-widest">{timeStr}</span>
           </div>
-          <div className="w-px h-8 bg-gray-200"/>
+          <div className="w-px h-8 bg-gray-200" />
           <div className="flex items-center gap-2 text-gray-700">
-            <CalendarDays size={15} className="text-blue-500"/>
+            <CalendarDays size={15} className="text-blue-500" />
             <div>
               <p className="font-semibold text-gray-800">{dateStr}</p>
-              <p className="text-xs text-gray-400">Week {weekNo} &bull; {now.getFullYear()}</p>
+              <p className="text-xs text-gray-400">Week {weekNo} · {now.getFullYear()}</p>
             </div>
           </div>
         </div>
@@ -90,9 +437,9 @@ export default function Dashboard() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {cards.map(({ label, value, icon:Icon, colour, bg }) => (
+        {cards.map(({ label, value, icon: Icon, colour, bg }) => (
           <div key={label} className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
-            <div className={`${bg} p-3 rounded-lg`}><Icon className={colour} size={22}/></div>
+            <div className={`${bg} p-3 rounded-lg`}><Icon className={colour} size={22} /></div>
             <div>
               <p className="text-2xl font-bold text-gray-800">{value}</p>
               <p className="text-sm text-gray-500">{label}</p>
@@ -101,45 +448,92 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Jobs by status */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 className="font-semibold text-gray-700 mb-3">Jobs by Status</h3>
-        <div className="flex flex-wrap gap-2">
-          {Object.entries(data!.jobs_by_status).map(([status, count]) => (
-            <span key={status} className={`px-3 py-1 rounded-full text-xs font-medium ${statusColour[status] ?? 'bg-gray-100 text-gray-600'}`}>
-              {status}: {count}
-            </span>
-          ))}
-        </div>
+      {/* Legend */}
+      <div className="flex items-center gap-5 text-xs text-gray-500 bg-white border border-gray-100 rounded-xl px-4 py-2.5 flex-wrap">
+        <span className="font-medium text-gray-400 uppercase tracking-wide text-xs">Legend</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse inline-block" />Ready to start</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />Has conflict</span>
+        <span className="flex items-center gap-1.5">
+          <svg viewBox="0 0 16 16" className="w-3.5 h-3.5"><path d="M3 2l10 6-10 6V2z" fill="#16a34a" /></svg>In progress
+        </span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" />Completed</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-gray-900 inline-block" />Stopped early</span>
       </div>
 
-      {/* Upcoming jobs */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 className="font-semibold text-gray-700 mb-3">Upcoming Jobs This Week</h3>
-        {data!.upcoming_jobs_this_week.length === 0
-          ? <p className="text-sm text-gray-400">No jobs starting in the next 7 days.</p>
-          : <table className="w-full text-sm">
-              <thead><tr className="text-left text-gray-500 border-b border-gray-100">
-                <th className="pb-2 font-medium">Job Name</th>
-                <th className="pb-2 font-medium">Dates</th>
-                <th className="pb-2 font-medium">Priority</th>
-                <th className="pb-2 font-medium">Status</th>
-                <th className="pb-2 font-medium text-right">Profit (₹)</th>
-              </tr></thead>
-              <tbody>
-                {data!.upcoming_jobs_this_week.map(job => (
-                  <tr key={job.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-2 font-medium text-gray-800">{job.name}</td>
-                    <td className="py-2 text-gray-500 text-xs">{job.start_date} → {job.end_date}</td>
-                    <td className="py-2"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${priorityColour[job.priority]??''}`}>{job.priority}</span></td>
-                    <td className="py-2"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColour[job.status]??''}`}>{job.status}</span></td>
-                    <td className="py-2 text-right text-gray-700">{job.tentative_profit != null ? `₹${job.tentative_profit.toLocaleString('en-IN')}` : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-        }
-      </div>
+      {/* Running jobs */}
+      {activeJobs.length > 0 && (
+        <section>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            Running ({activeJobs.length})
+          </h3>
+          <div className="space-y-2">
+            {activeJobs.map(j => (
+              <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Conflict jobs */}
+      {conflictJobs.length > 0 && (
+        <section>
+          <h3 className="text-sm font-semibold text-red-600 mb-2 flex items-center gap-2">
+            <AlertCircle size={14} />
+            Needs Attention — Conflicts ({conflictJobs.length})
+          </h3>
+          <div className="space-y-2">
+            {conflictJobs.map(j => (
+              <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Pending (idle, no conflict) */}
+      {pendingJobs.filter(j => !j.has_conflict).length > 0 && (
+        <section>
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">
+            Ready to Start ({pendingJobs.filter(j => !j.has_conflict).length})
+          </h3>
+          <div className="space-y-2">
+            {pendingJobs.filter(j => !j.has_conflict).map(j => (
+              <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Completed / Stopped */}
+      {doneJobs.length > 0 && (
+        <section>
+          <h3 className="text-sm font-semibold text-gray-500 mb-2">
+            Completed / Stopped ({doneJobs.length})
+          </h3>
+          <div className="space-y-2">
+            {doneJobs.map(j => (
+              <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {jobs.length === 0 && (
+        <div className="text-center py-16 text-gray-400">
+          <BriefcaseBusiness size={32} className="mx-auto mb-2 opacity-30" />
+          <p className="text-sm">No jobs yet. Create your first job to get started.</p>
+        </div>
+      )}
+
+      {/* End Job Modal */}
+      {endModalJobId && endModalJob && (
+        <EndJobModal
+          jobId={endModalJobId}
+          jobName={endModalJob.name}
+          onConfirm={handleEndConfirm}
+          onClose={() => setEndModalJobId(null)}
+        />
+      )}
     </div>
   )
 }

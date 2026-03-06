@@ -1,5 +1,6 @@
 """
-app/main.py — V1.1
+app/main.py — V2.0
+Added: timer router (/api/timer), gantt router (/api/gantt)
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,7 @@ from app.config import settings
 from app.routers import (
     auth, assignments, availability, dashboard,
     employees, import_csv, jobs, machines, skills,
+    timer, gantt,                                   # V2.0 NEW
 )
 
 app = FastAPI(
@@ -25,9 +27,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/health", tags=["health"])
 def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
+
 
 app.include_router(auth.router)
 app.include_router(assignments.router,  prefix="/api/assignments",  tags=["assignments"])
@@ -38,3 +42,5 @@ app.include_router(import_csv.router,   prefix="/api/import",       tags=["impor
 app.include_router(jobs.router,         prefix="/api/jobs",         tags=["jobs"])
 app.include_router(machines.router,     prefix="/api/machines",     tags=["machines"])
 app.include_router(skills.router,       prefix="/api/skills",       tags=["skills"])
+app.include_router(timer.router,        prefix="/api/timer",        tags=["timer"])   # V2.0
+app.include_router(gantt.router,        prefix="/api/gantt",        tags=["gantt"])   # V2.0

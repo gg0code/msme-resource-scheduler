@@ -1,15 +1,15 @@
-// src/App.tsx — V1.1
+// src/App.tsx — V2.0
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
 import { ProtectedRoute } from './auth/ProtectedRoute'
 import Layout from './components/Layout'
 
-// Auth pages (new)
+// Auth pages
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 
-// Existing pages (unchanged)
+// App pages
 import Dashboard from './pages/Dashboard'
 import Skills from './pages/Skills'
 import Employees from './pages/Employees'
@@ -17,6 +17,7 @@ import Machines from './pages/Machines'
 import Jobs from './pages/Jobs'
 import Availability from './pages/Availability'
 import Checker from './pages/Checker'
+import GanttPage from './pages/GanttPage'   // V2.0
 
 export default function App() {
   return (
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="machines"     element={<Machines />} />
             <Route path="availability" element={<Availability />} />
             <Route path="checker"      element={<Checker />} />
+            <Route path="gantt"        element={<GanttPage />} />   {/* V2.0 */}
 
             {/* Skills — proprietor only */}
             <Route element={<ProtectedRoute roles={['proprietor']} />}>
