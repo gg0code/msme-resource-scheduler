@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import {
   Play, Pause, RotateCcw, Square, CheckCircle2,
-  AlertCircle, Loader2, Clock, CalendarDays,
+  AlertCircle, Loader2, Clock, CalendarDays, Zap,
   BriefcaseBusiness, Factory, Users, ChevronDown, ChevronUp,
   TrendingUp, TrendingDown,
 } from 'lucide-react'
@@ -475,6 +475,38 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+
+      {/* Smart Alerts */}
+      {(() => {
+        const delayed   = jobs.filter(j => j.status !== 'Completed' && j.status !== 'Stopped' && j.has_conflict)
+        const notStarted = jobs.filter(j => j.status === 'Scheduled' || j.status === 'Draft')
+        const running   = jobs.filter(j => j.timer_status === 'running')
+        const allAlerts: { type: 'error'|'warning'|'info'; msg: string }[] = []
+        if (delayed.length)    allAlerts.push({ type: 'error',   msg: `${delayed.length} job${delayed.length > 1 ? 's' : ''} ${delayed.length > 1 ? 'have' : 'has'} conflicts: ${delayed.slice(0,2).map(j=>j.name).join(', ')}${delayed.length > 2 ? ` +${delayed.length-2} more` : ''}` })
+        if (notStarted.length) allAlerts.push({ type: 'warning', msg: `${notStarted.length} job${notStarted.length > 1 ? 's' : ''} not yet started: ${notStarted.slice(0,2).map(j=>j.name).join(', ')}${notStarted.length > 2 ? ` +${notStarted.length-2} more` : ''}` })
+        if (running.length === 0 && jobs.length > 0) allAlerts.push({ type: 'warning', msg: 'No jobs currently running — shop floor is idle' })
+        if (allAlerts.length === 0) allAlerts.push({ type: 'info', msg: 'All clear — no alerts today 🎉' })
+        return (
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+            <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+              <Zap size={14} className="text-amber-500" />
+              <span className="text-sm font-semibold text-gray-700">Smart Alerts</span>
+              <span className="ml-auto text-[10px] text-gray-400 uppercase tracking-wide">Today</span>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {allAlerts.map((a, i) => (
+                <div key={i} className={`flex items-start gap-3 px-4 py-2.5 ${a.type === 'error' ? 'bg-red-50' : a.type === 'warning' ? 'bg-amber-50' : 'bg-green-50'}`}>
+                  <span className="mt-0.5 shrink-0">
+                    {a.type === 'error' ? '🔴' : a.type === 'warning' ? '🟡' : '✅'}
+                  </span>
+                  <p className={`text-xs leading-relaxed ${a.type === 'error' ? 'text-red-700' : a.type === 'warning' ? 'text-amber-700' : 'text-green-700'}`}>{a.msg}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Legend */}
       <div className="flex items-center gap-5 text-xs text-gray-500 bg-white border border-gray-100 rounded-xl px-4 py-2.5 flex-wrap">

@@ -158,7 +158,6 @@ export default function Machines() {
       name: m.name, machine_type: m.machine_type ?? '', location_bay: m.location_bay ?? '',
       base_availability_pct: m.base_availability_pct, status: m.status,
       hourly_rate: m.hourly_rate != null ? String(m.hourly_rate) : '',
-      base_availability_pct: m.base_availability_pct, status: m.status,
       skill_requirements: m.skill_requirements.map(r => ({
         skill_id: r.skill_id, min_skill_level: r.min_skill_level, employees_required: r.employees_required,
       })),

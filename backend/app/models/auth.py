@@ -1,6 +1,6 @@
 """app/models/auth.py — Tenant, User, RefreshToken"""
 from datetime import datetime
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, text, Date
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -16,6 +16,10 @@ class Tenant(Base):
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=datetime.utcnow, nullable=False)
     users          = relationship("User", back_populates="tenant", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="tenant", cascade="all, delete-orphan")
+    ai_queries_today = Column(Integer, default=0, nullable=False, server_default='0')
+    ai_queries_date  = Column(Date, nullable=True)
+    ai_queries_limit = Column(Integer, default=50, nullable=False, server_default='50')
+    ai_tokens_today  = Column(Integer, default=0, nullable=False, server_default='0')
 
 
 class User(Base):

@@ -33,14 +33,14 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_monthly_revenue",
-            "description": "Get total order book value and revenue breakdown for a given month and year. Use this for questions about revenue, order value, income, earnings this month/week/year.",
+            "description": "Get total order book value and revenue breakdown for a given month and year. Use this for questions about revenue, order value, income, earnings this month/week/year. If month/year not specified, use current month/year.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "month": {"type": "integer", "description": "Month number 1-12"},
-                    "year":  {"type": "integer", "description": "4-digit year e.g. 2026"},
+                    "month": {"type": "integer", "description": "Month number 1-12. Default: current month."},
+                    "year":  {"type": "integer", "description": "4-digit year e.g. 2026. Default: current year."},
                 },
-                "required": ["month", "year"],
+                "required": [],
             },
         },
     },
@@ -48,14 +48,14 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_raw_material_cost",
-            "description": "Get total raw material cost across all jobs for a given month. Use for questions about raw material cost, material spend, RM cost.",
+            "description": "Get total raw material cost across all jobs for a given month. Use for questions about raw material cost, material spend, RM cost. If month/year not specified, use current month/year.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "month": {"type": "integer", "description": "Month number 1-12"},
-                    "year":  {"type": "integer", "description": "4-digit year e.g. 2026"},
+                    "month": {"type": "integer", "description": "Month number 1-12. Default: current month."},
+                    "year":  {"type": "integer", "description": "4-digit year e.g. 2026. Default: current year."},
                 },
-                "required": ["month", "year"],
+                "required": [],
             },
         },
     },
@@ -133,18 +133,42 @@ TOOLS = [
                 "required": [],
             },
         },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_employee_utilisation",
+            "description": "Get employee utilisation — how many jobs each employee is assigned to, which jobs they are on, and what happens if they are absent. Use for: most utilised employee, who is busiest, if employee X is absent which jobs are affected, top performer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "check_date": {
+                        "type": "string",
+                        "description": "Date to check in YYYY-MM-DD format. Defaults to today if not provided.",
+                    },
+                },
+                "required": [],
+            },
+        },
     },
 ]
 
 # ── Tool executor — runs the actual DB queries ────────────────────────────────
 def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
+    args  = args or {}
+
+    # Safely coerce month/year — Llama sometimes passes nested objects
+    def safe_int(val, default: int) -> int:
+        try:
+            return int(val) if val is not None and not isinstance(val, dict) else default
+        except (TypeError, ValueError):
+            return default
 
     today = date.today()
 
     # ── 1. Monthly Revenue ────────────────────────────────────────────────────
     if name == "get_monthly_revenue":
-        month = args.get("month", today.month)
-        year  = args.get("year",  today.year)
+        month = safe_int(args.get("month"), today.month)
+        year  = safe_int(args.get("year"),  today.year)
 
         jobs = db.query(Job).filter(
             Job.tenant_id == tenant_id,
@@ -167,8 +191,8 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
 
     # ── 2. Raw Material Cost ──────────────────────────────────────────────────
     elif name == "get_raw_material_cost":
-        month = args.get("month", today.month)
-        year  = args.get("year",  today.year)
+        month = safe_int(args.get("month"), today.month)
+        year  = safe_int(args.get("year"),  today.year)
 
         jobs = db.query(Job).filter(
             Job.tenant_id == tenant_id,
@@ -439,6 +463,60 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "mtd_revenue": round(mtd_revenue, 2),
         }
 
+    # ── 8. Employee Utilisation ───────────────────────────────────────────────
+    elif name == "get_employee_utilisation":
+        check_str  = args.get("check_date")
+        check_date = date.fromisoformat(check_str) if check_str and not isinstance(check_str, dict) else today
+
+        all_employees = db.query(Employee).filter(
+            Employee.tenant_id == tenant_id,
+            Employee.status == "Active",
+        ).all()
+
+        active_jobs = db.query(Job).filter(
+            Job.tenant_id == tenant_id,
+            Job.start_date <= check_date,
+            Job.end_date   >= check_date,
+            Job.status.in_(["In Progress", "Scheduled", "Draft"]),
+        ).all()
+
+        # Build employee -> jobs mapping
+        emp_job_map: dict = {}
+        for j in active_jobs:
+            for a in j.assignments:
+                if a.employee_id:
+                    if a.employee_id not in emp_job_map:
+                        emp_job_map[a.employee_id] = []
+                    emp_job_map[a.employee_id].append({
+                        "job_name": j.name,
+                        "customer": j.customer,
+                        "status":   j.status,
+                        "priority": j.priority,
+                        "end_date": str(j.end_date),
+                    })
+
+        utilisation = []
+        for e in all_employees:
+            jobs_assigned = emp_job_map.get(e.id, [])
+            utilisation.append({
+                "employee_name":   e.full_name,
+                "department":      e.department,
+                "employment_type": e.employment_type,
+                "jobs_count":      len(jobs_assigned),
+                "jobs":            jobs_assigned,
+            })
+
+        # Sort by jobs count descending
+        utilisation.sort(key=lambda x: x["jobs_count"], reverse=True)
+        most_utilised = utilisation[0] if utilisation else None
+
+        return {
+            "check_date":     str(check_date),
+            "utilisation":    utilisation,
+            "most_utilised":  most_utilised,
+            "total_active_jobs": len(active_jobs),
+        }
+
     return {"error": f"Unknown tool: {name}"}
 
 
@@ -452,11 +530,15 @@ You help the owner/scheduler by:
 
 Rules:
 - Always use tools to fetch real data — never guess numbers
+- When calling tools with month/year parameters, always pass plain integers (e.g. month=3, year=2026). Never pass objects or nested values.
+- If the user does not specify a month or year, do NOT pass those parameters — let the tool use its defaults
 - Format money as ₹X,XX,XXX (Indian number format)
 - Be conversational and friendly — like a smart assistant
 - Keep responses short and to the point
 - Today's date is available in the shop_floor_summary tool
 - If asked about something you can't answer with available tools, say so honestly
+- For "most utilised employee", "busiest employee", "if employee is absent" — always use get_employee_utilisation tool
+- NEVER refer to jobs by their database ID numbers. Always use job names from tool results
 
 You understand Hinglish — if the user writes in Hindi or Hinglish, respond in English but be warm and friendly."""
 
@@ -496,7 +578,7 @@ def run_ai_chat(
     # Execute all tool calls
     tool_results = []
     for tc in msg.tool_calls:
-        args   = json.loads(tc.function.arguments) or {}
+        args = json.loads(tc.function.arguments) if tc.function.arguments else {}
         result = execute_tool(tc.function.name, args, db, tenant_id)
         tool_results.append({
             "tool_call_id": tc.id,
