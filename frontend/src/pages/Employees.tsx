@@ -65,7 +65,7 @@ type SortKey = 'full_name' | 'base_availability_pct' | 'department' | 'hourly_ra
 function AssignmentRows({ employeeId }: { employeeId: number }) {
   const { data: assignments = [], isLoading, isError } = useQuery<Assignment[]>({
     queryKey: ['emp-assignments', employeeId],
-    queryFn: () => apiClient.get(`/assignments/employee/${employeeId}`).then(r => r.data),
+    queryFn: () => apiClient.get(`/api/assignments/employee/${employeeId}`).then(r => r.data),
   })
 
   if (isLoading) return (
@@ -148,10 +148,10 @@ export default function Employees() {
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
   const { data: employees = [], isLoading, isError } = useQuery<Employee[]>({
-    queryKey:['employees'], queryFn:() => apiClient.get('/employees/').then(r => r.data),
+    queryKey:['employees'], queryFn:() => apiClient.get('/api/employees/').then(r => r.data),
   })
   const { data: skills = [] } = useQuery<Skill[]>({
-    queryKey:['skills'], queryFn:() => apiClient.get('/skills/').then(r => r.data),
+    queryKey:['skills'], queryFn:() => apiClient.get('/api/skills/').then(r => r.data),
   })
   const { planLimits } = usePlanLimits()
 
@@ -186,15 +186,15 @@ export default function Employees() {
   }, [employees, skills, search, filterDept, filterStatus, filterAvail, sortKey, sortAsc])
 
   const createEmp = useMutation({
-    mutationFn: (p: object) => apiClient.post('/employees/', p),
+    mutationFn: (p: object) => apiClient.post('/api/employees/', p),
     onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); closeForm(); showToast('Employee added!') },
   })
   const updateEmp = useMutation({
-    mutationFn: ({id,payload}:{id:number;payload:object}) => apiClient.patch(`/employees/${id}`, payload),
+    mutationFn: ({id,payload}:{id:number;payload:object}) => apiClient.patch(`/api/employees/${id}`, payload),
     onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); closeForm(); showToast('Employee updated!') },
   })
   const deleteEmp = useMutation({
-    mutationFn: (id: number) => apiClient.delete(`/employees/${id}`),
+    mutationFn: (id: number) => apiClient.delete(`/api/employees/${id}`),
     onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); setDeleteId(null); showToast('Employee deleted!') },
   })
 

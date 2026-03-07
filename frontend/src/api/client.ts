@@ -7,7 +7,7 @@ import axios from 'axios'
 import { tokenStore } from '../auth/apiClient'
 
 const apiClient = axios.create({
-  baseURL: '/api',
+  baseURL: '/',
   headers: {
     'Content-Type': 'application/json',
   },

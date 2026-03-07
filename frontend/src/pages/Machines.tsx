@@ -43,7 +43,7 @@ const priorityColour: Record<string,string> = {
 function MachineAssignmentRows({ machineId }: { machineId: number }) {
   const { data: assignments = [], isLoading, isError } = useQuery<Assignment[]>({
     queryKey: ['machine-assignments', machineId],
-    queryFn: () => apiClient.get(`/assignments/machine/${machineId}`).then(r => r.data),
+    queryFn: () => apiClient.get(`/api/assignments/machine/${machineId}`).then(r => r.data),
   })
   if (isLoading) return (
     <div className="bg-green-50 px-5 py-3 border-t border-green-100">
@@ -118,10 +118,10 @@ export default function Machines() {
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
   const { data: machines = [], isLoading, isError } = useQuery<Machine[]>({
-    queryKey:['machines'], queryFn:() => apiClient.get('/machines/').then(r => r.data),
+    queryKey:['machines'], queryFn:() => apiClient.get('/api/machines/').then(r => r.data),
   })
   const { data: skills = [] } = useQuery<Skill[]>({
-    queryKey:['skills'], queryFn:() => apiClient.get('/skills/').then(r => r.data),
+    queryKey:['skills'], queryFn:() => apiClient.get('/api/skills/').then(r => r.data),
   })
   const { planLimits } = usePlanLimits()
   const types = useMemo(() => ['All', ...Array.from(new Set(machines.map(m => m.machine_type).filter(Boolean) as string[])).sort()], [machines])
@@ -139,15 +139,15 @@ export default function Machines() {
   }), [machines, search, filterType, filterBay, filterStatus, filterSkill])
 
   const createMachine = useMutation({
-    mutationFn: (p: object) => apiClient.post('/machines/', p),
+    mutationFn: (p: object) => apiClient.post('/api/machines/', p),
     onSuccess: () => { qc.invalidateQueries({queryKey:['machines']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); closeForm(); showToast('Machine added!') },
   })
   const updateMachine = useMutation({
-    mutationFn: ({id, payload}: {id:number; payload:object}) => apiClient.patch(`/machines/${id}`, payload),
+    mutationFn: ({id, payload}: {id:number; payload:object}) => apiClient.patch(`/api/machines/${id}`, payload),
     onSuccess: () => { qc.invalidateQueries({queryKey:['machines']}); closeForm(); showToast('Machine updated!') },
   })
   const deleteMachine = useMutation({
-    mutationFn: (id: number) => apiClient.delete(`/machines/${id}`),
+    mutationFn: (id: number) => apiClient.delete(`/api/machines/${id}`),
     onSuccess: () => { qc.invalidateQueries({queryKey:['machines']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); setDeleteId(null); showToast('Machine deleted!') },
   })
 

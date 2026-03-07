@@ -1,6 +1,6 @@
 """
-app/main.py — V2.0
-Added: timer router (/api/timer), gantt router (/api/gantt)
+app/main.py — V3.0
+Added: ai_chat router (/api/ai)
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +9,8 @@ from app.config import settings
 from app.routers import (
     auth, assignments, availability, dashboard,
     employees, import_csv, jobs, machines, skills,
-    timer, gantt,                                   # V2.0 NEW
+    timer, gantt,                                   # V2.0
+    ai_chat,                                        # V3.0
 )
 
 app = FastAPI(
@@ -42,5 +43,6 @@ app.include_router(import_csv.router,   prefix="/api/import",       tags=["impor
 app.include_router(jobs.router,         prefix="/api/jobs",         tags=["jobs"])
 app.include_router(machines.router,     prefix="/api/machines",     tags=["machines"])
 app.include_router(skills.router,       prefix="/api/skills",       tags=["skills"])
-app.include_router(timer.router,        prefix="/api/timer",        tags=["timer"])   # V2.0
-app.include_router(gantt.router,        prefix="/api/gantt",        tags=["gantt"])   # V2.0
+app.include_router(timer.router,        prefix="/api/timer",        tags=["timer"])     # V2.0
+app.include_router(gantt.router,        prefix="/api/gantt",        tags=["gantt"])     # V2.0
+app.include_router(ai_chat.router,      prefix="/api/ai",           tags=["ai"])        # V3.0

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     FREE_TIER_MAX_JOBS: int = 50
     APP_NAME: str = "MSME Resource Scheduler"
     APP_VERSION: str = "1.1.0"
+    GROQ_API_KEY: str = ""
+  
+ 
 
     @property
     def allowed_origins_list(self) -> list[str]:
@@ -34,6 +37,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 settings = Settings()

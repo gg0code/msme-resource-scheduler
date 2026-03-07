@@ -361,7 +361,7 @@ export default function Dashboard() {
 
   // Fetch dashboard data
   const fetchData = useCallback(() => {
-    apiClient.get('/dashboard/')
+    apiClient.get('/api/dashboard/')
       .then(r => { setData(r.data); setDataError(false) })
       .catch(() => setDataError(true))
       .finally(() => setLoadingData(false))

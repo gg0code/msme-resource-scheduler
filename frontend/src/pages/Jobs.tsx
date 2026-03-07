@@ -242,7 +242,7 @@ export default function Jobs() {
 
   // ── Queries ───────────────────────────────────────────
   const { data: jobs = [], isLoading, isError } = useQuery<Job[]>({
-    queryKey:['jobs'], queryFn:() => apiClient.get('/jobs/').then(r => r.data),
+    queryKey:['jobs'], queryFn:() => apiClient.get('/api/jobs/').then(r => r.data),
   })
   const { data: skills = [] } = useQuery<Skill[]>({
     queryKey:['skills'], queryFn:() => apiClient.get('/skills/').then(r => r.data),
