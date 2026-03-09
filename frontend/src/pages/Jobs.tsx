@@ -931,12 +931,21 @@ export default function Jobs() {
                       className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 flex items-center gap-2">
                       <Pencil size={11}/> Edit
                     </button>
-                    {['running','paused'].includes(job.timer_status) && (
-                      <button onClick={()=>{outageMut.mutate({id:job.id,action:'start'});setOpenMenu(null)}}
-                        className="w-full text-left px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 flex items-center gap-2">
-                        <AlertTriangle size={11}/> Log Outage
-                      </button>
-                    )}
+                    {['running','paused'].includes(job.timer_status) && (() => {
+                      const lastOutageEvent = [...(job.timer_log||[])].reverse().find(e => e.event === 'outage_start' || e.event === 'outage_end')
+                      const hasActiveOutage = lastOutageEvent?.event === 'outage_start'
+                      return hasActiveOutage ? (
+                        <button onClick={()=>{outageMut.mutate({id:job.id,action:'end'});setOpenMenu(null)}}
+                          className="w-full text-left px-3 py-1.5 text-xs text-green-700 hover:bg-green-50 flex items-center gap-2">
+                          <Check size={11}/> End Outage
+                        </button>
+                      ) : (
+                        <button onClick={()=>{outageMut.mutate({id:job.id,action:'start'});setOpenMenu(null)}}
+                          className="w-full text-left px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 flex items-center gap-2">
+                          <AlertTriangle size={11}/> Log Outage
+                        </button>
+                      )
+                    })()}
                     {job.status === 'Completed' && (
                       <button onClick={()=>{openPdfExport(job);setOpenMenu(null)}}
                         className="w-full text-left px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-50 flex items-center gap-2">
