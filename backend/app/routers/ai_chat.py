@@ -18,6 +18,11 @@ from app.core.dependencies import get_current_user
 from app.models.auth import User, Tenant
 from app.services.ai_service import run_ai_chat
 
+try:
+    from groq import RateLimitError as GroqRateLimitError
+except ImportError:
+    GroqRateLimitError = None  # type: ignore
+
 router = APIRouter()
 
 # ── Plan limits ───────────────────────────────────────────────────────────────
@@ -129,6 +134,18 @@ def ai_chat(
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
+        # Groq rate-limit (token quota exhausted) — show friendly message
+        err_str = str(e)
+        if GroqRateLimitError and isinstance(e, GroqRateLimitError):
+            raise HTTPException(
+                status_code=429,
+                detail="AI service is temporarily at capacity (Groq token limit reached). Please try again in ~30 minutes, or upgrade the Groq plan at console.groq.com."
+            )
+        if "rate_limit_exceeded" in err_str or "tokens per day" in err_str.lower():
+            raise HTTPException(
+                status_code=429,
+                detail="AI service is temporarily at capacity (daily token limit reached). Please try again in ~30 minutes."
+            )
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
 
