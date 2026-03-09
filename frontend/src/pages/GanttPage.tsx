@@ -260,13 +260,13 @@ export default function GanttPage() {
     const isAtRisk    = !isDelayed && !isConflict && !isComplete
                         && daysLeft <= 3 && daysLeft >= 0
                         && ['Draft', 'Scheduled'].includes(job.status ?? '')
+    const isSelected = selectedJob?.id === job.id
     const color     = isConflict ? '#7c3aed'
                     : isDelayed  ? '#ef4444'
                     : isAtRisk   ? '#f59e0b'
                     : colorMap[job.id]
     const strokeClr = isSelected ? '#1d4ed8' : isConflict ? '#6d28d9' : isDelayed ? '#dc2626' : isAtRisk ? '#d97706' : 'transparent'
     const textColor = '#ffffff'
-    const isSelected = selectedJob?.id === job.id
 
     return (
       <g key={job.id} onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)}
