@@ -7,7 +7,7 @@ Tools: revenue, raw_material_cost, delayed_jobs, machine_availability, employee_
 
 import json
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from groq import Groq
@@ -16,6 +16,31 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.job import Job, JobAssignment
 from app.models.employee import Employee
 from app.models.machine import Machine
+
+# ── Safe date parser ──────────────────────────────────────────────────────────
+def safe_date_parse(check_str: Any, fallback: date) -> date:
+    """Parse a date string robustly. Handles ISO format and relative terms."""
+    if not check_str or isinstance(check_str, dict):
+        return fallback
+    s = str(check_str).strip().lower()
+    today = date.today()
+    if s in ("today", "now", ""):
+        return today
+    if s in ("tomorrow", "next day"):
+        return today + timedelta(days=1)
+    if s == "yesterday":
+        return today - timedelta(days=1)
+    try:
+        return date.fromisoformat(check_str)
+    except (ValueError, TypeError):
+        return fallback
+
+def safe_days(d1: Any, d2: Any, default: int = 0) -> int:
+    """Safely compute (d1 - d2).days, returning default on any error."""
+    try:
+        return (d1 - d2).days
+    except Exception:
+        return default
 
 # ── Groq client ───────────────────────────────────────────────────────────────
 def get_groq_client() -> Groq:
@@ -359,7 +384,9 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         delayed = []
         at_risk = []
         for j in jobs:
-            days_to_end = (j.end_date - today).days
+            if not j.end_date:
+                continue
+            days_to_end = safe_days(j.end_date, today)
             if days_to_end < 0:
                 delayed.append({
                     "name": j.name, "customer": j.customer,
@@ -382,7 +409,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
     # ── 4. Machine Availability ───────────────────────────────────────────────
     elif name == "get_machine_availability":
         check_str  = args.get("check_date")
-        check_date = date.fromisoformat(check_str) if check_str else today
+        check_date = safe_date_parse(check_str, today)
 
         all_machines = db.query(Machine).filter(
             Machine.tenant_id == tenant_id,
@@ -426,7 +453,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
     # ── 5. Employee Availability ──────────────────────────────────────────────
     elif name == "get_employee_availability":
         check_str  = args.get("check_date")
-        check_date = date.fromisoformat(check_str) if check_str else today
+        check_date = safe_date_parse(check_str, today)
 
         all_employees = db.query(Employee).filter(
             Employee.tenant_id == tenant_id,
@@ -559,8 +586,10 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
 
         results = []
         for job in all_jobs:
+            if not job.start_date or not job.end_date:
+                continue
             duration_days = max((job.end_date - job.start_date).days + 1, 1)
-            total_hours   = duration_days * job.estimated_hours_per_day
+            total_hours   = duration_days * (job.estimated_hours_per_day or 0)
 
             emp_cost = sum(
                 (a.employee.hourly_rate or 0) * total_hours
@@ -635,8 +664,8 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         completed = [j for j in all_jobs if j.status == "Completed"]
 
         # Delayed
-        delayed = [j for j in all_jobs if j.status not in ["Completed", "Cancelled"] and j.end_date < today]
-        at_risk = [j for j in all_jobs if j.status in ["Draft","Scheduled"] and (j.end_date - today).days <= 5]
+        delayed = [j for j in all_jobs if j.end_date and j.status not in ["Completed", "Cancelled"] and j.end_date < today]
+        at_risk = [j for j in all_jobs if j.end_date and j.status in ["Draft","Scheduled"] and safe_days(j.end_date, today) <= 5]
 
         # Machine + employee availability
         busy_machine_ids = set()
@@ -680,7 +709,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
     # ── 8. Employee Utilisation ───────────────────────────────────────────────
     elif name == "get_employee_utilisation":
         check_str  = args.get("check_date")
-        check_date = date.fromisoformat(check_str) if check_str and not isinstance(check_str, dict) else today
+        check_date = safe_date_parse(check_str, today)
 
         all_employees = db.query(Employee).filter(
             Employee.tenant_id == tenant_id,
@@ -749,8 +778,10 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         total_emp = total_mac = total_rm = total_misc = total_ov = 0.0
         job_details = []
         for j in jobs:
+            if not j.start_date or not j.end_date:
+                continue
             dur   = max((j.end_date - j.start_date).days + 1, 1)
-            hrs   = dur * j.estimated_hours_per_day
+            hrs   = dur * (j.estimated_hours_per_day or 0)
             ec    = sum((a.employee.hourly_rate or 0)*hrs for a in j.assignments if a.employee)
             mc    = sum((a.machine.hourly_rate  or 0)*hrs for a in j.assignments if a.machine)
             rc    = sum(rm.get("total_cost") or (rm.get("quantity",0)*rm.get("unit_cost",0)) for rm in (j.raw_materials or []))
@@ -813,16 +844,16 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
 
         elif mode == "not_started":
             data = [{"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
-                "should_have_started":str(j.start_date),"days_late":(today-j.start_date).days}
-                for j in all_jobs if j.start_date < today and j.status in ["Draft","Scheduled"]]
+                "should_have_started":str(j.start_date),"days_late":safe_days(today,j.start_date)}
+                for j in all_jobs if j.start_date and j.start_date < today and j.status in ["Draft","Scheduled"]]
             data.sort(key=lambda x:x["days_late"],reverse=True)
             return {"mode":"not_started","count":len(data),"jobs":data}
 
         elif mode == "due_this_week":
             week_end = today + dt.timedelta(days=7)
             data = [{"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
-                "end_date":str(j.end_date),"days_remaining":(j.end_date-today).days}
-                for j in all_jobs if today<=j.end_date<=week_end]
+                "end_date":str(j.end_date),"days_remaining":safe_days(j.end_date,today)}
+                for j in all_jobs if j.end_date and today<=j.end_date<=week_end]
             data.sort(key=lambda x:x["days_remaining"])
             return {"mode":"due_this_week","count":len(data),"jobs":data}
 
@@ -831,7 +862,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             nwe = nws + dt.timedelta(days=6)
             data = [{"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
                 "start_date":str(j.start_date),"end_date":str(j.end_date)}
-                for j in all_jobs if nws<=j.start_date<=nwe]
+                for j in all_jobs if j.start_date and nws<=j.start_date<=nwe]
             data.sort(key=lambda x:x["start_date"])
             return {"mode":"starting_next_week","week":f"{nws}→{nwe}","count":len(data),"jobs":data}
 
@@ -841,7 +872,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             day_counts = {}
             d = ms
             while d <= me:
-                day_counts[str(d)] = sum(1 for j in all_jobs if j.start_date<=d<=j.end_date)
+                day_counts[str(d)] = sum(1 for j in all_jobs if j.start_date and j.end_date and j.start_date<=d<=j.end_date)
                 d += dt.timedelta(days=1)
             sorted_days = sorted(day_counts.items(),key=lambda x:x[1],reverse=True)
             return {"mode":"busiest_day","busiest_day":sorted_days[0][0] if sorted_days else None,
@@ -850,8 +881,8 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         elif mode == "critical_status":
             data = [{"name":j.name,"customer":j.customer,"status":j.status,
                 "start_date":str(j.start_date),"end_date":str(j.end_date),
-                "not_started":j.status in ["Draft","Scheduled"] and j.start_date<=today,
-                "overdue":j.end_date<today} for j in all_jobs if j.priority=="Critical"]
+                "not_started":j.status in ["Draft","Scheduled"] and bool(j.start_date) and j.start_date<=today,
+                "overdue":bool(j.end_date) and j.end_date<today} for j in all_jobs if j.priority=="Critical"]
             return {"mode":"critical_status","total_critical":len(data),
                 "not_started":[c for c in data if c["not_started"]],
                 "overdue":[c for c in data if c["overdue"]],
@@ -860,9 +891,9 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         elif mode == "ending_soon":
             cutoff = today + dt.timedelta(days=days_ahead)
             data = [{"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
-                "end_date":str(j.end_date),"days_remaining":(j.end_date-today).days,
+                "end_date":str(j.end_date),"days_remaining":safe_days(j.end_date,today),
                 "has_assignments":len(j.assignments)>0}
-                for j in all_jobs if today<=j.end_date<=cutoff]
+                for j in all_jobs if j.end_date and today<=j.end_date<=cutoff]
             data.sort(key=lambda x:x["days_remaining"])
             return {"mode":"ending_soon","days_ahead":days_ahead,"count":len(data),"jobs":data}
 
@@ -875,7 +906,9 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             Job.status.notin_(["Completed","Cancelled"])).all()
         overdue=[];crit_ns=[];unassigned=[];no_rm=[];ending=[];low_mg=[]
         for j in all_jobs:
-            dl = (j.end_date-today).days
+            if not j.end_date:
+                continue
+            dl = safe_days(j.end_date, today)
             if j.end_date < today:
                 overdue.append({"name":j.name,"priority":j.priority,"status":j.status,
                     "overdue_days":(today-j.end_date).days,"customer":j.customer})
@@ -889,9 +922,9 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             if 0<=dl<=3:
                 ending.append({"name":j.name,"priority":j.priority,"status":j.status,
                     "end_date":str(j.end_date),"days_remaining":dl})
-            if j.order_value:
+            if j.order_value and j.start_date and j.end_date:
                 dur = max((j.end_date-j.start_date).days+1,1)
-                hrs = dur*j.estimated_hours_per_day
+                hrs = dur*(j.estimated_hours_per_day or 0)
                 ec = sum((a.employee.hourly_rate or 0)*hrs for a in j.assignments if a.employee)
                 mc = sum((a.machine.hourly_rate  or 0)*hrs for a in j.assignments if a.machine)
                 rc = sum(rm.get("total_cost") or (rm.get("quantity",0)*rm.get("unit_cost",0)) for rm in (j.raw_materials or []))
@@ -1039,7 +1072,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
                 Job.start_date>=nws,Job.start_date<=nwe,
                 Job.status.notin_(["Completed","Cancelled"])).all()
             jl=[{"name":j.name,"customer":j.customer,"status":j.status,"priority":j.priority,
-                "start_date":str(j.start_date),"end_date":str(j.end_date),
+                "start_date":str(j.start_date),"end_date":str(j.end_date) if j.end_date else None,
                 "has_assignments":len(j.assignments)>0,"order_value":j.order_value or 0} for j in all_jobs]
             jl.sort(key=lambda x:x["start_date"])
             return {"mode":"starting_next_week","week":f"{nws}→{nwe}","count":len(all_jobs),"jobs":jl}
@@ -1053,8 +1086,8 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             Job.status.notin_(["Completed","Cancelled"])).all()
         results=[]
         for j in active:
-            if not j.order_value: continue
-            dur=max((j.end_date-j.start_date).days+1,1); hrs=dur*j.estimated_hours_per_day
+            if not j.order_value or not j.start_date or not j.end_date: continue
+            dur=max((j.end_date-j.start_date).days+1,1); hrs=dur*(j.estimated_hours_per_day or 0)
             ec=sum((a.employee.hourly_rate or 0)*hrs for a in j.assignments if a.employee)
             mc=sum((a.machine.hourly_rate  or 0)*hrs for a in j.assignments if a.machine)
             rc=sum(rm.get("total_cost") or (rm.get("quantity",0)*rm.get("unit_cost",0)) for rm in (j.raw_materials or []))
@@ -1080,12 +1113,21 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
 
 
 # ── System prompt ─────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are an AI Copilot for MSME Resource Scheduler — a production management app used by Indian manufacturing shops.
+_SYSTEM_PROMPT_BASE = """You are an AI Copilot for MSME Resource Scheduler — a production management app used by Indian manufacturing shops.
 
 You help the owner/scheduler by:
 1. Answering questions about jobs, employees, machines, costs, revenue
 2. Fetching real data using the tools available to you
 3. Giving clear, concise answers with ₹ (Indian Rupees) for money
+
+DATE CONTEXT (IMPORTANT — always use these exact dates):
+- Today:     {today}  (YYYY-MM-DD)
+- Tomorrow:  {tomorrow}  (YYYY-MM-DD)
+- Yesterday: {yesterday}  (YYYY-MM-DD)
+- When user says "today" → check_date={today}
+- When user says "tomorrow" → check_date={tomorrow}
+- When user says "yesterday" → check_date={yesterday}
+- Always pass check_date as a YYYY-MM-DD string, never as a word like "tomorrow"
 
 Rules:
 - Always use tools to fetch real data — never guess numbers
@@ -1121,11 +1163,20 @@ TOOL ROUTING — always pick the most specific tool:
 - "revenue this month", "order book value this month"              → get_monthly_revenue
 - "raw material cost breakdown by job"                             → get_raw_material_cost
 - "delayed jobs", "overdue", "at risk"                             → get_delayed_jobs
-- "who is free today/tomorrow"                                     → get_employee_availability
+- "who is free today/tomorrow", "who is available"                 → get_employee_availability
 - "free / busy machines today"                                     → get_machine_availability
 - "shop floor summary", "today summary"                            → get_shop_floor_summary
 
 You understand Hinglish — if the user writes in Hindi or Hinglish, respond in English but be warm and friendly."""
+
+
+def _build_system_prompt() -> str:
+    today = date.today()
+    return _SYSTEM_PROMPT_BASE.format(
+        today=str(today),
+        tomorrow=str(today + timedelta(days=1)),
+        yesterday=str(today - timedelta(days=1)),
+    )
 
 
 # ── Main chat function ────────────────────────────────────────────────────────
@@ -1141,8 +1192,8 @@ def run_ai_chat(
     """
     client = get_groq_client()
 
-    # Add system prompt
-    full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+    # Add dynamic system prompt (includes today's date)
+    full_messages = [{"role": "system", "content": _build_system_prompt()}] + messages
 
     # First call — let Llama decide which tool to call
     response = client.chat.completions.create(
@@ -1173,7 +1224,8 @@ def run_ai_chat(
         })
 
     # Second call — Llama formats the tool results into a human response
-    full_messages.append({"role": "assistant", "content": msg.content, "tool_calls": msg.tool_calls})
+    # msg.content may be None when tool_calls are present — use "" to avoid Groq validation error
+    full_messages.append({"role": "assistant", "content": msg.content or "", "tool_calls": msg.tool_calls})
     full_messages.extend(tool_results)
 
     final_response = client.chat.completions.create(

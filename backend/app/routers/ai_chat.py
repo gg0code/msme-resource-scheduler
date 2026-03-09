@@ -92,8 +92,12 @@ def ai_chat(
 
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
 
-    if request.page_context and messages and messages[0]["role"] == "user":
-        messages[0]["content"] = f"[User is on {request.page_context.upper()} page]\n{messages[0]['content']}"
+    # Inject page context into the last user message (the current question)
+    if request.page_context and messages:
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i]["role"] == "user":
+                messages[i]["content"] = f"[User is on {request.page_context.upper()} page]\n{messages[i]['content']}"
+                break
 
     try:
         reply = run_ai_chat(
