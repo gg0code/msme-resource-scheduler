@@ -6,6 +6,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
+import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
 import { Plus, Loader2, AlertCircle, CheckCircle } from 'lucide-react'
 
@@ -51,12 +52,14 @@ export default function Skills() {
         </div>
         <div className="flex items-center gap-2">
           <CsvImport resource="skills" onSuccess={() => qc.invalidateQueries({queryKey:['skills']})}/>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg transition-colors"
-          >
-            <Plus size={16} /> Add Skill
-          </button>
+          <CoachMark id="skills-create" title="Define your skills" description="Skills link jobs to the right workers. Generic roles like Helper and Supervisor are pre-loaded." position="bottom" step={1} totalSteps={2}>
+            <button
+              onClick={() => setShowForm(!showForm)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg transition-colors"
+            >
+              <Plus size={16} /> Add Skill
+            </button>
+          </CoachMark>
         </div>
       </div>
 

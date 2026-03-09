@@ -13,6 +13,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
+import { CoachMark } from '../components/onboarding'
 import {
   Plus, Pencil, Trash2, Loader2, AlertCircle, CalendarDays, IndianRupee,
   X, Check, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp,
@@ -541,7 +542,7 @@ export default function Jobs() {
   function closeWizard() { setWizardOpen(false); setWizardStep(1) }
 
   async function wizardCheckAvail() {
-    if (skillReqs.length === 0) return
+    if (skillReqs.length === 0) { setWizardCheck(null); return }
     setWizardChecking(true); setWizardCheck(null)
     try {
       const empData = await apiClient.get('/api/employees/').then(r => r.data) as (Employee & { skills:{skill_id:number;skill_level:string}[] })[]
@@ -558,6 +559,13 @@ export default function Jobs() {
     } catch(_) {}
     finally { setWizardChecking(false) }
   }
+
+  // Auto-check availability whenever skill requirements change (e.g. machine selected)
+  useEffect(() => {
+    if (!wizardOpen || wizardStep !== 2) return
+    const timer = setTimeout(() => { wizardCheckAvail() }, 400)
+    return () => clearTimeout(timer)
+  }, [skillReqs, wizardOpen, wizardStep])
 
   function submitWizard() {
     const isLocked = details.start_mode !== 'flexible'
@@ -694,21 +702,39 @@ export default function Jobs() {
       <>
         <tr
           onClick={() => setExpandedRow(isExpanded ? null : job.id)}
-          className={`cursor-pointer group border-b border-gray-100 transition-colors
-            ${isExpanded ? 'bg-blue-50/40' : 'hover:bg-gray-50/80'}
-            ${job.has_conflict ? 'border-l-[3px] border-l-red-400' : 'border-l-[3px] border-l-transparent'}
+          className={`cursor-pointer group border-b transition-colors
+            ${job.has_conflict
+              ? isExpanded
+                ? 'bg-red-50 border-b-red-200 outline outline-1 outline-red-300'
+                : 'bg-red-50/80 hover:bg-red-100/60 border-b-red-100 outline outline-1 outline-dashed outline-red-300'
+              : isExpanded
+                ? 'bg-blue-50/40 border-b-gray-100'
+                : 'hover:bg-gray-50 border-b-gray-100'
+            }
           `}
         >
-          {/* Chevron */}
-          <td className="pl-3 pr-1 py-3 w-6 text-gray-300">
-            <ChevronRight size={13} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90 text-blue-400' : 'group-hover:text-gray-400'}`}/>
+          {/* Chevron — visible, colour on hover/expanded */}
+          <td className="pl-3 pr-1 py-3 w-6">
+            <div className={`w-5 h-5 rounded flex items-center justify-center transition-all ${
+              isExpanded ? 'bg-blue-100 text-blue-600' : 'text-gray-400 group-hover:bg-gray-100 group-hover:text-gray-600'
+            }`}>
+              <ChevronRight size={13} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}/>
+            </div>
           </td>
 
-          {/* Job name + customer + one-liner */}
+          {/* Job name + customer + priority + status + one-liner */}
           <td className="px-3 py-3">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-mono text-xs text-gray-300 shrink-0">{displayId}</span>
               <span className="text-sm font-semibold text-gray-800">{job.name}</span>
+              {/* Priority inline */}
+              <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${priorityColour[job.priority]??''}`}>
+                {job.priority}
+              </span>
+              {/* Status inline */}
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_STYLE[job.status]??''}`}>
+                {job.status}
+              </span>
               {job.has_conflict && <ConflictBadge />}
               <AvailBadge result={result} loading={aLoading}/>
             </div>
@@ -716,27 +742,6 @@ export default function Jobs() {
             <div className="text-xs text-gray-400 mt-0.5 pl-[26px] font-mono tracking-tight">
               {summaryParts.join('  ·  ')}
             </div>
-          </td>
-
-          {/* Priority */}
-          <td className="px-3 py-3 w-24 whitespace-nowrap">
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${
-                job.priority==='Critical'?'bg-red-500':
-                job.priority==='High'?'bg-orange-400':
-                job.priority==='Medium'?'bg-yellow-400':'bg-gray-400'
-              }`}/>
-              <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${priorityColour[job.priority]??''}`}>
-                {job.priority}
-              </span>
-            </div>
-          </td>
-
-          {/* Status — full text badge */}
-          <td className="px-3 py-3 w-36">
-            <span className={`text-xs font-medium px-2 py-1 rounded-full border ${STATUS_STYLE[job.status]??''}`}>
-              {job.status}
-            </span>
           </td>
 
           {/* Timer — full text badge + pulse dot */}
@@ -757,51 +762,65 @@ export default function Jobs() {
             <div className="text-xs text-gray-400">→ {job.end_date} · {job.estimated_hours_per_day}h/d</div>
           </td>
 
-          {/* Actions — timer control buttons + ⋯ */}
-          <td className="px-3 py-3 w-44 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+          {/* Actions — compact icon buttons */}
+          <td className="px-2 py-3 w-36 whitespace-nowrap" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-1 justify-end">
+
+              {/* Lock / Unlock */}
+              <button
+                onClick={() => toggleLock.mutate({id:job.id, locked:job.is_locked})}
+                title={job.is_locked ? 'Unlock' : 'Lock'}
+                className={`w-7 h-7 flex items-center justify-center rounded-md border transition-colors ${
+                  job.is_locked
+                    ? 'bg-amber-50 border-amber-300 text-amber-600 hover:bg-amber-100'
+                    : 'border-gray-200 text-gray-300 hover:text-gray-500 hover:bg-gray-100'
+                }`}>
+                {job.is_locked ? <Lock size={12}/> : <Unlock size={12}/>}
+              </button>
+
               {!['Completed','Cancelled'].includes(job.status) && (
                 <>
-                  {/* ▶ Play — idle */}
+                  {/* ▶ Start — idle */}
                   {job.timer_status === 'idle' && (
                     <button
                       onClick={() => !job.has_conflict && timerMut.mutate({id:job.id,action:'start'})}
                       disabled={job.has_conflict}
                       title={job.has_conflict ? 'Resolve conflict to start' : 'Start'}
-                      className={`w-7 h-7 flex items-center justify-center rounded-md text-sm font-bold shadow-sm ${
+                      className={`w-7 h-7 flex items-center justify-center rounded-md border transition-colors ${
                         job.has_conflict
-                          ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                          : 'bg-green-600 hover:bg-green-700 text-white'
+                          ? 'border-gray-200 text-gray-300 cursor-not-allowed bg-gray-50'
+                          : 'bg-green-600 border-green-600 text-white hover:bg-green-700'
                       }`}>
-                      ▶
+                      <Play size={12}/>
                     </button>
                   )}
                   {/* ▶ Resume — paused */}
                   {job.timer_status === 'paused' && (
                     <button onClick={()=>timerMut.mutate({id:job.id,action:'resume'})}
                       title="Resume"
-                      className="w-7 h-7 flex items-center justify-center rounded-md bg-green-600 hover:bg-green-700 text-white text-sm font-bold shadow-sm">
-                      ▶
+                      className="w-7 h-7 flex items-center justify-center rounded-md bg-green-600 border border-green-600 text-white hover:bg-green-700">
+                      <Play size={12}/>
                     </button>
                   )}
                   {/* ⏸ Pause — running */}
                   {job.timer_status === 'running' && (
                     <button onClick={()=>timerMut.mutate({id:job.id,action:'pause'})}
                       title="Pause"
-                      className="w-7 h-7 flex items-center justify-center rounded-md bg-amber-500 hover:bg-amber-600 text-white text-base font-bold shadow-sm">
-                      ⏸
+                      className="w-7 h-7 flex items-center justify-center rounded-md bg-amber-500 border border-amber-500 text-white hover:bg-amber-600">
+                      <Pause size={12}/>
                     </button>
                   )}
-                  {/* ■ Stop — running or paused */}
+                  {/* ■ End — running or paused */}
                   {['running','paused'].includes(job.timer_status) && (
                     <button onClick={()=>timerMut.mutate({id:job.id,action:'end'})}
-                      title="Stop & End"
-                      className="w-7 h-7 flex items-center justify-center rounded-md bg-gray-700 hover:bg-gray-800 text-white text-base font-bold shadow-sm leading-none">
-                      ■
+                      title="End job"
+                      className="w-7 h-7 flex items-center justify-center rounded-md bg-gray-700 border border-gray-700 text-white hover:bg-gray-900">
+                      <Square size={12}/>
                     </button>
                   )}
                 </>
               )}
+
               {/* ⋯ menu */}
               <div className="relative">
                 <button
@@ -814,11 +833,7 @@ export default function Jobs() {
                 {openMenu === job.id && (
                   <div className="absolute right-0 top-8 z-50 bg-white border border-gray-200 rounded-lg shadow-xl py-1 min-w-[148px]"
                        onClick={e => e.stopPropagation()}>
-                    <button onClick={()=>{toggleLock.mutate({id:job.id, locked:job.is_locked});setOpenMenu(null)}}
-                      className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 flex items-center gap-2">
-                      {job.is_locked ? <><Lock size={11}/> Unlock</> : <><Unlock size={11}/> Lock</>}
-                    </button>
-                    {!['Completed','Cancelled'].includes(job.status) && (
+                    {!['Completed','Cancelled','In Progress'].includes(job.status) && job.timer_status === 'idle' && (
                       <button onClick={()=>{openAssign(job);setOpenMenu(null)}}
                         className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 flex items-center gap-2">
                         <ClipboardCheck size={11}/> Assign
@@ -843,7 +858,7 @@ export default function Jobs() {
         {/* ── Expanded detail row ── */}
         {isExpanded && (
           <tr key={`${job.id}-detail`}>
-            <td colSpan={7} className="bg-blue-50/40 border-b border-blue-100 px-6 py-4">
+            <td colSpan={5} className="bg-blue-50/40 border-b border-blue-100 px-6 py-4">
 
               {/* Cost summary bar */}
               <div className="flex items-stretch gap-0 bg-white rounded-xl border border-blue-100 mb-4 overflow-hidden divide-x divide-gray-100">
@@ -1030,21 +1045,25 @@ export default function Jobs() {
             <p className="text-xs text-gray-400 mt-0.5">Production job board</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={runAutoScheduler}
-              disabled={schedulerRunning || !scheduleDirty}
-              title={!scheduleDirty ? 'Already scheduled — create or edit a job to re-enable' : 'Re-schedule all UNLOCKED jobs by priority'}
-              className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg transition-colors shadow-sm ${
-                scheduleDirty
-                  ? 'bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              }`}>
-              {schedulerRunning ? <Loader2 className="animate-spin" size={14}/> : <Zap size={14}/>}
-              Auto-Schedule
-            </button>
-            <LimitedButton resource="jobs" planLimits={planLimits} onClick={openWizard}>
-              <Plus size={16}/> New Job
-            </LimitedButton>
+            <CoachMark id="jobs-autoschedule" title="Auto-Scheduler" description="Resolves date conflicts across all unlocked jobs automatically, sorted by priority." position="bottom" step={1} totalSteps={4}>
+              <button
+                onClick={runAutoScheduler}
+                disabled={schedulerRunning || !scheduleDirty}
+                title={!scheduleDirty ? 'Already scheduled — create or edit a job to re-enable' : 'Re-schedule all UNLOCKED jobs by priority'}
+                className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg transition-colors shadow-sm ${
+                  scheduleDirty
+                    ? 'bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}>
+                {schedulerRunning ? <Loader2 className="animate-spin" size={14}/> : <Zap size={14}/>}
+                Auto-Schedule
+              </button>
+            </CoachMark>
+            <CoachMark id="jobs-new" title="Create your first job" description="Pick a machine — skills are auto-suggested. Set dates and assign your team." position="bottom" step={2} totalSteps={4}>
+              <LimitedButton resource="jobs" planLimits={planLimits} onClick={openWizard}>
+                <Plus size={16}/> New Job
+              </LimitedButton>
+            </CoachMark>
           </div>
         </div>
 
@@ -1208,16 +1227,14 @@ export default function Jobs() {
       {!isLoading && !isError && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mt-4">
           <div className="overflow-x-auto scrollbar-thin" style={{overflowX:'auto', WebkitOverflowScrolling:'touch'}}>
-            <table className="w-full min-w-[860px] text-sm">
+            <table className="w-full text-sm table-fixed">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 text-xs text-gray-500 font-semibold uppercase tracking-wide">
                   <th className="w-8 px-4 py-3"/>
-                  <th className="text-left px-3 py-3">Job / Customer</th>
-                  <th className="text-left px-3 py-3 w-24">Priority</th>
-                  <th className="text-left px-3 py-3 w-36">Status</th>
+                  <th className="text-left px-3 py-3 w-auto">Job / Customer</th>
                   <th className="text-left px-3 py-3 w-28">Timer</th>
-                  <th className="text-left px-3 py-3 w-40">Timeline</th>
-                  <th className="text-right px-3 py-3 w-44">Actions</th>
+                  <th className="text-left px-3 py-3 w-44">Timeline</th>
+                  <th className="text-right px-2 py-3 w-36">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1226,7 +1243,7 @@ export default function Jobs() {
                   : Object.entries(customerGroups).map(([customer, cJobs]) => (
                       <React.Fragment key={`grp-${customer}`}>
                         <tr className="bg-gray-100">
-                          <td colSpan={7} className="px-4 py-2">
+                          <td colSpan={5} className="px-4 py-2">
                             <div className="flex items-center gap-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">
                               <FolderOpen size={12} className="text-blue-500"/>
                               {customer}
@@ -1239,7 +1256,7 @@ export default function Jobs() {
                     ))
                 }
                 {filtered.length === 0 && (
-                  <tr><td colSpan={7} className="text-center text-gray-400 py-10 text-sm">No jobs match your filters.</td></tr>
+                  <tr><td colSpan={5} className="text-center text-gray-400 py-10 text-sm">No jobs match your filters.</td></tr>
                 )}
               </tbody>
               {filtered.length > 0 && (() => {
@@ -1249,7 +1266,7 @@ export default function Jobs() {
                 return (
                   <tfoot>
                     <tr className="bg-gray-50 border-t-2 border-gray-200">
-                      <td colSpan={7} className="px-4 py-2.5 text-xs text-gray-400">
+                      <td colSpan={5} className="px-4 py-2.5 text-xs text-gray-400">
                         <span className="font-semibold text-gray-600">{filtered.length}</span> job{filtered.length!==1?'s':''} shown
                         {filtered.filter(j=>j.status==='In Progress').length > 0 && (
                           <span className="ml-3 text-green-600">· <span className="font-semibold">{filtered.filter(j=>j.status==='In Progress').length}</span> in progress</span>
@@ -1430,19 +1447,35 @@ export default function Jobs() {
                   {skillReqs.length===0
                     ? <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center text-xs text-gray-400">Select a machine above or click "Add Skill".</div>
                     : skillReqs.map((req,i)=>(
-                        <div key={i} className={`flex gap-2 mb-2 items-center rounded-xl p-3 ${(req as SkillReq & {fromMachine?:number}).fromMachine?'bg-green-50 border border-green-200':'bg-gray-50'}`}>
-                          <select className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white"
-                            value={req.skill_id} onChange={e=>setSkillReqs(r=>r.map((s,idx)=>idx===i?{...s,skill_id:Number(e.target.value)}:s))}>
-                            {skills.map(s=><option key={s.id} value={s.id}>{s.name}{s.is_premium?' ⭐':''}</option>)}
-                          </select>
-                          <select className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white"
-                            value={req.min_skill_level} onChange={e=>setSkillReqs(r=>r.map((s,idx)=>idx===i?{...s,min_skill_level:e.target.value}:s))}>
-                            {LEVELS.map(l=><option key={l}>{l}</option>)}
-                          </select>
-                          <span className="text-xs text-gray-500">×</span>
-                          <input type="number" min="1" className="w-14 border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white"
-                            value={req.employees_required} onChange={e=>setSkillReqs(r=>r.map((s,idx)=>idx===i?{...s,employees_required:Number(e.target.value)}:s))}/>
-                          <button onClick={()=>setSkillReqs(r=>r.filter((_,idx)=>idx!==i))} className="text-red-400 hover:text-red-600"><X size={14}/></button>
+                        <div key={i} className={`mb-2 rounded-xl border ${(req as SkillReq & {fromMachine?:number}).fromMachine?'bg-green-50 border-green-200':'bg-gray-50 border-gray-200'}`}>
+                          <div className="flex gap-2 items-center p-3">
+                            <select className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white"
+                              value={req.skill_id} onChange={e=>setSkillReqs(r=>r.map((s,idx)=>idx===i?{...s,skill_id:Number(e.target.value)}:s))}>
+                              {skills.map(s=><option key={s.id} value={s.id}>{s.name}{s.is_premium?' ⭐':''}</option>)}
+                            </select>
+                            <select className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white"
+                              value={req.min_skill_level} onChange={e=>setSkillReqs(r=>r.map((s,idx)=>idx===i?{...s,min_skill_level:e.target.value}:s))}>
+                              {LEVELS.map(l=><option key={l}>{l}</option>)}
+                            </select>
+                            <span className="text-xs text-gray-500">×</span>
+                            <input type="number" min="1" className="w-14 border border-gray-300 rounded-lg px-2 py-1.5 text-sm bg-white"
+                              value={req.employees_required} onChange={e=>setSkillReqs(r=>r.map((s,idx)=>idx===i?{...s,employees_required:Number(e.target.value)}:s))}/>
+                            <button onClick={()=>setSkillReqs(r=>r.filter((_,idx)=>idx!==i))} className="text-red-400 hover:text-red-600"><X size={14}/></button>
+                          </div>
+                          {/* Per-skill availability feedback */}
+                          {(() => {
+                            const available = wizardCheck?.available_employees?.[String(i)]?.length ?? null
+                            if (wizardChecking) return <div className="px-3 pb-2 text-xs text-gray-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin"/>Checking...</div>
+                            if (available === null) return null
+                            const ok = available >= req.employees_required
+                            return (
+                              <div className={`px-3 pb-2 text-xs font-medium flex items-center gap-1 ${ok ? 'text-green-700' : 'text-red-600'}`}>
+                                {ok ? <Check size={11}/> : <AlertTriangle size={11}/>}
+                                Need {req.employees_required} · <span className="font-bold">{available} available</span>
+                                {!ok && <span className="font-normal text-red-500 ml-1">— add staff or lower level</span>}
+                              </div>
+                            )
+                          })()}
                         </div>
                       ))
                   }
@@ -1451,16 +1484,8 @@ export default function Jobs() {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-semibold text-gray-700 flex items-center gap-2"><UserCheck size={15} className="text-purple-500"/> Step 3 — Available People</h4>
-                      <button onClick={wizardCheckAvail}
-                        className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded-lg px-3 py-2">
-                        {wizardChecking ? <><Loader2 className="animate-spin" size={12}/>Checking...</> : <><Search size={12}/>Check availability</>}
-                      </button>
+                      {wizardChecking && <span className="flex items-center gap-1 text-xs text-gray-400"><Loader2 size={11} className="animate-spin"/>Checking...</span>}
                     </div>
-                    {!wizardCheck && !wizardChecking && (
-                      <div className="border-2 border-dashed border-blue-100 rounded-xl p-4 text-center text-xs text-blue-400">
-                        Click "Check availability" to see who's free for {details.start_mode==='flexible'?`${details.earliest_date}→${details.latest_date}`:details.start_date} → {details.end_date}
-                      </div>
-                    )}
                     {wizardCheck && !wizardChecking && (
                       <div className={`${scoreColour(wizardCheck.feasibility_score).bg} rounded-lg px-4 py-2.5 flex items-center justify-between`}>
                         <span className={`text-sm font-semibold ${scoreColour(wizardCheck.feasibility_score).text}`}>

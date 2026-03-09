@@ -7,6 +7,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
+import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
 import { Plus, Pencil, Trash2, Loader2, AlertCircle, Factory, Search, X, Check, ChevronRight, ChevronDown, CalendarDays, Briefcase, IndianRupee } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner } from '../components/PlanLimitGuard'
@@ -198,9 +199,11 @@ export default function Machines() {
         </div>
         <div className="flex items-center gap-2">
           <CsvImport resource="machines" onSuccess={() => qc.invalidateQueries({queryKey:['machines']})}/>
-          <LimitedButton resource="machines" planLimits={planLimits} onClick={openCreate}>
-            <Plus size={16}/> Add Machine
-          </LimitedButton>
+          <CoachMark id="machines-add" title="Register your machines" description="Add equipment with hourly cost and bay location. The scheduler assigns them to jobs automatically." position="bottom" step={1} totalSteps={2}>
+            <LimitedButton resource="machines" planLimits={planLimits} onClick={openCreate}>
+              <Plus size={16}/> Add Machine
+            </LimitedButton>
+          </CoachMark>
         </div>
       </div>
 

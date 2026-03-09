@@ -15,6 +15,7 @@ import {
   TrendingUp, TrendingDown,
 } from 'lucide-react'
 import apiClient from '../api/client'
+import { CoachMark } from '../components/onboarding'
 import timerApi from '../api/api_timer'
 import EndJobModal from '../components/EndJobModal'
 import type { DashboardData, DashboardJob } from '../api/api_dashboard'
@@ -464,49 +465,53 @@ export default function Dashboard() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {cards.map(({ label, value, icon: Icon, colour, bg }) => (
-          <div key={label} className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
-            <div className={`${bg} p-3 rounded-lg`}><Icon className={colour} size={22} /></div>
-            <div>
-              <p className="text-2xl font-bold text-gray-800">{value}</p>
-              <p className="text-sm text-gray-500">{label}</p>
+      <CoachMark id="dashboard-kpis" title="Your shop floor at a glance" description="KPI cards show active jobs, order book value, profit, and conflicts in real time." position="bottom" step={1} totalSteps={3}>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {cards.map(({ label, value, icon: Icon, colour, bg }) => (
+            <div key={label} className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
+              <div className={`${bg} p-3 rounded-lg`}><Icon className={colour} size={22} /></div>
+              <div>
+                <p className="text-2xl font-bold text-gray-800">{value}</p>
+                <p className="text-sm text-gray-500">{label}</p>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      </CoachMark>
 
 
       {/* Smart Alerts */}
-      {(() => {
-        const delayed   = jobs.filter(j => j.status !== 'Completed' && j.status !== 'Stopped' && j.has_conflict)
-        const notStarted = jobs.filter(j => j.status === 'Scheduled' || j.status === 'Draft')
-        const running   = jobs.filter(j => j.timer_status === 'running')
-        const allAlerts: { type: 'error'|'warning'|'info'; msg: string }[] = []
-        if (delayed.length)    allAlerts.push({ type: 'error',   msg: `${delayed.length} job${delayed.length > 1 ? 's' : ''} ${delayed.length > 1 ? 'have' : 'has'} conflicts: ${delayed.slice(0,2).map(j=>j.name).join(', ')}${delayed.length > 2 ? ` +${delayed.length-2} more` : ''}` })
-        if (notStarted.length) allAlerts.push({ type: 'warning', msg: `${notStarted.length} job${notStarted.length > 1 ? 's' : ''} not yet started: ${notStarted.slice(0,2).map(j=>j.name).join(', ')}${notStarted.length > 2 ? ` +${notStarted.length-2} more` : ''}` })
-        if (running.length === 0 && jobs.length > 0) allAlerts.push({ type: 'warning', msg: 'No jobs currently running — shop floor is idle' })
-        if (allAlerts.length === 0) allAlerts.push({ type: 'info', msg: 'All clear — no alerts today 🎉' })
-        return (
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-            <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
-              <Zap size={14} className="text-amber-500" />
-              <span className="text-sm font-semibold text-gray-700">Smart Alerts</span>
-              <span className="ml-auto text-[10px] text-gray-400 uppercase tracking-wide">Today</span>
+      <CoachMark id="dashboard-conflicts" title="Conflict alerts" description="Red pills mean jobs have resource or skill conflicts. Resolve them in the Jobs page." position="bottom" step={2} totalSteps={3}>
+        {(() => {
+          const delayed   = jobs.filter(j => j.status !== 'Completed' && j.status !== 'Stopped' && j.has_conflict)
+          const notStarted = jobs.filter(j => j.status === 'Scheduled' || j.status === 'Draft')
+          const running   = jobs.filter(j => j.timer_status === 'running')
+          const allAlerts: { type: 'error'|'warning'|'info'; msg: string }[] = []
+          if (delayed.length)    allAlerts.push({ type: 'error',   msg: `${delayed.length} job${delayed.length > 1 ? 's' : ''} ${delayed.length > 1 ? 'have' : 'has'} conflicts: ${delayed.slice(0,2).map(j=>j.name).join(', ')}${delayed.length > 2 ? ` +${delayed.length-2} more` : ''}` })
+          if (notStarted.length) allAlerts.push({ type: 'warning', msg: `${notStarted.length} job${notStarted.length > 1 ? 's' : ''} not yet started: ${notStarted.slice(0,2).map(j=>j.name).join(', ')}${notStarted.length > 2 ? ` +${notStarted.length-2} more` : ''}` })
+          if (running.length === 0 && jobs.length > 0) allAlerts.push({ type: 'warning', msg: 'No jobs currently running — shop floor is idle' })
+          if (allAlerts.length === 0) allAlerts.push({ type: 'info', msg: 'All clear — no alerts today 🎉' })
+          return (
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+              <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+                <Zap size={14} className="text-amber-500" />
+                <span className="text-sm font-semibold text-gray-700">Smart Alerts</span>
+                <span className="ml-auto text-[10px] text-gray-400 uppercase tracking-wide">Today</span>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {allAlerts.map((a, i) => (
+                  <div key={i} className={`flex items-start gap-3 px-4 py-2.5 ${a.type === 'error' ? 'bg-red-50' : a.type === 'warning' ? 'bg-amber-50' : 'bg-green-50'}`}>
+                    <span className="mt-0.5 shrink-0">
+                      {a.type === 'error' ? '🔴' : a.type === 'warning' ? '🟡' : '✅'}
+                    </span>
+                    <p className={`text-xs leading-relaxed ${a.type === 'error' ? 'text-red-700' : a.type === 'warning' ? 'text-amber-700' : 'text-green-700'}`}>{a.msg}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="divide-y divide-gray-50">
-              {allAlerts.map((a, i) => (
-                <div key={i} className={`flex items-start gap-3 px-4 py-2.5 ${a.type === 'error' ? 'bg-red-50' : a.type === 'warning' ? 'bg-amber-50' : 'bg-green-50'}`}>
-                  <span className="mt-0.5 shrink-0">
-                    {a.type === 'error' ? '🔴' : a.type === 'warning' ? '🟡' : '✅'}
-                  </span>
-                  <p className={`text-xs leading-relaxed ${a.type === 'error' ? 'text-red-700' : a.type === 'warning' ? 'text-amber-700' : 'text-green-700'}`}>{a.msg}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-      })()}
+          )
+        })()}
+      </CoachMark>
 
       {/* Legend */}
       <div className="flex items-center gap-5 text-xs text-gray-500 bg-white border border-gray-100 rounded-xl px-4 py-2.5 flex-wrap">

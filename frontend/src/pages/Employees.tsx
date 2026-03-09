@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
+import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
 import {
   Plus, Pencil, Trash2, Loader2, AlertCircle,
@@ -252,9 +253,11 @@ export default function Employees() {
         </div>
         <div className="flex items-center gap-2">
           <CsvImport resource="employees" onSuccess={() => qc.invalidateQueries({queryKey:['employees']})}/>
-          <LimitedButton resource="employees" planLimits={planLimits} onClick={openCreate}>
-            <Plus size={16}/> Add Employee
-          </LimitedButton>
+          <CoachMark id="employees-add" title="Add your team" description="Add each worker with their role, hourly rate, and skills. Skills are matched to job requirements." position="bottom" step={1} totalSteps={3}>
+            <LimitedButton resource="employees" planLimits={planLimits} onClick={openCreate}>
+              <Plus size={16}/> Add Employee
+            </LimitedButton>
+          </CoachMark>
         </div>
       </div>
 

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import AICopilot from './AICopilot'
+import { TourButton } from './onboarding'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard',          icon: LayoutDashboard  },
@@ -89,6 +90,8 @@ export default function Layout() {
                   </span>
                 )}
                 <span className="text-xs text-gray-500 hidden sm:block">{user.email}</span>
+                <div className="w-px h-4 bg-gray-200" />
+                <TourButton />
                 <div className="w-px h-4 bg-gray-200" />
                 <button
                   onClick={() => setAiOpen(o => !o)}

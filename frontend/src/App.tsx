@@ -3,6 +3,7 @@
 
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
+import { OnboardingProvider } from './components/onboarding'
 import { ProtectedRoute } from './auth/ProtectedRoute'
 import Layout from './components/Layout'
 
@@ -22,6 +23,7 @@ import GanttPage from './pages/GanttPage'
 export default function App() {
   return (
     <AuthProvider>
+      <OnboardingProvider>
       <Routes>
         {/* Public routes */}
         <Route path="/login"        element={<LoginPage />} />
@@ -48,6 +50,7 @@ export default function App() {
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
+      </OnboardingProvider>
     </AuthProvider>
   )
 }

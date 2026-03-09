@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchGanttData } from '../api/api_gantt'
 import type { GanttJob } from '../api/api_gantt'
+import { CoachMark } from '../components/onboarding'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const ROW_H    = 52
@@ -291,10 +292,12 @@ export default function GanttPage() {
       {/* ── Header ── */}
       <div className="px-6 pt-5 pb-3 border-b border-gray-100">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">Production Schedule</h1>
-            <p className="text-xs text-gray-400 mt-0.5">{monthLabel(rangeStart)} — {monthLabel(rangeEnd)}</p>
-          </div>
+          <CoachMark id="gantt-timeline" title="Production Timeline" description="See all jobs on a visual calendar. Each bar is one job. Hover for details." position="bottom" step={1} totalSteps={2}>
+            <div>
+              <h1 className="text-xl font-semibold text-gray-900">Production Schedule</h1>
+              <p className="text-xs text-gray-400 mt-0.5">{monthLabel(rangeStart)} — {monthLabel(rangeEnd)}</p>
+            </div>
+          </CoachMark>
 
           <div className="flex items-center gap-2">
             {/* Zoom toggle */}
