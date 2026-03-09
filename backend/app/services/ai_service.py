@@ -1192,8 +1192,11 @@ def run_ai_chat(
     """
     client = get_groq_client()
 
+    # Trim history to last 8 messages to reduce token usage (keeps context without bloat)
+    trimmed = messages[-8:] if len(messages) > 8 else messages
+
     # Add dynamic system prompt (includes today's date)
-    full_messages = [{"role": "system", "content": _build_system_prompt()}] + messages
+    full_messages = [{"role": "system", "content": _build_system_prompt()}] + trimmed
 
     # First call — let Llama decide which tool to call
     response = client.chat.completions.create(
@@ -1201,7 +1204,7 @@ def run_ai_chat(
         messages=full_messages,
         tools=TOOLS,
         tool_choice="auto",
-        max_tokens=1024,
+        max_tokens=512,
         temperature=0.3,
     )
 
@@ -1216,11 +1219,15 @@ def run_ai_chat(
     for tc in msg.tool_calls:
         args = json.loads(tc.function.arguments) if tc.function.arguments else {}
         result = execute_tool(tc.function.name, args, db, tenant_id)
+        # Truncate large tool results to cap token usage (~4KB max)
+        result_str = json.dumps(result)
+        if len(result_str) > 4000:
+            result_str = result_str[:4000] + '... [truncated]'
         tool_results.append({
             "tool_call_id": tc.id,
             "role":         "tool",
             "name":         tc.function.name,
-            "content":      json.dumps(result),
+            "content":      result_str,
         })
 
     # Second call — Llama formats the tool results into a human response
@@ -1231,7 +1238,7 @@ def run_ai_chat(
     final_response = client.chat.completions.create(
         model=MODEL,
         messages=full_messages,
-        max_tokens=1024,
+        max_tokens=600,
         temperature=0.4,
     )
 

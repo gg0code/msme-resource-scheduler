@@ -54,6 +54,12 @@ class JobCreate(BaseModel):
     is_locked: Optional[bool] = False
     earliest_date: Optional[str] = None
     latest_date: Optional[str] = None
+    delivery_date: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[str] = None
+    payment_status: Optional[str] = None
+    payment_amount: Optional[float] = None
+    payment_date: Optional[str] = None
 
 class JobUpdate(BaseModel):
     name: Optional[str] = None
@@ -75,6 +81,12 @@ class JobUpdate(BaseModel):
     has_conflict: Optional[bool] = None
     earliest_date: Optional[str] = None
     latest_date: Optional[str] = None
+    delivery_date: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[str] = None
+    payment_status: Optional[str] = None
+    payment_amount: Optional[float] = None
+    payment_date: Optional[str] = None
 
 class TimerAction(BaseModel):
     action: str  # start | pause | resume | end
@@ -95,6 +107,21 @@ def _refresh_conflict(db: Session, job: Job, tenant_id: int):
         # Never crash a save because of conflict-check failure
         job.has_conflict = False
         return None
+
+
+# ── Helper: cost overrun detection ───────────────────────────────────────────
+def _cost_overrun(job: Job) -> dict | None:
+    """Returns overrun info if actual_hours × resource_rates > estimated cost by >10%."""
+    if not job.actual_hours or not job.start_date or not job.end_date:
+        return None
+    duration = max((job.end_date - job.start_date).days + 1, 1)
+    estimated_hours = duration * (job.estimated_hours_per_day or 8)
+    if estimated_hours <= 0:
+        return None
+    overrun_pct = ((job.actual_hours - estimated_hours) / estimated_hours) * 100
+    if overrun_pct > 10:
+        return {"overrun_pct": round(overrun_pct, 1), "actual_hours": round(job.actual_hours, 1), "estimated_hours": round(estimated_hours, 1)}
+    return None
 
 
 # ── Helper: serialize job ─────────────────────────────────────────────────────
@@ -122,8 +149,18 @@ def job_to_dict(job: Job) -> dict:
         "start_mode": job.start_mode or "right_away",
         "is_locked": job.is_locked or False,
         "has_conflict": job.has_conflict or False,
-        "earliest_date": str(job.earliest_date) if job.earliest_date else None,
-        "latest_date": str(job.latest_date) if job.latest_date else None,
+        "earliest_date":  str(job.earliest_date)  if job.earliest_date  else None,
+        "latest_date":    str(job.latest_date)    if job.latest_date    else None,
+        # J1.2
+        "delivery_date":  str(job.delivery_date)  if job.delivery_date  else None,
+        "invoice_number": job.invoice_number,
+        "invoice_date":   str(job.invoice_date)   if job.invoice_date   else None,
+        "payment_status": job.payment_status or "Unpaid",
+        "payment_amount": job.payment_amount,
+        "payment_date":   str(job.payment_date)   if job.payment_date   else None,
+        "actual_hours":   job.actual_hours,
+        # Cost overrun flag: actual > estimated by >10%
+        "cost_overrun": _cost_overrun(job),
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "skill_requirements": [
             {"id": r.id, "skill_id": r.skill_id, "min_skill_level": r.min_skill_level,
@@ -211,6 +248,12 @@ def create_job(
         is_locked=payload.is_locked or False,
         earliest_date=payload.earliest_date,
         latest_date=payload.latest_date,
+        delivery_date=payload.delivery_date,
+        invoice_number=payload.invoice_number,
+        invoice_date=payload.invoice_date,
+        payment_status=payload.payment_status or "Unpaid",
+        payment_amount=payload.payment_amount,
+        payment_date=payload.payment_date,
         has_conflict=False,
         timer_status="idle", paused_seconds=0, timer_log=[],
     )

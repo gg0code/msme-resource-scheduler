@@ -51,6 +51,15 @@ interface Job {
   has_conflict: boolean
   earliest_date: string | null
   latest_date: string | null
+  // J1.2
+  delivery_date: string | null
+  invoice_number: string | null
+  invoice_date: string | null
+  payment_status: string
+  payment_amount: number | null
+  payment_date: string | null
+  actual_hours: number | null
+  cost_overrun: { overrun_pct: number; actual_hours: number; estimated_hours: number } | null
 }
 interface AvailResult {
   feasible: boolean; feasibility_score: number
@@ -121,6 +130,8 @@ const emptyDetails = () => ({
   priority:'Medium', status:'Draft',
   start_mode: 'pick_a_date' as const,
   earliest_date:'', latest_date:'',
+  delivery_date:'',
+  invoice_number:'', invoice_date:'', payment_status:'Unpaid', payment_amount:'', payment_date:'',
 })
 const emptyMat = (): RawMat => ({ name:'', quantity:1, unit:'pcs', unit_cost:0 })
 
@@ -398,6 +409,7 @@ export default function Jobs() {
   const [assignTab, setAssignTab]           = useState<'machines'|'people'|'extras'>('machines')
 
   const [deleteId, setDeleteId]           = useState<number | null>(null)
+  const [pdfJob,   setPdfJob]             = useState<Job | null>(null)
   const [toast, setToast]                 = useState('')
   const [schedulerRunning, setSchedulerRunning] = useState(false)
   const [scheduleDirty, setScheduleDirty]       = useState(true)
@@ -473,6 +485,8 @@ export default function Jobs() {
       setSchedulerRunning(false)
     }
   }
+
+  function openPdfExport(job: Job) { setPdfJob(job) }
 
   // ── Filters ───────────────────────────────────────────
   const filtered = useMemo(() => jobs.filter(j => {
@@ -551,6 +565,19 @@ export default function Jobs() {
     },
   })
 
+  const outageMut = useMutation({
+    mutationFn: ({id, action, reason}: {id: number; action: string; reason?: string}) =>
+      apiClient.post(`/api/timer/${id}/outage`, {action, reason}),
+    onSuccess: () => {
+      qc.invalidateQueries({queryKey:['jobs']})
+      showToast('Outage logged.')
+    },
+    onError: (e: unknown) => {
+      const msg = (e as {response?:{data?:{detail?:string}}})?.response?.data?.detail ?? 'Failed to log outage'
+      showToast(`Error: ${msg}`)
+    },
+  })
+
   const assignMut = useMutation({
     mutationFn: (p: object) => apiClient.post('/api/assignments/', p),
     onSuccess: (res) => {
@@ -617,6 +644,7 @@ export default function Jobs() {
       is_locked: isLocked,
       earliest_date: details.start_mode === 'flexible' ? (details.earliest_date || null) : null,
       latest_date:   details.start_mode === 'flexible' ? (details.latest_date || null) : null,
+      delivery_date: details.delivery_date || null,
     })
   }
 
@@ -634,6 +662,12 @@ export default function Jobs() {
       start_mode: job.start_mode ?? 'pick_a_date',
       earliest_date: job.earliest_date ?? '',
       latest_date: job.latest_date ?? '',
+      delivery_date: job.delivery_date ?? '',
+      invoice_number: job.invoice_number ?? '',
+      invoice_date: job.invoice_date ?? '',
+      payment_status: job.payment_status ?? 'Unpaid',
+      payment_amount: job.payment_amount != null ? String(job.payment_amount) : '',
+      payment_date: job.payment_date ?? '',
     })
     setEditSkillReqs(job.skill_requirements.map(r=>({skill_id:r.skill_id,min_skill_level:r.min_skill_level,employees_required:r.employees_required})))
     setEditRawMats(job.raw_materials || [])
@@ -652,6 +686,12 @@ export default function Jobs() {
       is_locked: isLocked,
       earliest_date: editForm.start_mode === 'flexible' ? (editForm.earliest_date || null) : null,
       latest_date:   editForm.start_mode === 'flexible' ? (editForm.latest_date || null) : null,
+      delivery_date: editForm.delivery_date || null,
+      invoice_number: editForm.invoice_number || null,
+      invoice_date: editForm.invoice_date || null,
+      payment_status: editForm.payment_status || 'Unpaid',
+      payment_amount: editForm.payment_amount !== '' ? Number(editForm.payment_amount) : null,
+      payment_date: editForm.payment_date || null,
     }})
   }
 
@@ -769,6 +809,12 @@ export default function Jobs() {
                 {job.status}
               </span>
               {job.has_conflict && <ConflictBadge />}
+              {job.cost_overrun && (
+                <span title={`Actual ${job.cost_overrun.actual_hours}h vs estimated ${job.cost_overrun.estimated_hours}h (+${job.cost_overrun.overrun_pct}%)`}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 text-xs font-bold border border-orange-200 cursor-help">
+                  <Clock size={9}/> +{job.cost_overrun.overrun_pct}% hrs
+                </span>
+              )}
               <AvailBadge result={result} loading={aLoading}/>
             </div>
             {job.customer && <div className="text-xs text-gray-400 mt-0.5 pl-[26px]">{job.customer}</div>}
@@ -793,6 +839,14 @@ export default function Jobs() {
               {job.start_mode === 'flexible' && job.earliest_date ? job.earliest_date : job.start_date}
             </div>
             <div className="text-xs text-gray-400">→ {job.end_date} · {job.estimated_hours_per_day}h/d</div>
+            {job.delivery_date && (
+              <div className="text-xs text-blue-600 mt-0.5">📦 Deliver by {job.delivery_date}</div>
+            )}
+            {job.actual_hours != null && (
+              <div className={`text-xs mt-0.5 font-medium ${job.cost_overrun ? 'text-orange-600' : 'text-teal-600'}`}>
+                ✓ Actual: {job.actual_hours}h
+              </div>
+            )}
             <TimelineBar job={job} />
           </td>
 
@@ -877,6 +931,18 @@ export default function Jobs() {
                       className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 flex items-center gap-2">
                       <Pencil size={11}/> Edit
                     </button>
+                    {['running','paused'].includes(job.timer_status) && (
+                      <button onClick={()=>{outageMut.mutate({id:job.id,action:'start'});setOpenMenu(null)}}
+                        className="w-full text-left px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 flex items-center gap-2">
+                        <AlertTriangle size={11}/> Log Outage
+                      </button>
+                    )}
+                    {job.status === 'Completed' && (
+                      <button onClick={()=>{openPdfExport(job);setOpenMenu(null)}}
+                        className="w-full text-left px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-50 flex items-center gap-2">
+                        <Package size={11}/> Export PDF
+                      </button>
+                    )}
                     <div className="border-t border-gray-100 my-0.5"/>
                     <button onClick={()=>{setDeleteId(job.id);setOpenMenu(null)}}
                       className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2">
@@ -1030,6 +1096,29 @@ export default function Jobs() {
                     <div className="mb-3 bg-red-50 rounded-lg border border-red-200 px-3 py-2">
                       <p className="text-xs font-semibold text-red-600 mb-1 flex items-center gap-1"><AlertTriangle size={10}/>Conflicts</p>
                       {result.conflicts.map((c,i) => <div key={i} className="text-xs text-red-600">{c.resource_name}: {c.reason}</div>)}
+                    </div>
+                  )}
+                  {/* Invoice & payment */}
+                  {(job.invoice_number || job.payment_status !== 'Unpaid') && (
+                    <div className="mb-3">
+                      <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                        <IndianRupee size={11} className="text-green-600"/> Invoice
+                      </p>
+                      <div className="text-xs space-y-1">
+                        {job.invoice_number && (
+                          <div className="flex justify-between bg-white rounded-lg border border-gray-100 px-3 py-1.5">
+                            <span className="text-gray-400">Invoice#</span>
+                            <span className="font-medium text-gray-700">{job.invoice_number}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between bg-white rounded-lg border border-gray-100 px-3 py-1.5">
+                          <span className="text-gray-400">Payment</span>
+                          <span className={`font-semibold ${job.payment_status==='Paid'?'text-green-600':job.payment_status==='Partial'?'text-amber-600':'text-red-500'}`}>
+                            {job.payment_status}
+                            {job.payment_amount != null && ` · ₹${job.payment_amount.toLocaleString('en-IN')}`}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   )}
                   {job.notes && (
@@ -1388,6 +1477,11 @@ export default function Jobs() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">End Date *</label>
                     <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       value={details.end_date} onChange={e=>setDetails({...details,end_date:e.target.value})}/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Delivery Date (optional)</label>
+                    <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={details.delivery_date} onChange={e=>setDetails({...details,delivery_date:e.target.value})}/>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Hours / Day</label>
@@ -1796,6 +1890,46 @@ export default function Jobs() {
                     {STATUSES.map(s=><option key={s}>{s}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Delivery Date</label>
+                  <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editForm.delivery_date} onChange={e=>setEditForm({...editForm,delivery_date:e.target.value})}/>
+                </div>
+              </div>
+              {/* Invoice & Payment */}
+              <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+                <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5"><IndianRupee size={12} className="text-green-600"/>Invoice & Payment</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Invoice Number</label>
+                    <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g. INV-2024-001"
+                      value={editForm.invoice_number} onChange={e=>setEditForm({...editForm,invoice_number:e.target.value})}/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Invoice Date</label>
+                    <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={editForm.invoice_date} onChange={e=>setEditForm({...editForm,invoice_date:e.target.value})}/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Payment Status</label>
+                    <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={editForm.payment_status} onChange={e=>setEditForm({...editForm,payment_status:e.target.value})}>
+                      {['Unpaid','Partial','Paid'].map(s=><option key={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Amount Received (₹)</label>
+                    <input type="number" min="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="0"
+                      value={editForm.payment_amount} onChange={e=>setEditForm({...editForm,payment_amount:e.target.value})}/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Payment Date</label>
+                    <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={editForm.payment_date} onChange={e=>setEditForm({...editForm,payment_date:e.target.value})}/>
+                  </div>
+                </div>
               </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -1854,6 +1988,212 @@ export default function Jobs() {
           </div>
         </div>
       )}
+
+      {/* ══ JOB REPORT / PDF EXPORT MODAL ══════════════════ */}
+      {pdfJob && (() => {
+        const job = pdfJob
+        const rawTotal  = matTotal(job.raw_materials || [])
+        const totalCost = jobCost(job)
+        const profit    = jobProfit(job)
+        const displayId = jobDisplayId(job, jobPrefix)
+        const duration  = job.start_date && job.end_date
+          ? Math.max((new Date(job.end_date).getTime() - new Date(job.start_date).getTime()) / 86400000 + 1, 1)
+          : null
+        const estHours  = duration ? duration * job.estimated_hours_per_day : null
+        const overrunPct = job.actual_hours && estHours
+          ? Math.round(((job.actual_hours - estHours) / estHours) * 100)
+          : null
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 no-print">
+                <div>
+                  <h3 className="font-bold text-gray-800">Job Report — {displayId}</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Preview before printing</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+                    <Package size={14}/> Print / Save PDF
+                  </button>
+                  <button onClick={() => setPdfJob(null)}><X size={18} className="text-gray-400 hover:text-gray-600"/></button>
+                </div>
+              </div>
+
+              {/* Printable content */}
+              <div id="job-report-print" className="p-6 space-y-5">
+                {/* Job header */}
+                <div className="flex items-start justify-between border-b border-gray-200 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-500">{displayId}</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_STYLE[job.status]??''}`}>{job.status}</span>
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900">{job.name}</h2>
+                    {job.customer && <p className="text-sm text-gray-500 mt-0.5">Customer: {job.customer}</p>}
+                  </div>
+                  <div className="text-right text-xs text-gray-400">
+                    <p>Generated: {new Date().toLocaleDateString('en-IN')}</p>
+                    {job.invoice_number && <p className="font-semibold text-gray-700 mt-0.5">Invoice: {job.invoice_number}</p>}
+                  </div>
+                </div>
+
+                {/* Dates & hours */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-gray-50 rounded-xl border border-gray-200 p-3 text-center">
+                    <p className="text-xs text-gray-400 mb-1">Start → End</p>
+                    <p className="text-sm font-semibold text-gray-800">{job.start_date} → {job.end_date}</p>
+                  </div>
+                  {job.delivery_date && (
+                    <div className="bg-blue-50 rounded-xl border border-blue-200 p-3 text-center">
+                      <p className="text-xs text-blue-400 mb-1">Delivery Date</p>
+                      <p className="text-sm font-semibold text-blue-700">{job.delivery_date}</p>
+                    </div>
+                  )}
+                  <div className={`rounded-xl border p-3 text-center ${overrunPct != null && overrunPct > 10 ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'}`}>
+                    <p className="text-xs text-gray-400 mb-1">Actual Hours</p>
+                    <p className={`text-sm font-semibold ${overrunPct != null && overrunPct > 10 ? 'text-orange-700' : 'text-green-700'}`}>
+                      {job.actual_hours != null ? `${job.actual_hours}h` : '—'}
+                      {estHours != null && <span className="text-xs font-normal text-gray-400 ml-1">/ est. {estHours}h</span>}
+                    </p>
+                    {overrunPct != null && overrunPct > 10 && (
+                      <p className="text-xs text-orange-600 mt-0.5">+{overrunPct}% overrun</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Cost summary */}
+                <div>
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Cost Summary</p>
+                  <div className="overflow-hidden rounded-xl border border-gray-200 divide-y divide-gray-100">
+                    {[
+                      ['Order Value', job.order_value != null ? `₹${job.order_value.toLocaleString('en-IN')}` : '—', ''],
+                      ['Raw Materials', `₹${rawTotal.toLocaleString('en-IN')}`, 'text-red-500'],
+                      ['Misc / Overhead', `₹${(job.misc_cost??0).toLocaleString('en-IN')}`, 'text-red-400'],
+                      ['Total Cost', `₹${totalCost.toLocaleString('en-IN')}`, 'text-red-600 font-black'],
+                      ['Profit', profit != null ? `${profit>=0?'+':''}₹${Math.abs(profit).toLocaleString('en-IN')}` : '—', profit != null ? (profit>=0 ? 'text-green-600 font-black' : 'text-red-600 font-black') : ''],
+                    ].map(([label, value, cls]) => (
+                      <div key={label} className="flex justify-between px-4 py-2 text-sm">
+                        <span className="text-gray-500">{label}</span>
+                        <span className={cls || 'font-medium text-gray-800'}>{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Assignments */}
+                {(job.assigned_employees.length > 0 || job.assigned_machines.length > 0) && (
+                  <div>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Resources Used</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {job.assigned_employees.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-blue-700 mb-1.5">Employees</p>
+                          {job.assigned_employees.map(e => (
+                            <div key={e.id} className="flex items-center gap-2 text-xs bg-blue-50 rounded-lg px-3 py-1.5 mb-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-400"/>
+                              <span className="font-medium text-gray-700">{e.full_name}</span>
+                              {e.allocation_pct != null && e.allocation_pct < 100 && (
+                                <span className="text-gray-400 ml-auto">{e.allocation_pct}%</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {job.assigned_machines.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-purple-700 mb-1.5">Machines</p>
+                          {job.assigned_machines.map(m => (
+                            <div key={m.id} className="flex items-center gap-2 text-xs bg-purple-50 rounded-lg px-3 py-1.5 mb-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-purple-400"/>
+                              <span className="font-medium text-gray-700">{m.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Raw materials table */}
+                {(job.raw_materials||[]).length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Raw Materials</p>
+                    <table className="w-full text-xs border border-gray-200 rounded-xl overflow-hidden">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-gray-500 font-semibold">Material</th>
+                          <th className="text-right px-3 py-2 text-gray-500 font-semibold">Qty</th>
+                          <th className="text-right px-3 py-2 text-gray-500 font-semibold">Unit</th>
+                          <th className="text-right px-3 py-2 text-gray-500 font-semibold">Unit Cost</th>
+                          <th className="text-right px-3 py-2 text-gray-500 font-semibold">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {job.raw_materials.map((m, i) => (
+                          <tr key={i} className="bg-white">
+                            <td className="px-3 py-2 font-medium text-gray-700">{m.name}</td>
+                            <td className="px-3 py-2 text-right text-gray-600">{m.quantity}</td>
+                            <td className="px-3 py-2 text-right text-gray-400">{m.unit}</td>
+                            <td className="px-3 py-2 text-right text-gray-600">₹{m.unit_cost.toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-gray-800">₹{(m.quantity*m.unit_cost).toLocaleString('en-IN')}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-orange-50">
+                          <td colSpan={4} className="px-3 py-2 font-semibold text-orange-700">Total Materials</td>
+                          <td className="px-3 py-2 text-right font-bold text-orange-700">₹{rawTotal.toLocaleString('en-IN')}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Invoice & payment */}
+                {(job.invoice_number || job.payment_status !== 'Unpaid') && (
+                  <div>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Invoice & Payment</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {job.invoice_number && (
+                        <div className="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2 flex justify-between">
+                          <span className="text-gray-400">Invoice#</span>
+                          <span className="font-semibold">{job.invoice_number}</span>
+                        </div>
+                      )}
+                      {job.invoice_date && (
+                        <div className="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2 flex justify-between">
+                          <span className="text-gray-400">Invoice Date</span>
+                          <span className="font-semibold">{job.invoice_date}</span>
+                        </div>
+                      )}
+                      <div className="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2 flex justify-between">
+                        <span className="text-gray-400">Payment</span>
+                        <span className={`font-semibold ${job.payment_status==='Paid'?'text-green-600':job.payment_status==='Partial'?'text-amber-600':'text-red-500'}`}>
+                          {job.payment_status}
+                          {job.payment_amount != null && ` — ₹${job.payment_amount.toLocaleString('en-IN')}`}
+                        </span>
+                      </div>
+                      {job.payment_date && (
+                        <div className="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2 flex justify-between">
+                          <span className="text-gray-400">Payment Date</span>
+                          <span className="font-semibold">{job.payment_date}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {job.notes && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3 text-sm text-gray-600 italic">
+                    📝 {job.notes}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Delete confirm */}
       {deleteId && (

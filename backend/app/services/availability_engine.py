@@ -51,11 +51,16 @@ def _is_employee_busy(
     employee_id: int,
     job_id: int,
     days: List[date],
-    tenant_id: Optional[int] = None,   # ← ADDED
+    tenant_id: Optional[int] = None,
 ) -> bool:
+    """
+    Employee is 'busy' only when their total allocation_pct on overlapping jobs >= 100.
+    50% on Job A + 50% on Job B = 100% → still available for a 3rd job at 0% remaining.
+    50% on Job A alone = 50% remaining → NOT busy.
+    """
     q = (
-        db.query(Job)
-        .join(JobAssignment, JobAssignment.job_id == Job.id)
+        db.query(JobAssignment)
+        .join(Job, Job.id == JobAssignment.job_id)
         .filter(
             JobAssignment.employee_id == employee_id,
             JobAssignment.job_id != job_id,
@@ -63,13 +68,18 @@ def _is_employee_busy(
     )
     if tenant_id is not None:
         q = q.filter(Job.tenant_id == tenant_id)
-    other_jobs = q.all()
+    other_assignments = q.all()
 
-    for other_job in other_jobs:
+    total_allocated = 0
+    for a in other_assignments:
+        other_job = db.query(Job).filter(Job.id == a.job_id).first()
+        if not other_job or not other_job.start_date or not other_job.end_date:
+            continue
         other_days = set(_date_range(other_job.start_date, other_job.end_date))
         if any(d in other_days for d in days):
-            return True
-    return False
+            total_allocated += (a.allocation_pct or 100)
+
+    return total_allocated >= 100
 
 
 def _is_machine_busy(

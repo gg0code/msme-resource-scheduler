@@ -1,6 +1,7 @@
 """
-models/job.py — J1.1
-Added: start_mode, is_locked, has_conflict, earliest_date, latest_date
+models/job.py — J1.2
+Added: delivery_date, invoice_number, invoice_date, payment_status,
+       payment_amount, payment_date, actual_hours
 """
 
 from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text, JSON, Boolean
@@ -42,8 +43,17 @@ class Job(Base):
     start_mode    = Column(String(20), nullable=False, default="pick_a_date")
     is_locked     = Column(Boolean, nullable=False, default=False)
     has_conflict  = Column(Boolean, nullable=False, default=False)
-    earliest_date = Column(Date, nullable=True)   # flexible mode lower bound
-    latest_date   = Column(Date, nullable=True)   # flexible mode upper bound
+    earliest_date = Column(Date, nullable=True)
+    latest_date   = Column(Date, nullable=True)
+
+    # ── J1.2 Delivery, Invoice & Actuals ────────────────────────────────────
+    delivery_date  = Column(Date, nullable=True)         # customer delivery deadline
+    invoice_number = Column(String(50), nullable=True)
+    invoice_date   = Column(Date, nullable=True)
+    payment_status = Column(String(20), nullable=True, default='Unpaid')  # Unpaid|Partial|Paid
+    payment_amount = Column(Float, nullable=True)
+    payment_date   = Column(Date, nullable=True)
+    actual_hours   = Column(Float, nullable=True)        # stored on job end
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

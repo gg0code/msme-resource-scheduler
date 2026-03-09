@@ -44,6 +44,10 @@ class EndJobPayload(BaseModel):
     employee_ids: List[int] = []
     machine_ids: List[int] = []
 
+class OutagePayload(BaseModel):
+    action: str          # "start" | "end"
+    reason: Optional[str] = None
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -285,6 +289,7 @@ def stop_job(
     job.actual_end_at = now
     job.timer_status = "ended"
     job.status = "Stopped"
+    job.actual_hours = round(_actual_hours(job, now), 2)
     job.timer_log = _log_event(job, "stop", now)
 
     _release_resources(db, job)
@@ -383,6 +388,7 @@ def end_job(
     job.actual_end_at = now
     job.timer_status = "ended"
     job.status = "Completed"
+    job.actual_hours = round(_actual_hours(job, now), 2)
     job.timer_log = _log_event(job, "end", now)
 
     # Update assignments to final resource list from modal
@@ -400,3 +406,44 @@ def end_job(
         "final_actual_cost": actual,
         "final_tentative_cost": tentative,
     }
+
+
+@router.post("/{job_id}/outage")
+def log_outage(
+    job_id: int,
+    payload: OutagePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("proprietor", "scheduler")),
+):
+    """
+    Log a power outage / interruption event.
+    action=start → records outage_start in timer_log, pauses the timer if running.
+    action=end   → records outage_end, accumulates outage duration in paused_seconds, resumes.
+    """
+    job = _get_job_or_404(db, job_id, current_user.tenant_id)
+    if job.timer_status not in ("running", "paused"):
+        raise HTTPException(status_code=400, detail="Job must be running or paused to log outage")
+
+    now = datetime.utcnow()
+    log = list(job.timer_log or [])
+
+    if payload.action == "start":
+        log.append({"event": "outage_start", "timestamp": now.isoformat(), "reason": payload.reason or "Power outage"})
+        job.timer_status = "paused"   # treat outage as pause
+        job.timer_log = log
+
+    elif payload.action == "end":
+        # Find the most recent outage_start
+        outage_start_event = next((e for e in reversed(log) if e["event"] == "outage_start"), None)
+        if outage_start_event:
+            outage_dur = (now - datetime.fromisoformat(outage_start_event["timestamp"])).total_seconds()
+            job.paused_seconds = (job.paused_seconds or 0) + int(outage_dur)
+        log.append({"event": "outage_end", "timestamp": now.isoformat(), "reason": payload.reason or "Power restored"})
+        job.timer_status = "running"
+        job.timer_log = log
+    else:
+        raise HTTPException(status_code=400, detail="action must be 'start' or 'end'")
+
+    db.commit()
+    db.refresh(job)
+    return _job_summary(db, job)
