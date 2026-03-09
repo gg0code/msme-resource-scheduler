@@ -18,8 +18,8 @@ from app.models.auth import User, Tenant
 PLAN_LIMITS: dict[str, dict[str, Optional[int]]] = {
     "free": {
         "employees": 10,
-        "jobs":       5,
-        "machines":   5,
+        "jobs":      20,
+        "machines":  10,
         "skills":    20,
     },
     "paid": {
