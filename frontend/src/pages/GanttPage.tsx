@@ -62,7 +62,8 @@ function StatusDotSvg({ icon, x, y }: { icon: string; x: number; y: number }) {
   if (icon === 'in_progress')
     return <polygon points={`${cx-4},${cy-5} ${cx+6},${cy} ${cx-4},${cy+5}`} fill="#fff" opacity={0.9} />
   const colors: Record<string, string> = {
-    ready: '#86efac', conflict: '#fca5a5', completed: '#93c5fd', stopped: '#1f2937',
+    ready: '#86efac', conflict: '#c4b5fd', completed: '#93c5fd', stopped: '#1f2937',
+    delayed: '#fca5a5', at_risk: '#fcd34d',
   }
   return <circle cx={cx} cy={cy} r={4} fill={colors[icon] ?? '#e5e7eb'} opacity={0.95} />
 }
@@ -72,8 +73,9 @@ function BlinkDot({ icon }: { icon: string }) {
   if (icon === 'in_progress')
     return <svg viewBox="0 0 12 12" className="w-3 h-3 flex-shrink-0"><polygon points="1,1 11,6 1,11" fill="#16a34a"/></svg>
   const map: Record<string, string> = {
-    ready: 'bg-green-500 animate-pulse', conflict: 'bg-red-500',
+    ready: 'bg-green-500 animate-pulse', conflict: 'bg-violet-600',
     completed: 'bg-blue-500', stopped: 'bg-gray-900',
+    delayed: 'bg-red-500 animate-pulse', at_risk: 'bg-amber-400 animate-pulse',
   }
   return <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 inline-block ${map[icon] ?? 'bg-gray-300'}`} />
 }
@@ -250,9 +252,20 @@ export default function GanttPage() {
     const w = (daysBetween(clampedStart, clampedEnd) + 1) * COL_W - 2
     if (w <= 0) return null
 
-    const isConflict = job.has_conflict
-    const color      = isConflict ? '#fecaca' : colorMap[job.id]
-    const textColor  = isConflict ? '#991b1b' : '#ffffff'
+    // Health colour logic
+    const isComplete  = ['Completed', 'Cancelled', 'Stopped'].includes(job.status ?? '')
+    const isConflict  = job.has_conflict
+    const isDelayed   = !isComplete && end < today
+    const daysLeft    = daysBetween(today, end)
+    const isAtRisk    = !isDelayed && !isConflict && !isComplete
+                        && daysLeft <= 3 && daysLeft >= 0
+                        && ['Draft', 'Scheduled'].includes(job.status ?? '')
+    const color     = isConflict ? '#7c3aed'
+                    : isDelayed  ? '#ef4444'
+                    : isAtRisk   ? '#f59e0b'
+                    : colorMap[job.id]
+    const strokeClr = isSelected ? '#1d4ed8' : isConflict ? '#6d28d9' : isDelayed ? '#dc2626' : isAtRisk ? '#d97706' : 'transparent'
+    const textColor = '#ffffff'
     const isSelected = selectedJob?.id === job.id
 
     return (
@@ -260,8 +273,8 @@ export default function GanttPage() {
         style={{ cursor: 'pointer' }}>
         <rect x={x+1} y={rowY+10} width={w} height={ROW_H-20} rx={5}
           fill={color}
-          stroke={isSelected ? '#1d4ed8' : isConflict ? '#f87171' : 'transparent'}
-          strokeWidth={isSelected ? 2 : 1} opacity={0.95}
+          stroke={strokeClr}
+          strokeWidth={isSelected ? 2 : isConflict || isDelayed || isAtRisk ? 1.5 : 0} opacity={0.95}
         />
         {w > 16 && <StatusDotSvg icon={job.status_icon ?? 'ready'} x={x} y={rowY} />}
         {w > 50 && (
@@ -319,16 +332,25 @@ export default function GanttPage() {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mt-3">
-          {(['jobs', 'machines'] as TabType[]).map(tab => (
-            <button key={tab} onClick={() => { setActiveTab(tab); setSelectedJob(null) }}
-              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors capitalize ${
-                activeTab === tab ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-              }`}>
-              {tab === 'jobs' ? 'Jobs' : 'Machines'}
-            </button>
-          ))}
+        {/* Tabs + legend row */}
+        <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
+          <div className="flex gap-1">
+            {(['jobs', 'machines'] as TabType[]).map(tab => (
+              <button key={tab} onClick={() => { setActiveTab(tab); setSelectedJob(null) }}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors capitalize ${
+                  activeTab === tab ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                }`}>
+                {tab === 'jobs' ? 'Jobs' : 'Machines'}
+              </button>
+            ))}
+          </div>
+          {/* Health legend */}
+          <div className="flex items-center gap-3 text-[11px] text-gray-500">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-green-500 opacity-80"/><span>On track</span></span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-amber-400 opacity-80"/><span>At risk</span></span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-red-500 opacity-80"/><span>Delayed</span></span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-violet-600 opacity-80"/><span>Conflict</span></span>
+          </div>
         </div>
       </div>
 

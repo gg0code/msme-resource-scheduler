@@ -209,6 +209,39 @@ function ConflictBadge({ reasons }: { reasons?: string[] }) {
   )
 }
 
+// ── Timeline progress bar ──────────────────────────────
+function TimelineBar({ job }: { job: Job }) {
+  if (!job.start_date || !job.end_date) return null
+  if (['Completed','Cancelled'].includes(job.status)) return (
+    <div className="mt-1.5 w-full bg-gray-100 rounded-full h-1">
+      <div className="h-1 rounded-full bg-teal-400 w-full" />
+    </div>
+  )
+  const today  = new Date(); today.setHours(0,0,0,0)
+  const start  = new Date(job.start_date)
+  const end    = new Date(job.end_date)
+  const total  = end.getTime() - start.getTime()
+  const elapsed = today.getTime() - start.getTime()
+  const pct    = total > 0 ? Math.min(Math.max(elapsed / total * 100, 0), 100) : 0
+  const daysLeft = Math.ceil((end.getTime() - today.getTime()) / 86400000)
+  const isDelayed   = today > end
+  const isAtRisk    = !isDelayed && daysLeft <= 3 && ['Draft','Scheduled','Pending Assignment'].includes(job.status)
+  const notStarted  = today < start
+  const barColor    = isDelayed ? 'bg-red-500' : isAtRisk ? 'bg-amber-500' : 'bg-blue-400'
+  const label       = isDelayed  ? <span className="text-[10px] text-red-500 font-medium">Overdue</span>
+                    : isAtRisk   ? <span className="text-[10px] text-amber-600 font-medium">{daysLeft}d left ⚠</span>
+                    : notStarted ? <span className="text-[10px] text-gray-400">in {Math.abs(daysLeft)}d</span>
+                    : null
+  return (
+    <div className="mt-1.5">
+      <div className="w-full bg-gray-100 rounded-full h-1.5">
+        <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${notStarted ? 0 : pct}%` }} />
+      </div>
+      {label && <div className="mt-0.5">{label}</div>}
+    </div>
+  )
+}
+
 // ── Lock badge ─────────────────────────────────────────
 function LockBadge({ locked }: { locked: boolean }) {
   if (locked) return (
@@ -713,19 +746,19 @@ export default function Jobs() {
             }
           `}
         >
-          {/* Chevron — visible, colour on hover/expanded */}
-          <td className="pl-3 pr-1 py-3 w-6">
-            <div className={`w-5 h-5 rounded flex items-center justify-center transition-all ${
-              isExpanded ? 'bg-blue-100 text-blue-600' : 'text-gray-400 group-hover:bg-gray-100 group-hover:text-gray-600'
+          {/* Chevron — thick, visible, coloured on hover/expanded */}
+          <td className="pl-3 pr-1 py-3 w-7">
+            <div className={`w-6 h-6 rounded flex items-center justify-center transition-all ${
+              isExpanded ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 group-hover:bg-blue-100 group-hover:text-blue-600'
             }`}>
-              <ChevronRight size={13} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}/>
+              <ChevronRight size={15} strokeWidth={2.8} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}/>
             </div>
           </td>
 
           {/* Job name + customer + priority + status + one-liner */}
           <td className="px-3 py-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-xs text-gray-300 shrink-0">{displayId}</span>
+              <span className="font-mono text-[11px] font-medium text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded shrink-0">{displayId}</span>
               <span className="text-sm font-semibold text-gray-800">{job.name}</span>
               {/* Priority inline */}
               <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${priorityColour[job.priority]??''}`}>
@@ -755,11 +788,12 @@ export default function Jobs() {
           </td>
 
           {/* Timeline */}
-          <td className="px-3 py-3 w-40 whitespace-nowrap">
+          <td className="px-3 py-3 w-44">
             <div className="text-xs font-medium text-gray-700">
               {job.start_mode === 'flexible' && job.earliest_date ? job.earliest_date : job.start_date}
             </div>
             <div className="text-xs text-gray-400">→ {job.end_date} · {job.estimated_hours_per_day}h/d</div>
+            <TimelineBar job={job} />
           </td>
 
           {/* Actions — compact icon buttons */}

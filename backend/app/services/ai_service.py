@@ -1139,7 +1139,7 @@ Rules:
 - Keep responses short and to the point
 - Never call the same tool twice in one response
 - If asked about something you can't answer with available tools, say so honestly
-- NEVER refer to jobs by their database ID numbers. Always use job names from tool results
+- Always refer to jobs as "Job Name #ID" (e.g. "Crankshaft Machining #106"). Never use ID alone.
 
 TOOL ROUTING — always pick the most specific tool:
 - "most utilised / busiest employee", "if employee absent"         → get_employee_utilisation

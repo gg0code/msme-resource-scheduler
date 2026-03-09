@@ -464,10 +464,16 @@ def auto_schedule(
     locked_jobs   = [j for j in all_jobs if j.is_locked or j.status in ("Completed", "Cancelled")]
     unlocked_jobs = [j for j in all_jobs if not j.is_locked and j.status not in ("Completed", "Cancelled")]
 
-    # Sort unlocked by priority → order_value desc
+    # Sort unlocked by priority → order_value desc → profit margin desc
+    def _profit_margin(j: Job) -> float:
+        if not j.order_value or j.order_value <= 0:
+            return 0.0
+        return (j.tentative_profit or 0) / j.order_value * 100
+
     unlocked_jobs.sort(key=lambda j: (
         PRIORITY_RANK.get(j.priority, 99),
         -(j.order_value or 0),
+        -_profit_margin(j),
     ))
 
     # Build occupancy map: resource_id → set of occupied dates (from locked jobs)
