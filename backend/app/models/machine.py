@@ -28,7 +28,7 @@ class Machine(Base):
         "AvailabilityOverride", back_populates="machine",
         foreign_keys="AvailabilityOverride.machine_id", cascade="all, delete-orphan",
     )
-    assignments = relationship("JobAssignment", back_populates="machine")
+    assignments = relationship("JobAssignment", back_populates="machine", lazy="select")
 
 
 class MachineSkillRequirement(Base):

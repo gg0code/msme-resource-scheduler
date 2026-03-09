@@ -8,7 +8,7 @@ Added: JWT auth, tenant_id scoping on all endpoints + passed to availability eng
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List
 
@@ -186,6 +186,7 @@ def get_employee_assignments(
 
     rows = (
         db.query(JobAssignment)
+        .options(selectinload(JobAssignment.job))
         .filter(
             JobAssignment.employee_id == employee_id,
             JobAssignment.tenant_id == current_user.tenant_id,
@@ -225,6 +226,7 @@ def get_machine_assignments(
 
     rows = (
         db.query(JobAssignment)
+        .options(selectinload(JobAssignment.job))
         .filter(
             JobAssignment.machine_id == machine_id,
             JobAssignment.tenant_id == current_user.tenant_id,

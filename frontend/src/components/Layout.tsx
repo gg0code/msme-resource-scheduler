@@ -1,31 +1,29 @@
 // src/components/Layout.tsx — V3.0
-// Added: AI Copilot side panel + toggle button in topbar
+// - Renamed 'Gantt Chart' → 'Production Timeline'
+// - Removed Availability and Avail. Checker (superseded by auto-scheduler)
 
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Wrench, Users, Settings,
-  BriefcaseBusiness, Factory, CalendarOff,
-  ShieldCheck, LogOut, BarChart2, Bot,
+  BriefcaseBusiness, Factory, LogOut, CalendarRange, Bot,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import AICopilot from './AICopilot'
 
 const navItems = [
-  { to: '/dashboard',    label: 'Dashboard',             icon: LayoutDashboard   },
-  { to: '/jobs',         label: 'Jobs',                  icon: BriefcaseBusiness },
-  { to: '/gantt',        label: 'Production Timeline',   icon: BarChart2         },  // V2.0 — renamed
-  { to: '/employees',    label: 'Employees',             icon: Users             },
-  { to: '/machines',     label: 'Machines',              icon: Factory           },
-  { to: '/availability', label: 'Availability',          icon: CalendarOff       },
-  { to: '/checker',      label: 'Avail. Checker',        icon: ShieldCheck       },
-  { to: '/skills',       label: 'Skills',                icon: Settings          },
+  { to: '/dashboard', label: 'Dashboard',          icon: LayoutDashboard  },
+  { to: '/jobs',      label: 'Jobs',                icon: BriefcaseBusiness },
+  { to: '/gantt',     label: 'Production Timeline', icon: CalendarRange    },
+  { to: '/employees', label: 'Employees',           icon: Users            },
+  { to: '/machines',  label: 'Machines',            icon: Factory          },
+  { to: '/skills',    label: 'Skills',              icon: Settings         },
 ]
 
 const ROLE_BADGE: Record<string, { label: string; color: string }> = {
-  proprietor: { label: 'Owner',     color: 'bg-blue-600'  },
-  scheduler:  { label: 'Scheduler', color: 'bg-green-600' },
-  viewer:     { label: 'Viewer',    color: 'bg-gray-500'  },
+  proprietor: { label: 'Proprietor', color: 'bg-blue-600' },
+  scheduler:  { label: 'Scheduler',  color: 'bg-green-600' },
+  viewer:     { label: 'Viewer',     color: 'bg-gray-500' },
 }
 
 export default function Layout() {
@@ -42,7 +40,6 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
-
       {/* Sidebar */}
       <aside className="w-56 bg-gray-900 text-white flex flex-col shrink-0">
         <div className="px-5 py-5 border-b border-gray-700">
@@ -73,46 +70,17 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* AI Copilot button in sidebar */}
-        <div className="px-2 pb-3">
-          <button
-            onClick={() => setAiOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-blue-600 to-violet-600 text-white text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            <Bot size={16} />
-            <span>AI Copilot</span>
-            <span className="ml-auto w-2 h-2 rounded-full bg-green-400" />
-          </button>
-        </div>
-
         <div className="px-5 py-3 border-t border-gray-700 text-xs text-gray-500">
           v3.0.0
         </div>
       </aside>
 
       {/* Main area */}
-      <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${aiOpen ? 'mr-[360px]' : ''}`}>
-
-        {/* Topbar */}
+      <div className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between shrink-0">
           <h1 className="text-gray-700 font-semibold text-sm">MSME Resource Scheduler</h1>
 
           <div className="flex items-center gap-3">
-
-            {/* AI Copilot toggle button */}
-            <button
-              onClick={() => setAiOpen(prev => !prev)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all
-                ${aiOpen
-                  ? 'bg-violet-100 text-violet-700 border border-violet-200'
-                  : 'bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-sm hover:shadow-md hover:scale-105'
-                }`}
-            >
-              <Bot size={13} />
-              {aiOpen ? 'Close Copilot' : 'Ask AI Copilot'}
-              {!aiOpen && <span className="w-1.5 h-1.5 rounded-full bg-green-400" />}
-            </button>
-
             {user && (
               <>
                 {badge && (
@@ -121,6 +89,15 @@ export default function Layout() {
                   </span>
                 )}
                 <span className="text-xs text-gray-500 hidden sm:block">{user.email}</span>
+                <div className="w-px h-4 bg-gray-200" />
+                <button
+                  onClick={() => setAiOpen(o => !o)}
+                  className="flex items-center gap-1.5 text-xs text-purple-600 hover:text-purple-800 font-medium transition-colors"
+                  title="AI Copilot"
+                >
+                  <Bot size={16} />
+                  <span className="hidden sm:block">AI Copilot</span>
+                </button>
                 <div className="w-px h-4 bg-gray-200" />
                 <button
                   onClick={handleLogout}
@@ -140,9 +117,7 @@ export default function Layout() {
         </main>
       </div>
 
-      {/* AI Copilot Side Panel */}
       <AICopilot isOpen={aiOpen} onClose={() => setAiOpen(false)} />
-
     </div>
   )
 }

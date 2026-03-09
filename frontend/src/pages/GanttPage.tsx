@@ -134,6 +134,7 @@ export default function GanttPage() {
   const [filterPriority, setFilterPriority] = useState<FilterPriority>('all')
   const [filterStatus, setFilterStatus]     = useState<string>('all')
   const [selectedJob, setSelectedJob] = useState<GanttJob | null>(null)
+  const [conflictPanelOpen, setConflictPanelOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const COL_W = ZOOM_COL_W[zoom]
@@ -328,26 +329,76 @@ export default function GanttPage() {
         </div>
       </div>
 
-      {/* ── Conflict banner ── */}
+      {/* ── Conflict pill (compact, click to open panel) ── */}
       {conflicting.length > 0 && (
-        <div className="mx-6 mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <div className="flex items-start gap-2">
-            <span className="text-red-500 mt-0.5">⚠️</span>
-            <div>
-              <p className="text-xs font-semibold text-red-700 mb-1">
-                {conflicting.length} conflict{conflicting.length > 1 ? 's' : ''} detected
-              </p>
-              <ul className="space-y-0.5">
-                {conflicting.map(j => (
-                  <li key={j.id} className="text-xs text-red-600">
-                    <span className="font-medium">{j.name}:</span>{' '}
-                    {j.conflict_reasons.join('; ') || 'Resource double-booked'}
-                  </li>
-                ))}
-              </ul>
+        <div className="px-6 mt-3">
+          <button
+            onClick={() => setConflictPanelOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors group"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"/>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"/>
+            </span>
+            {conflicting.length} conflict{conflicting.length > 1 ? 's' : ''} detected
+            <span className="text-red-400 group-hover:text-red-600 ml-1">→ View details</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── Conflict floating panel ── */}
+      {conflictPanelOpen && (
+        <>
+          {/* Backdrop — click to close */}
+          <div
+            className="fixed inset-0 z-40 bg-black/20"
+            onClick={() => setConflictPanelOpen(false)}
+          />
+          {/* Slide-in panel from right */}
+          <div className="fixed top-0 right-0 h-full w-96 z-50 bg-white shadow-2xl border-l border-gray-200 flex flex-col">
+            {/* Panel header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-red-50">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"/>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"/>
+                </span>
+                <h3 className="font-bold text-red-700 text-sm">
+                  {conflicting.length} Conflict{conflicting.length > 1 ? 's' : ''} Detected
+                </h3>
+              </div>
+              <button
+                onClick={() => setConflictPanelOpen(false)}
+                className="w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+            {/* Panel body — scrollable */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              {conflicting.map(j => (
+                <div key={j.id} className="bg-red-50 border border-red-200 rounded-xl p-3">
+                  <div className="flex items-start gap-2 mb-1.5">
+                    <span className="text-red-500 text-xs mt-0.5 shrink-0">⚠</span>
+                    <span className="text-xs font-bold text-red-700 leading-tight">{j.name}</span>
+                  </div>
+                  <ul className="space-y-1 pl-4">
+                    {(j.conflict_reasons.length > 0 ? j.conflict_reasons : ['Resource double-booked']).map((r, i) => (
+                      <li key={i} className="text-xs text-red-600 flex items-start gap-1.5">
+                        <span className="text-red-300 shrink-0 mt-0.5">•</span>
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            {/* Panel footer */}
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50">
+              <p className="text-xs text-gray-400">Go to Jobs page to reassign resources or change dates.</p>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* ── Filters ── */}

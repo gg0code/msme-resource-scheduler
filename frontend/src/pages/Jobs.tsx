@@ -367,6 +367,10 @@ export default function Jobs() {
   const [toast, setToast]                 = useState('')
   const [schedulerRunning, setSchedulerRunning] = useState(false)
   const [scheduleDirty, setScheduleDirty]       = useState(true)
+  const [scheduleReport, setScheduleReport]     = useState<null | {
+    scheduled: number; skipped: number
+    details: { job_id: number; job_name: string; result: string; reason?: string; has_conflict?: boolean; conflict_reasons?: string[] }[]
+  }>(null)
   const [viewMode, setViewMode] = useState<'list'>('list')
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500) }
@@ -387,7 +391,7 @@ export default function Jobs() {
   // Fetch tenant info for job_id_prefix
   const { data: tenantInfo } = useQuery<{ job_id_prefix?: string | null }>({
     queryKey:['tenant-info'],
-    queryFn:() => apiClient.get('/api/auth/me').then(r => r.data?.tenant ?? {}),
+    queryFn:() => apiClient.get('/auth/me').then(r => r.data?.tenant ?? {}),
   })
   const jobPrefix = tenantInfo?.job_id_prefix ?? null
   const { planLimits } = usePlanLimits()
@@ -420,11 +424,13 @@ export default function Jobs() {
     setSchedulerRunning(true)
     try {
       const res = await apiClient.post('/api/jobs/auto-schedule')
-      const { scheduled, skipped } = res.data
+      const data = res.data
+      const { scheduled, skipped } = data
       // Clear stale availability cache so all jobs get re-checked
       setAvailCache({})
       qc.invalidateQueries({ queryKey: ['jobs'] })
       setScheduleDirty(false)
+      setScheduleReport(data)
       showToast(`Auto-scheduler done: ${scheduled} scheduled, ${skipped} skipped.`)
     } catch (e: unknown) {
       const msg = (e as {response?:{data?:{detail?:string}}})?.response?.data?.detail ?? 'Auto-scheduler failed'
@@ -1091,6 +1097,57 @@ export default function Jobs() {
           <Check size={15}/>{toast}
         </div>
       )}
+
+      {/* ── Auto-Schedule Report ─────────────────────────── */}
+      {scheduleReport && (() => {
+        const stillConflicted = scheduleReport.details.filter(d => d.result === 'scheduled' && d.has_conflict)
+        const skipped         = scheduleReport.details.filter(d => d.result === 'skipped')
+        const allClear        = stillConflicted.length === 0 && skipped.length === 0
+        return (
+          <div className={`mt-3 rounded-xl border px-4 py-3 text-sm ${allClear ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 font-semibold">
+                {allClear
+                  ? <><Check size={15} className="text-green-600"/><span className="text-green-700">All {scheduleReport.scheduled} jobs scheduled with no conflicts</span></>
+                  : <><AlertTriangle size={15} className="text-amber-600"/><span className="text-amber-700">{scheduleReport.scheduled} scheduled — {stillConflicted.length + skipped.length} still need attention</span></>
+                }
+              </div>
+              <button onClick={() => setScheduleReport(null)} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
+            </div>
+
+            {(stillConflicted.length > 0 || skipped.length > 0) && (
+              <div className="mt-3 space-y-2">
+                {stillConflicted.map(d => (
+                  <div key={d.job_id} className="bg-white border border-amber-200 rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-1.5 font-medium text-gray-800 mb-1">
+                      <AlertTriangle size={12} className="text-amber-500"/> {d.job_name}
+                      <span className="text-xs text-amber-600 font-normal ml-1">— scheduled but still has skill gap</span>
+                    </div>
+                    {d.conflict_reasons?.map((r, i) => (
+                      <p key={i} className="text-xs text-red-600 mb-0.5">· {r}</p>
+                    ))}
+                    <p className="text-xs text-gray-400 mt-1.5 border-t pt-1.5">
+                      Fix: Go to <strong>Employees</strong> → add the required skill at the required level, or lower the skill requirement on this job.
+                    </p>
+                  </div>
+                ))}
+                {skipped.map(d => (
+                  <div key={d.job_id} className="bg-white border border-gray-200 rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-1.5 font-medium text-gray-800 mb-1">
+                      <AlertCircle size={12} className="text-gray-400"/> {d.job_name}
+                      <span className="text-xs text-gray-400 font-normal ml-1">— could not be scheduled</span>
+                    </div>
+                    <p className="text-xs text-gray-500">· {d.reason}</p>
+                    <p className="text-xs text-gray-400 mt-1.5 border-t pt-1.5">
+                      Fix: Set this job to <strong>Flexible</strong> mode with a wider date range, or unlock conflicting jobs.
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── Toolbar ─────────────────────────────────────── */}
       <div className="bg-white border-b border-gray-100 py-3 flex items-center gap-3 flex-wrap">

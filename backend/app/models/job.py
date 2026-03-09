@@ -1,9 +1,9 @@
 """
-models/job.py — V1.1
-Added tenant_id to Job, JobSkillRequirement, JobAssignment.
+models/job.py — J1.1
+Added: start_mode, is_locked, has_conflict, earliest_date, latest_date
 """
 
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text, JSON, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
@@ -13,7 +13,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id          = Column(Integer, primary_key=True, index=True)
-    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)  # V1.1
+    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
     name        = Column(String(200), nullable=False)
     customer    = Column(String(150), nullable=True)
     description = Column(Text, nullable=True)
@@ -34,18 +34,29 @@ class Job(Base):
     paused_seconds  = Column(Integer, nullable=False, default=0)
     timer_log       = Column(JSON, nullable=True)
 
+    # ── J1.1 Scheduling fields ──────────────────────────────────────────────
+    # start_mode: 'right_away' | 'pick_a_date' | 'flexible'
+    # right_away  → start_date locked to today, job is auto-locked
+    # pick_a_date → start_date user-chosen, job is auto-locked
+    # flexible    → scheduler may place job between earliest_date and latest_date
+    start_mode    = Column(String(20), nullable=False, default="pick_a_date")
+    is_locked     = Column(Boolean, nullable=False, default=False)
+    has_conflict  = Column(Boolean, nullable=False, default=False)
+    earliest_date = Column(Date, nullable=True)   # flexible mode lower bound
+    latest_date   = Column(Date, nullable=True)   # flexible mode upper bound
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    skill_requirements = relationship("JobSkillRequirement", back_populates="job", cascade="all, delete-orphan")
-    assignments        = relationship("JobAssignment", back_populates="job", cascade="all, delete-orphan")
+    skill_requirements = relationship("JobSkillRequirement", back_populates="job", cascade="all, delete-orphan", lazy="select")
+    assignments        = relationship("JobAssignment", back_populates="job", cascade="all, delete-orphan", lazy="select")
 
 
 class JobSkillRequirement(Base):
     __tablename__ = "job_skill_requirements"
 
     id                 = Column(Integer, primary_key=True, index=True)
-    tenant_id          = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)  # V1.1
+    tenant_id          = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     job_id             = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     skill_id           = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False)
     min_skill_level    = Column(String(20), nullable=False, default="Generic")
@@ -59,12 +70,13 @@ class JobAssignment(Base):
     __tablename__ = "job_assignments"
 
     id          = Column(Integer, primary_key=True, index=True)
-    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)  # V1.1
+    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     job_id      = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True)
     machine_id  = Column(Integer, ForeignKey("machines.id", ondelete="SET NULL"), nullable=True)
-    assigned_at = Column(DateTime, default=datetime.utcnow)
+    assigned_at    = Column(DateTime, default=datetime.utcnow)
+    allocation_pct = Column(Integer, nullable=True, default=100)  # % of time this resource is allocated
 
-    job      = relationship("Job", back_populates="assignments")
-    employee = relationship("Employee", back_populates="assignments")
-    machine  = relationship("Machine", back_populates="assignments")
+    job      = relationship("Job", back_populates="assignments", lazy="select")
+    employee = relationship("Employee", back_populates="assignments", lazy="select")
+    machine  = relationship("Machine", back_populates="assignments", lazy="select")

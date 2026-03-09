@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import List, Dict, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.job import Job, JobSkillRequirement, JobAssignment
 from app.models.employee import Employee, EmployeeSkill
@@ -53,23 +53,22 @@ def _is_employee_busy(
     days: List[date],
     tenant_id: Optional[int] = None,   # ← ADDED
 ) -> bool:
-    q = db.query(JobAssignment).filter(
-        JobAssignment.employee_id == employee_id,
-        JobAssignment.job_id != job_id,
+    q = (
+        db.query(Job)
+        .join(JobAssignment, JobAssignment.job_id == Job.id)
+        .filter(
+            JobAssignment.employee_id == employee_id,
+            JobAssignment.job_id != job_id,
+        )
     )
     if tenant_id is not None:
-        q = q.filter(JobAssignment.tenant_id == tenant_id)  # ← tenant scoped
-    assignments = q.all()
+        q = q.filter(Job.tenant_id == tenant_id)
+    other_jobs = q.all()
 
-    for assignment in assignments:
-        other_job_q = db.query(Job).filter(Job.id == assignment.job_id)
-        if tenant_id is not None:
-            other_job_q = other_job_q.filter(Job.tenant_id == tenant_id)  # ← tenant scoped
-        other_job = other_job_q.first()
-        if other_job:
-            other_days = set(_date_range(other_job.start_date, other_job.end_date))
-            if any(d in other_days for d in days):
-                return True
+    for other_job in other_jobs:
+        other_days = set(_date_range(other_job.start_date, other_job.end_date))
+        if any(d in other_days for d in days):
+            return True
     return False
 
 
@@ -80,23 +79,22 @@ def _is_machine_busy(
     days: List[date],
     tenant_id: Optional[int] = None,   # ← ADDED
 ) -> bool:
-    q = db.query(JobAssignment).filter(
-        JobAssignment.machine_id == machine_id,
-        JobAssignment.job_id != job_id,
+    q = (
+        db.query(Job)
+        .join(JobAssignment, JobAssignment.job_id == Job.id)
+        .filter(
+            JobAssignment.machine_id == machine_id,
+            JobAssignment.job_id != job_id,
+        )
     )
     if tenant_id is not None:
-        q = q.filter(JobAssignment.tenant_id == tenant_id)  # ← tenant scoped
-    assignments = q.all()
+        q = q.filter(Job.tenant_id == tenant_id)
+    other_jobs = q.all()
 
-    for assignment in assignments:
-        other_job_q = db.query(Job).filter(Job.id == assignment.job_id)
-        if tenant_id is not None:
-            other_job_q = other_job_q.filter(Job.tenant_id == tenant_id)  # ← tenant scoped
-        other_job = other_job_q.first()
-        if other_job:
-            other_days = set(_date_range(other_job.start_date, other_job.end_date))
-            if any(d in other_days for d in days):
-                return True
+    for other_job in other_jobs:
+        other_days = set(_date_range(other_job.start_date, other_job.end_date))
+        if any(d in other_days for d in days):
+            return True
     return False
 
 

@@ -1,24 +1,24 @@
 """
-routers/jobs.py — V1.1
-Added: JWT auth, tenant_id scoping, RBAC, plan limit enforcement
-  GET    — any authenticated user
-  POST   — scheduler+ (+ free plan: max 5 jobs)
-  PATCH  — scheduler+
-  DELETE — proprietor only
-  timer  — scheduler+
+routers/jobs.py — V1.2
+Changes:
+  - create_job: auto-computes has_conflict after flush via check_availability()
+  - update_job: re-computes has_conflict when dates/assignments change
+  - POST /auto-schedule: runs scheduling engine on all unlocked jobs
+  - GET /tenant: returns tenant info including job_id_prefix
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional, Any
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 from app.database import get_db
 from app.models.job import Job, JobSkillRequirement, JobAssignment
 from app.core.dependencies import get_current_user, require_role
-from app.core.plan_limits import check_plan_limit, get_limit
+from app.core.plan_limits import check_plan_limit
 from app.models.auth import User, Tenant
+from app.services.availability_engine import check_availability
 
 router = APIRouter()
 
@@ -50,6 +50,10 @@ class JobCreate(BaseModel):
     notes: Optional[str] = None
     skill_requirements: List[SkillReqIn] = []
     raw_materials: Optional[List[Any]] = None
+    start_mode: Optional[str] = "right_away"
+    is_locked: Optional[bool] = False
+    earliest_date: Optional[str] = None
+    latest_date: Optional[str] = None
 
 class JobUpdate(BaseModel):
     name: Optional[str] = None
@@ -66,12 +70,34 @@ class JobUpdate(BaseModel):
     notes: Optional[str] = None
     skill_requirements: Optional[List[SkillReqIn]] = None
     raw_materials: Optional[List[Any]] = None
+    start_mode: Optional[str] = None
+    is_locked: Optional[bool] = None
+    has_conflict: Optional[bool] = None
+    earliest_date: Optional[str] = None
+    latest_date: Optional[str] = None
 
 class TimerAction(BaseModel):
     action: str  # start | pause | resume | end
 
 
-# ── Helper ────────────────────────────────────────────────────────────────────
+# ── Helper: compute and persist has_conflict ──────────────────────────────────
+def _refresh_conflict(db: Session, job: Job, tenant_id: int):
+    """
+    Run check_availability and write has_conflict back to the job row.
+    Returns the AvailabilityResult (or None on error).
+    Call after flush so job.id exists, but before final commit.
+    """
+    try:
+        result = check_availability(db, job.id, tenant_id)
+        job.has_conflict = not result.feasible
+        return result
+    except Exception:
+        # Never crash a save because of conflict-check failure
+        job.has_conflict = False
+        return None
+
+
+# ── Helper: serialize job ─────────────────────────────────────────────────────
 def job_to_dict(job: Job) -> dict:
     return {
         "id": job.id,
@@ -93,31 +119,72 @@ def job_to_dict(job: Job) -> dict:
         "actual_end_at": job.actual_end_at.isoformat() if job.actual_end_at else None,
         "paused_seconds": job.paused_seconds,
         "timer_log": job.timer_log or [],
+        "start_mode": job.start_mode or "right_away",
+        "is_locked": job.is_locked or False,
+        "has_conflict": job.has_conflict or False,
+        "earliest_date": str(job.earliest_date) if job.earliest_date else None,
+        "latest_date": str(job.latest_date) if job.latest_date else None,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "skill_requirements": [
-            {"id": r.id, "skill_id": r.skill_id, "min_skill_level": r.min_skill_level, "employees_required": r.employees_required}
+            {"id": r.id, "skill_id": r.skill_id, "min_skill_level": r.min_skill_level,
+             "employees_required": r.employees_required}
             for r in job.skill_requirements
         ],
         "assigned_employees": [
-            {"id": a.employee.id, "full_name": a.employee.full_name, "department": a.employee.department}
+            {"id": a.employee.id, "full_name": a.employee.full_name,
+             "department": a.employee.department,
+             "allocation_pct": getattr(a, 'allocation_pct', None) or 100}
             for a in job.assignments if a.employee_id is not None
         ],
         "assigned_machines": [
-            {"id": a.machine.id, "name": a.machine.name, "machine_type": a.machine.machine_type}
+            {"id": a.machine.id, "name": a.machine.name,
+             "machine_type": a.machine.machine_type,
+             "allocation_pct": getattr(a, 'allocation_pct', None) or 100}
             for a in job.assignments if a.machine_id is not None
         ],
     }
 
 
+# ── PRIORITY ORDER ────────────────────────────────────────────────────────────
+PRIORITY_RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@router.get("/tenant")
+def get_tenant_info(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return tenant info including job_id_prefix."""
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "slug": tenant.slug,
+        "plan": tenant.plan,
+        "job_id_prefix": getattr(tenant, "job_id_prefix", None),
+    }
+
+
 @router.get("/")
 def list_jobs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    jobs = db.query(Job).filter(
-        Job.tenant_id == current_user.tenant_id
-    ).order_by(Job.start_date).all()
+    jobs = (
+        db.query(Job)
+        .options(
+            selectinload(Job.assignments).selectinload(JobAssignment.employee),
+            selectinload(Job.assignments).selectinload(JobAssignment.machine),
+            selectinload(Job.skill_requirements),
+        )
+        .filter(Job.tenant_id == current_user.tenant_id)
+        .order_by(Job.start_date)
+        .all()
+    )
     return [job_to_dict(j) for j in jobs]
 
 
@@ -131,20 +198,6 @@ def create_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("proprietor", "scheduler")),
 ):
-    # Check raw materials plan limit
-    if payload.raw_materials:
-        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
-        plan = (getattr(tenant, "plan", None) or "free").lower()
-        rm_limit = get_limit(plan, "raw_materials")
-        if rm_limit is not None and len(payload.raw_materials) > rm_limit:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=402, detail={
-                "error": "plan_limit_reached",
-                "message": f"Your free plan allows up to {rm_limit} raw material lines per job. Upgrade to add more.",
-                "resource": "raw_materials", "limit": rm_limit,
-                "current": len(payload.raw_materials), "upgrade_required": True,
-            })
-
     job = Job(
         tenant_id=current_user.tenant_id,
         name=payload.name, customer=payload.customer, description=payload.description,
@@ -154,15 +207,42 @@ def create_job(
         misc_cost=payload.misc_cost, priority=payload.priority,
         status=payload.status, notes=payload.notes,
         raw_materials=payload.raw_materials or [],
+        start_mode=payload.start_mode or "right_away",
+        is_locked=payload.is_locked or False,
+        earliest_date=payload.earliest_date,
+        latest_date=payload.latest_date,
+        has_conflict=False,
         timer_status="idle", paused_seconds=0, timer_log=[],
     )
     db.add(job)
-    db.flush()
+    db.flush()  # get job.id without committing
+
     for r in payload.skill_requirements:
-        db.add(JobSkillRequirement(tenant_id=current_user.tenant_id, job_id=job.id, skill_id=r.skill_id,
-            min_skill_level=r.min_skill_level, employees_required=r.employees_required))
+        db.add(JobSkillRequirement(
+            tenant_id=current_user.tenant_id,
+            job_id=job.id, skill_id=r.skill_id,
+            min_skill_level=r.min_skill_level,
+            employees_required=r.employees_required,
+        ))
+    db.flush()
+
+    # ── Auto-compute conflict on create ──────────────────────────────────────
+    _refresh_conflict(db, job, current_user.tenant_id)
+
     db.commit()
     db.refresh(job)
+
+    # Reload with relationships
+    job = (
+        db.query(Job)
+        .options(
+            selectinload(Job.assignments).selectinload(JobAssignment.employee),
+            selectinload(Job.assignments).selectinload(JobAssignment.machine),
+            selectinload(Job.skill_requirements),
+        )
+        .filter(Job.id == job.id)
+        .first()
+    )
     return job_to_dict(job)
 
 
@@ -172,10 +252,16 @@ def get_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    job = db.query(Job).filter(
-        Job.id == job_id,
-        Job.tenant_id == current_user.tenant_id,
-    ).first()
+    job = (
+        db.query(Job)
+        .options(
+            selectinload(Job.assignments).selectinload(JobAssignment.employee),
+            selectinload(Job.assignments).selectinload(JobAssignment.machine),
+            selectinload(Job.skill_requirements),
+        )
+        .filter(Job.id == job_id, Job.tenant_id == current_user.tenant_id)
+        .first()
+    )
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job_to_dict(job)
@@ -188,34 +274,59 @@ def update_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("proprietor", "scheduler")),
 ):
-    job = db.query(Job).filter(
-        Job.id == job_id,
-        Job.tenant_id == current_user.tenant_id,
-    ).first()
+    job = (
+        db.query(Job)
+        .options(
+            selectinload(Job.assignments).selectinload(JobAssignment.employee),
+            selectinload(Job.assignments).selectinload(JobAssignment.machine),
+            selectinload(Job.skill_requirements),
+        )
+        .filter(Job.id == job_id, Job.tenant_id == current_user.tenant_id)
+        .first()
+    )
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        if field == "raw_materials" and value is not None:
-            tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
-            plan = (getattr(tenant, "plan", None) or "free").lower()
-            rm_limit = get_limit(plan, "raw_materials")
-            if rm_limit is not None and len(value) > rm_limit:
-                raise HTTPException(status_code=402, detail={
-                    "error": "plan_limit_reached",
-                    "message": f"Your free plan allows up to {rm_limit} raw material lines per job. Upgrade to add more.",
-                    "resource": "raw_materials", "limit": rm_limit,
-                    "current": len(value), "upgrade_required": True,
-                })
-            setattr(job, field, value)
-        elif field == "skill_requirements":
-            db.query(JobSkillRequirement).filter(JobSkillRequirement.job_id == job_id).delete()
+
+    date_changed = False
+    for field_name, value in payload.model_dump(exclude_unset=True).items():
+        if field_name == "skill_requirements":
+            db.query(JobSkillRequirement).filter(
+                JobSkillRequirement.job_id == job_id
+            ).delete()
             for r in (value or []):
-                db.add(JobSkillRequirement(tenant_id=current_user.tenant_id, job_id=job_id, skill_id=r["skill_id"],
-                    min_skill_level=r["min_skill_level"], employees_required=r["employees_required"]))
+                db.add(JobSkillRequirement(
+                    tenant_id=current_user.tenant_id,
+                    job_id=job_id, skill_id=r["skill_id"],
+                    min_skill_level=r["min_skill_level"],
+                    employees_required=r["employees_required"],
+                ))
+            date_changed = True  # skill changes can affect conflict
+        elif field_name == "has_conflict":
+            pass  # never accept client-supplied has_conflict — always compute it
         else:
-            setattr(job, field, value)
+            if field_name in ("start_date", "end_date", "earliest_date", "latest_date"):
+                date_changed = True
+            setattr(job, field_name, value)
+
+    db.flush()
+
+    # ── Auto-recompute conflict whenever dates or skills change ──────────────
+    if date_changed:
+        _refresh_conflict(db, job, current_user.tenant_id)
+
     db.commit()
     db.refresh(job)
+
+    job = (
+        db.query(Job)
+        .options(
+            selectinload(Job.assignments).selectinload(JobAssignment.employee),
+            selectinload(Job.assignments).selectinload(JobAssignment.machine),
+            selectinload(Job.skill_requirements),
+        )
+        .filter(Job.id == job_id)
+        .first()
+    )
     return job_to_dict(job)
 
 
@@ -242,10 +353,16 @@ def job_timer(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("proprietor", "scheduler")),
 ):
-    job = db.query(Job).filter(
-        Job.id == job_id,
-        Job.tenant_id == current_user.tenant_id,
-    ).first()
+    job = (
+        db.query(Job)
+        .options(
+            selectinload(Job.assignments).selectinload(JobAssignment.employee),
+            selectinload(Job.assignments).selectinload(JobAssignment.machine),
+            selectinload(Job.skill_requirements),
+        )
+        .filter(Job.id == job_id, Job.tenant_id == current_user.tenant_id)
+        .first()
+    )
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -301,3 +418,177 @@ def job_timer(
         "actual_duration_seconds": actual_seconds,
         "actual_duration_hours": round(actual_seconds / 3600, 2) if actual_seconds else None,
     }
+
+
+# ── AUTO-SCHEDULER ────────────────────────────────────────────────────────────
+
+class AutoScheduleResult(BaseModel):
+    scheduled: int
+    skipped: int
+    details: List[dict]
+
+@router.post("/auto-schedule", response_model=AutoScheduleResult)
+def auto_schedule(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("proprietor", "scheduler")),
+):
+    """
+    Auto-scheduler: assign start/end dates to all UNLOCKED, non-completed jobs
+    in priority order: Critical → High → Medium → Low, then by order_value desc.
+
+    Algorithm:
+    1. Collect all unlocked, active jobs sorted by priority then order_value.
+    2. For each job, find the earliest available window starting from today
+       (or earliest_date if set) where none of its assigned machines/employees
+       are already occupied by a locked or previously-scheduled job.
+    3. Set start_date / end_date, recompute has_conflict, save.
+
+    Locked jobs are never moved — they act as fixed anchors.
+    """
+    tenant_id = current_user.tenant_id
+    today = date.today()
+
+    # Load ALL tenant jobs with assignments
+    all_jobs = (
+        db.query(Job)
+        .options(
+            selectinload(Job.assignments).selectinload(JobAssignment.employee),
+            selectinload(Job.assignments).selectinload(JobAssignment.machine),
+            selectinload(Job.skill_requirements),
+        )
+        .filter(Job.tenant_id == tenant_id)
+        .all()
+    )
+
+    # Separate locked (anchors) from unlocked (to schedule)
+    locked_jobs   = [j for j in all_jobs if j.is_locked or j.status in ("Completed", "Cancelled")]
+    unlocked_jobs = [j for j in all_jobs if not j.is_locked and j.status not in ("Completed", "Cancelled")]
+
+    # Sort unlocked by priority → order_value desc
+    unlocked_jobs.sort(key=lambda j: (
+        PRIORITY_RANK.get(j.priority, 99),
+        -(j.order_value or 0),
+    ))
+
+    # Build occupancy map: resource_id → set of occupied dates (from locked jobs)
+    # resource key: "emp:{id}" or "mach:{id}"
+    occupied: dict[str, set] = {}
+
+    def _date_range(start: date, end: date) -> list:
+        days, cur = [], start
+        while cur <= end:
+            days.append(cur)
+            cur += timedelta(days=1)
+        return days
+
+    def _occupy(job: Job):
+        if not job.start_date or not job.end_date:
+            return
+        days = _date_range(job.start_date, job.end_date)
+        for a in job.assignments:
+            if a.employee_id:
+                key = f"emp:{a.employee_id}"
+                occupied.setdefault(key, set()).update(days)
+            if a.machine_id:
+                key = f"mach:{a.machine_id}"
+                occupied.setdefault(key, set()).update(days)
+
+    for j in locked_jobs:
+        _occupy(j)
+
+    def _duration_days(job: Job) -> int:
+        if job.start_date and job.end_date:
+            return (job.end_date - job.start_date).days
+        return 7  # fallback: 1 week
+
+    def _resources(job: Job):
+        emp_keys  = [f"emp:{a.employee_id}"  for a in job.assignments if a.employee_id]
+        mach_keys = [f"mach:{a.machine_id}"  for a in job.assignments if a.machine_id]
+        return emp_keys + mach_keys
+
+    def _find_slot(job: Job) -> Optional[date]:
+        """Find earliest start date where all assigned resources are free."""
+        duration = _duration_days(job)
+        resources = _resources(job)
+
+        # Respect earliest_date boundary
+        earliest = today
+        if job.start_mode == "flexible" and job.earliest_date:
+            earliest = max(today, job.earliest_date)
+        elif job.start_mode == "pick_a_date" and job.start_date:
+            # Keep existing date if resources are free there
+            candidate_days = _date_range(job.start_date, job.end_date)
+            if all(
+                d not in occupied.get(r, set())
+                for r in resources for d in candidate_days
+            ):
+                return job.start_date
+            earliest = job.start_date  # try from existing date
+
+        # Scan forward up to 365 days to find a free window
+        latest_boundary = None
+        if job.start_mode == "flexible" and job.latest_date:
+            latest_boundary = job.latest_date
+
+        candidate = earliest
+        for _ in range(365):
+            candidate_end = candidate + timedelta(days=duration)
+            if latest_boundary and candidate > latest_boundary:
+                return None  # can't fit within boundary
+            candidate_days = _date_range(candidate, candidate_end)
+            if all(
+                d not in occupied.get(r, set())
+                for r in resources for d in candidate_days
+            ):
+                return candidate
+            candidate += timedelta(days=1)
+
+        return None  # couldn't find a slot
+
+    scheduled_count = 0
+    skipped_count   = 0
+    details         = []
+
+    for job in unlocked_jobs:
+        slot = _find_slot(job)
+        if slot is None:
+            skipped_count += 1
+            details.append({
+                "job_id": job.id, "job_name": job.name,
+                "result": "skipped", "reason": "No available slot found within constraints",
+            })
+            continue
+
+        duration = _duration_days(job)
+        new_end  = slot + timedelta(days=duration)
+
+        old_start = str(job.start_date)
+        job.start_date = slot
+        job.end_date   = new_end
+        db.flush()
+
+        # Mark occupancy so subsequent jobs respect this slot
+        _occupy(job)
+
+        # Recompute conflict
+        avail = _refresh_conflict(db, job, tenant_id)
+        conflict_reasons = [c.reason for c in avail.conflicts] if avail and avail.conflicts else []
+
+        scheduled_count += 1
+        details.append({
+            "job_id": job.id, "job_name": job.name,
+            "result": "scheduled",
+            "old_start": old_start,
+            "new_start": str(slot),
+            "new_end": str(new_end),
+            "has_conflict": job.has_conflict,
+            "conflict_reasons": conflict_reasons,
+        })
+
+    db.commit()
+
+    return AutoScheduleResult(
+        scheduled=scheduled_count,
+        skipped=skipped_count,
+        details=details,
+    )

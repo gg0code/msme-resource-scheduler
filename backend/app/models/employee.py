@@ -28,12 +28,12 @@ class Employee(Base):
     created_at            = Column(DateTime, default=datetime.utcnow)
     updated_at            = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    skills                 = relationship("EmployeeSkill", back_populates="employee", cascade="all, delete-orphan")
+    skills                 = relationship("EmployeeSkill", back_populates="employee", cascade="all, delete-orphan", lazy="select")
     availability_overrides = relationship(
         "AvailabilityOverride", back_populates="employee",
         foreign_keys="AvailabilityOverride.employee_id", cascade="all, delete-orphan",
     )
-    assignments = relationship("JobAssignment", back_populates="employee")
+    assignments = relationship("JobAssignment", back_populates="employee", lazy="select")
 
 
 class EmployeeSkill(Base):

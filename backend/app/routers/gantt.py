@@ -12,7 +12,7 @@ Registered in main.py as /api/gantt
 """
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date
@@ -84,6 +84,10 @@ def get_gantt_data(
 
     jobs = (
         db.query(Job)
+        .options(
+            selectinload(Job.assignments).selectinload(JobAssignment.employee),
+            selectinload(Job.assignments).selectinload(JobAssignment.machine),
+        )
         .filter(Job.tenant_id == tenant_id)
         .order_by(Job.start_date)
         .all()
@@ -91,30 +95,13 @@ def get_gantt_data(
 
     result = []
     for job in jobs:
-        # Assignments → names
-        assignments = (
-            db.query(JobAssignment)
-            .filter(JobAssignment.job_id == job.id, JobAssignment.tenant_id == tenant_id)
-            .all()
-        )
-
         employee_names = []
         machine_names = []
-        for a in assignments:
-            if a.employee_id:
-                emp = db.query(Employee).filter(
-                    Employee.id == a.employee_id,
-                    Employee.tenant_id == tenant_id,
-                ).first()
-                if emp:
-                    employee_names.append(emp.full_name)
-            if a.machine_id:
-                mac = db.query(Machine).filter(
-                    Machine.id == a.machine_id,
-                    Machine.tenant_id == tenant_id,
-                ).first()
-                if mac:
-                    machine_names.append(mac.name)
+        for a in job.assignments:
+            if a.employee_id and a.employee:
+                employee_names.append(a.employee.full_name)
+            if a.machine_id and a.machine:
+                machine_names.append(a.machine.name)
 
         # Conflict detection
         has_conflict = False

@@ -7,6 +7,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { X, Send, Bot, Sparkles, ChevronRight, Zap, MessageSquare } from 'lucide-react'
 import { AI_TOOLS, AI_TOOL_CATEGORIES } from '../data/aiTools'
+import apiClient from '../api/client'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -147,9 +148,8 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
 
   const fetchUsage = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const res   = await fetch('/api/ai/usage', { headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: 'include' })
-      if (res.ok) setUsage(await res.json())
+      const res = await apiClient.get('/api/ai/usage')
+      setUsage(res.data)
     } catch { /* silent */ }
   }
 
@@ -165,27 +165,27 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
     if (tab === 'tools') setTab('chat')
 
     try {
-      const token = localStorage.getItem('access_token')
-      const res   = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        credentials: 'include',
-        body: JSON.stringify({ messages: updated.map(m => ({ role: m.role, content: m.content })), page_context: pageContext }),
+      const res = await apiClient.post('/api/ai/chat', {
+        messages: updated.map(m => ({ role: m.role, content: m.content })),
+        page_context: pageContext,
       })
 
-      if (res.status === 429) {
-        const err = await res.json()
-        setMessages(prev => [...prev, { role: 'assistant', content: err.detail || 'Daily query limit reached.', timestamp: new Date() }])
+      setMessages(prev => [...prev, { role: 'assistant', content: res.data.reply, timestamp: new Date() }])
+      setUsage(prev => prev ? {
+        ...prev,
+        queries_used: res.data.queries_used,
+        queries_limit: res.data.queries_limit,
+        queries_remaining: res.data.queries_remaining,
+        usage_pct: (res.data.queries_used / res.data.queries_limit) * 100
+      } : prev)
+
+    } catch (err: any) {
+      if (err?.response?.status === 429) {
+        const detail = err.response?.data?.detail || 'Daily query limit reached.'
+        setMessages(prev => [...prev, { role: 'assistant', content: detail, timestamp: new Date() }])
         fetchUsage()
         return
       }
-      if (!res.ok) throw new Error('failed')
-
-      const data = await res.json()
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply, timestamp: new Date() }])
-      setUsage(prev => prev ? { ...prev, queries_used: data.queries_used, queries_limit: data.queries_limit, queries_remaining: data.queries_remaining, usage_pct: (data.queries_used / data.queries_limit) * 100 } : prev)
-
-    } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I ran into an issue. Please try again.', timestamp: new Date() }])
     } finally {
       setLoading(false)

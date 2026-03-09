@@ -1,4 +1,6 @@
-// src/App.tsx — V2.0
+// src/App.tsx — V3.0
+// - Removed /availability and /checker routes (superseded by auto-scheduler)
+
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
 import { ProtectedRoute } from './auth/ProtectedRoute'
@@ -15,9 +17,7 @@ import Skills from './pages/Skills'
 import Employees from './pages/Employees'
 import Machines from './pages/Machines'
 import Jobs from './pages/Jobs'
-import Availability from './pages/Availability'
-import Checker from './pages/Checker'
-import GanttPage from './pages/GanttPage'   // V2.0
+import GanttPage from './pages/GanttPage'
 
 export default function App() {
   return (
@@ -32,13 +32,11 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Layout />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard"    element={<Dashboard />} />
-            <Route path="jobs"         element={<Jobs />} />
-            <Route path="employees"    element={<Employees />} />
-            <Route path="machines"     element={<Machines />} />
-            <Route path="availability" element={<Availability />} />
-            <Route path="checker"      element={<Checker />} />
-            <Route path="gantt"        element={<GanttPage />} />   {/* V2.0 */}
+            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="jobs"      element={<Jobs />} />
+            <Route path="gantt"     element={<GanttPage />} />
+            <Route path="employees" element={<Employees />} />
+            <Route path="machines"  element={<Machines />} />
 
             {/* Skills — proprietor only */}
             <Route element={<ProtectedRoute roles={['proprietor']} />}>
