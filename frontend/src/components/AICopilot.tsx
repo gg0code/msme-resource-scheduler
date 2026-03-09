@@ -144,7 +144,24 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
   const inputRef                 = useRef<HTMLInputElement>(null)
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
-  useEffect(() => { if (isOpen) { setTimeout(() => inputRef.current?.focus(), 300); fetchUsage() } }, [isOpen])
+  useEffect(() => {
+    if (isOpen) {
+      // Refresh greeting with the current page — but only if conversation hasn't started
+      setMessages(prev => {
+        if (prev.length === 1 && prev[0].role === 'assistant') {
+          return [{
+            role: 'assistant' as const,
+            content: `Namaste! 👋 I'm your AI Copilot.\n\nI can see you're on **${pageLabel}**. Use suggestions below or switch to **Tools** for 50 pre-built queries.`,
+            timestamp: new Date(),
+          }]
+        }
+        return prev
+      })
+      setTimeout(() => inputRef.current?.focus(), 300)
+      fetchUsage()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
 
   const fetchUsage = async () => {
     try {
