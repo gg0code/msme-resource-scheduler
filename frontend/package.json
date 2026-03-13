@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",
+    "@types/qrcode.react": "^1.0.5",
     "axios": "^1.13.6",
     "lucide-react": "^0.577.0",
     "qrcode": "^1.5.4",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1"

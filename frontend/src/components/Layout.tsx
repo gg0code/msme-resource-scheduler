@@ -1,28 +1,25 @@
 // src/components/Layout.tsx — V3.2
-// Added: AICopilot side panel + "Ask AI Copilot" toggle button in header
+// Removed: Availability, Avail. Checker, Scheduling Jobs nav items
+// Added: AICopilot floating panel
 
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Wrench, Users, Settings,
-  BriefcaseBusiness, Factory, CalendarOff,
-  ShieldCheck, LogOut, BarChart2, ClipboardList,
-  Sparkles,
+  BriefcaseBusiness, Factory,
+  LogOut, BarChart2, Bot,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import SchedulerToolbar from '../scheduler/SchedulerToolbar'
 import AICopilot from './AICopilot'
 
 const navItems = [
-  { to: '/dashboard',    label: 'Dashboard',         icon: LayoutDashboard  },
-  { to: '/jobs',         label: 'Jobs',               icon: BriefcaseBusiness },
-  { to: '/sched-jobs',   label: 'Scheduling Jobs',    icon: ClipboardList    },
-  { to: '/gantt',        label: 'Gantt Chart',        icon: BarChart2        },
-  { to: '/employees',    label: 'Employees',          icon: Users            },
-  { to: '/machines',     label: 'Machines',           icon: Factory          },
-  { to: '/availability', label: 'Availability',       icon: CalendarOff      },
-  { to: '/checker',      label: 'Avail. Checker',     icon: ShieldCheck      },
-  { to: '/skills',       label: 'Skills',             icon: Settings         },
+  { to: '/dashboard',  label: 'Dashboard',   icon: LayoutDashboard  },
+  { to: '/jobs',       label: 'Jobs',         icon: BriefcaseBusiness },
+  { to: '/gantt',      label: 'Timeline',     icon: BarChart2        },
+  { to: '/employees',  label: 'Employees',    icon: Users            },
+  { to: '/machines',   label: 'Machines',     icon: Factory          },
+  { to: '/skills',     label: 'Skills',       icon: Settings         },
 ]
 
 const ROLE_BADGE: Record<string, { label: string; color: string }> = {
@@ -98,15 +95,6 @@ export default function Layout() {
         {/* Top header bar */}
         <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-end px-6 gap-4 shrink-0">
           <SchedulerToolbar />
-
-          {/* AI Copilot toggle button */}
-          <button
-            onClick={() => setAiOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-violet-600 text-white text-xs font-semibold hover:opacity-90 transition-opacity shadow-sm"
-          >
-            <Sparkles size={13} />
-            Ask AI Copilot
-          </button>
         </header>
 
         {/* Page content */}
@@ -115,7 +103,17 @@ export default function Layout() {
         </main>
       </div>
 
-      {/* AI Copilot side panel */}
+      {/* AI Copilot floating button */}
+      <button
+        onClick={() => setAiOpen(o => !o)}
+        className={`fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg text-white text-sm font-medium transition-all
+          ${aiOpen ? 'bg-gray-700 hover:bg-gray-800' : 'bg-blue-600 hover:bg-blue-700'}`}
+      >
+        <Bot size={18} />
+        {aiOpen ? 'Close AI' : 'AI Copilot'}
+      </button>
+
+      {/* AI Copilot panel */}
       <AICopilot isOpen={aiOpen} onClose={() => setAiOpen(false)} />
     </div>
   )

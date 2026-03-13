@@ -6,7 +6,9 @@ Every model insert and skill lookup is now tenant-scoped.
 
 import csv
 import io
-from typing import List, Dict, Any
+import openpyxl
+from datetime import date
+from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from app.models.employee import Employee, EmployeeSkill
@@ -18,6 +20,42 @@ def _read_csv(content: bytes) -> List[Dict[str, str]]:
     text = content.decode("utf-8-sig")   # strip BOM if present
     reader = csv.DictReader(io.StringIO(text))
     return [row for row in reader]
+
+
+def _read_xlsx(content: bytes) -> List[Dict[str, str]]:
+    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+    headers = [str(h).strip() if h is not None else "" for h in rows[0]]
+    result = []
+    for row in rows[1:]:
+        if all(v is None for v in row):
+            continue  # skip empty rows
+        result.append({
+            headers[i]: (str(v).strip() if v is not None else "")
+            for i, v in enumerate(row)
+            if i < len(headers)
+        })
+    return result
+
+
+def _read_file(content: bytes, filename: str) -> List[Dict[str, str]]:
+    if filename.endswith(".xlsx"):
+        return _read_xlsx(content)
+    return _read_csv(content)
+
+
+def _parse_date(val: str) -> Optional[date]:
+    """Parse YYYY-MM-DD date string, return None if empty or invalid."""
+    val = (val or "").strip()
+    if not val:
+        return None
+    try:
+        return date.fromisoformat(val)
+    except ValueError:
+        return None
 
 
 def _get_or_create_skill(db: Session, name: str, tenant_id: int) -> Skill:
@@ -39,8 +77,8 @@ def _get_or_create_skill(db: Session, name: str, tenant_id: int) -> Skill:
 #   status, contact_number, join_date, hourly_rate, overtime_rate,
 #   skills  (pipe-separated "SkillName:Level" e.g. "CNC:Premium|Welding:Generic")
 
-def import_employees(db: Session, content: bytes, tenant_id: int) -> Dict[str, Any]:  # ← tenant_id added
-    rows = _read_csv(content)
+def import_employees(db: Session, content: bytes, tenant_id: int, filename: str = "file.csv") -> Dict[str, Any]:
+    rows = _read_file(content, filename)
     ok, failed, errors = 0, 0, []
 
     for i, row in enumerate(rows, start=2):
@@ -86,6 +124,22 @@ def import_employees(db: Session, content: bytes, tenant_id: int) -> Dict[str, A
                         tenant_id=tenant_id,                                # ← tenant_id
                     ))
 
+            # ── Import leave period if provided ─────────────────────────
+            leave_start = _parse_date(row.get("leave_start") or "")
+            leave_end   = _parse_date(row.get("leave_end") or "")
+            if leave_start and leave_end:
+                if leave_end >= leave_start:
+                    from app.models.unavailability import EmployeeLeave
+                    db.add(EmployeeLeave(
+                        tenant_id   = tenant_id,
+                        employee_id = emp.id,
+                        start_date  = leave_start,
+                        end_date    = leave_end,
+                        reason      = (row.get("leave_reason") or "").strip() or None,
+                    ))
+                else:
+                    errors.append(f"Row {i} ({name}): leave_end before leave_start — leave skipped")
+
             ok += 1
         except Exception as e:
             errors.append(f"Row {i} ({name}): {e}")
@@ -102,8 +156,8 @@ def import_employees(db: Session, content: bytes, tenant_id: int) -> Dict[str, A
 #   status, hourly_rate,
 #   skill_requirements  (pipe-separated "SkillName:Level:Count" e.g. "CNC:Premium:1|Helper:Generic:2")
 
-def import_machines(db: Session, content: bytes, tenant_id: int) -> Dict[str, Any]:  # ← tenant_id added
-    rows = _read_csv(content)
+def import_machines(db: Session, content: bytes, tenant_id: int, filename: str = "file.csv") -> Dict[str, Any]:
+    rows = _read_file(content, filename)
     ok, failed, errors = 0, 0, []
 
     for i, row in enumerate(rows, start=2):
@@ -144,6 +198,22 @@ def import_machines(db: Session, content: bytes, tenant_id: int) -> Dict[str, An
                         employees_required=scount,
                         tenant_id=tenant_id,                                # ← tenant_id
                     ))
+
+            # ── Import downtime period if provided ──────────────────────
+            dt_start = _parse_date(row.get("downtime_start") or "")
+            dt_end   = _parse_date(row.get("downtime_end") or "")
+            if dt_start and dt_end:
+                if dt_end >= dt_start:
+                    from app.models.unavailability import MachineDowntime
+                    db.add(MachineDowntime(
+                        tenant_id  = tenant_id,
+                        machine_id = machine.id,
+                        start_date = dt_start,
+                        end_date   = dt_end,
+                        reason     = (row.get("downtime_reason") or "").strip() or None,
+                    ))
+                else:
+                    errors.append(f"Row {i} ({name}): downtime_end before downtime_start — downtime skipped")
 
             ok += 1
         except Exception as e:
@@ -196,14 +266,14 @@ def import_skills(db: Session, content: bytes, tenant_id: int) -> Dict[str, Any]
 
 # ── CSV Template generators ────────────────────────────────────────────────
 
-EMPLOYEE_TEMPLATE = """full_name,department,employment_type,base_availability_pct,status,contact_number,join_date,hourly_rate,overtime_rate,skills
-Ramesh Sharma,Production,Full-time,100,Active,9812345678,2023-01-15,150,225,CNC Ops:Premium|Welding:Generic
-Priya Mehta,Quality,Full-time,100,Active,9898765432,2022-06-01,120,180,Quality Check:Intermediate
+EMPLOYEE_TEMPLATE = """full_name,department,employment_type,base_availability_pct,status,contact_number,join_date,hourly_rate,overtime_rate,skills,leave_start,leave_end,leave_reason
+Ramesh Sharma,Production,Full-time,100,Active,9812345678,2023-01-15,150,225,CNC Ops:Premium|Welding:Generic,,,
+Priya Mehta,Quality,Full-time,100,Active,9898765432,2022-06-01,120,180,Quality Check:Intermediate,2026-04-01,2026-04-05,Annual Leave
 """
 
-MACHINE_TEMPLATE = """name,machine_type,location_bay,base_availability_pct,status,hourly_rate,skill_requirements
-CNC Lathe #1,CNC Lathe,Bay A,100,Operational,80,CNC Ops:Premium:1|Helper:Generic:1
-VMC Mill #2,VMC,Bay B,100,Operational,120,CNC Ops:Intermediate:2
+MACHINE_TEMPLATE = """name,machine_type,location_bay,base_availability_pct,status,hourly_rate,skill_requirements,downtime_start,downtime_end,downtime_reason
+CNC Lathe #1,CNC Lathe,Bay A,100,Operational,80,CNC Ops:Premium:1|Helper:Generic:1,,,
+VMC Mill #2,VMC,Bay B,100,Operational,120,CNC Ops:Intermediate:2,2026-04-10,2026-04-12,Scheduled Maintenance
 """
 
 SKILL_TEMPLATE = """name,category,description
@@ -216,4 +286,63 @@ TEMPLATES = {
     "employees": ("employees_template.csv", EMPLOYEE_TEMPLATE),
     "machines":  ("machines_template.csv",  MACHINE_TEMPLATE),
     "skills":    ("skills_template.csv",    SKILL_TEMPLATE),
+}
+
+
+# ── XLSX Template generators ───────────────────────────────────────────────
+
+def _make_xlsx(headers: list, sample_rows: list) -> bytes:
+    """Build an xlsx file with headers and sample rows, return as bytes."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+
+    # Style header row
+    from openpyxl.styles import Font, PatternFill, Alignment
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(fill_type="solid", fgColor="2563EB")  # blue-600
+
+    for col, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[cell.column_letter].width = max(len(header) + 4, 16)
+
+    # Sample rows
+    for row_idx, row_data in enumerate(sample_rows, start=2):
+        for col_idx, value in enumerate(row_data, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=value)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+_EMP_HEADERS = [
+    "full_name", "department", "employment_type", "base_availability_pct",
+    "status", "contact_number", "join_date", "hourly_rate", "overtime_rate",
+    "skills", "leave_start", "leave_end", "leave_reason",
+]
+_EMP_SAMPLES = [
+    ["Ramesh Sharma", "Production", "Full-time", 100, "Active", "9812345678",
+     "2023-01-15", 150, 225, "CNC Ops:Premium|Welding:Generic", "", "", ""],
+    ["Priya Mehta", "Quality", "Full-time", 100, "Active", "9898765432",
+     "2022-06-01", 120, 180, "Quality Check:Intermediate", "2026-04-01", "2026-04-05", "Annual Leave"],
+]
+
+_MACH_HEADERS = [
+    "name", "machine_type", "location_bay", "base_availability_pct",
+    "status", "hourly_rate", "skill_requirements",
+    "downtime_start", "downtime_end", "downtime_reason",
+]
+_MACH_SAMPLES = [
+    ["CNC Lathe #1", "CNC Lathe", "Bay A", 100, "Operational", 80,
+     "CNC Ops:Premium:1|Helper:Generic:1", "", "", ""],
+    ["VMC Mill #2", "VMC", "Bay B", 100, "Operational", 120,
+     "CNC Ops:Intermediate:2", "2026-04-10", "2026-04-12", "Scheduled Maintenance"],
+]
+
+XLSX_TEMPLATES = {
+    "employees": ("employees_template.xlsx", _make_xlsx(_EMP_HEADERS, _EMP_SAMPLES)),
+    "machines":  ("machines_template.xlsx",  _make_xlsx(_MACH_HEADERS, _MACH_SAMPLES)),
 }

@@ -9,7 +9,7 @@
 import { useState } from 'react'
 import {
   Zap, AlertTriangle, CheckCircle, Lock,
-  X, Clock, Loader2,
+  X, Clock, Loader2, RotateCcw,
 } from 'lucide-react'
 import { useSchedulerContext } from './SchedulerContext'
 import type { ConflictEntry } from './useScheduler'
@@ -231,10 +231,10 @@ export default function SchedulerToolbar() {
         {running ? 'Scheduling…' : 'Auto-Schedule'}
       </button>
 
-      {/* Dirty indicator — inline badge, not a stacked banner */}
+      {/* Reschedule needed indicator */}
       {!running && (
-        <span className="text-xs text-blue-600 flex items-center gap-1 whitespace-nowrap">
-          ⚡ Dirty
+        <span className="text-xs text-amber-600 flex items-center gap-1 whitespace-nowrap font-medium">
+          <RotateCcw size={11}/> Reschedule Needed
         </span>
       )}
 

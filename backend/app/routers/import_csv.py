@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.utils.csv_import import import_employees, import_machines, import_skills, TEMPLATES
+from app.utils.csv_import import import_employees, import_machines, import_skills, TEMPLATES, XLSX_TEMPLATES
 from app.core.dependencies import get_current_user, require_role
 from app.models.auth import User
 
@@ -32,16 +32,31 @@ def download_template(
     )
 
 
+@router.get("/template-xlsx/{resource}")
+def download_xlsx_template(
+    resource: str,
+    current_user: User = Depends(get_current_user),
+):
+    if resource not in XLSX_TEMPLATES:
+        raise HTTPException(status_code=404, detail=f"No xlsx template for '{resource}'. Use: employees, machines")
+    filename, content_bytes = XLSX_TEMPLATES[resource]
+    return Response(
+        content=content_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @router.post("/employees")
 async def upload_employees(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("proprietor", "scheduler")),
 ):
-    if not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only .csv files are accepted")
+    if not (file.filename.endswith(".csv") or file.filename.endswith(".xlsx")):
+        raise HTTPException(status_code=400, detail="Only .csv or .xlsx files are accepted")
     content = await file.read()
-    result = import_employees(db, content, tenant_id=current_user.tenant_id)
+    result = import_employees(db, content, tenant_id=current_user.tenant_id, filename=file.filename)
     return result
 
 
@@ -51,10 +66,10 @@ async def upload_machines(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("proprietor", "scheduler")),
 ):
-    if not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only .csv files are accepted")
+    if not (file.filename.endswith(".csv") or file.filename.endswith(".xlsx")):
+        raise HTTPException(status_code=400, detail="Only .csv or .xlsx files are accepted")
     content = await file.read()
-    result = import_machines(db, content, tenant_id=current_user.tenant_id)
+    result = import_machines(db, content, tenant_id=current_user.tenant_id, filename=file.filename)
     return result
 
 

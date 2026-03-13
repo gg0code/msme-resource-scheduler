@@ -19,8 +19,6 @@ import Skills from './pages/Skills'
 import Employees from './pages/Employees'
 import Machines from './pages/Machines'
 import Jobs from './pages/Jobs'
-import Availability from './pages/Availability'
-import Checker from './pages/Checker'
 import GanttPage from './pages/GanttPage'
 
 // Scheduling engine pages
@@ -64,8 +62,6 @@ export default function App() {
             <Route path="jobs"         element={<Jobs />} />
             <Route path="employees"    element={<Employees />} />
             <Route path="machines"     element={<Machines />} />
-            <Route path="availability" element={<Availability />} />
-            <Route path="checker"      element={<Checker />} />
             <Route path="gantt"        element={<GanttPage />} />
 
             {/* Scheduling engine */}

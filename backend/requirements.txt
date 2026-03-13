@@ -22,8 +22,18 @@ pydantic==2.7.1
 pydantic-settings==2.2.1
 email-validator==2.1.1
 
-# ── AI Copilot — V3.0 ─────────────────────────────────────────────────────────
+# ── AI Copilot ────────────────────────────────────────────────────────────────
 groq==0.9.0
+
+# ── Excel / CSV Import (openpyxl for .xlsx read+write, template generation) ──
+openpyxl==3.1.2
+
+# ── QR Code generation (scan tokens for job cards) ───────────────────────────
+qrcode[pil]==7.4.2
+Pillow==10.3.0
+
+# ── PDF generation (job cards, reports — if server-side PDF needed) ───────────
+reportlab==4.1.0
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv==1.0.1

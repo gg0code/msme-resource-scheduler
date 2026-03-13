@@ -34,7 +34,7 @@ export function useScheduler() {
   const qc = useQueryClient()
 
   const [state, setState] = useState<SchedulerState>({
-    status:    'active',
+    status:    'greyed-clean',
     conflicts: [],
     lastRun:   null,
     running:   false,

@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { fetchGanttData } from '../api/api_gantt'
 import type { GanttJob } from '../api/api_gantt'
 import { CoachMark } from '../components/onboarding'
+import { ChevronRight, ChevronDown } from 'lucide-react'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const ROW_H    = 52
@@ -132,6 +133,49 @@ export default function GanttPage() {
   const [selectedJob, setSelectedJob] = useState<GanttJob | null>(null)
   const [conflictPanelOpen, setConflictPanelOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [collapsedMachines, setCollapsedMachines] = useState<Set<string>>(new Set())
+  const [labelWidth, setLabelWidth] = useState(220)
+  const isDragging = useRef(false)
+  const dragStartX = useRef(0)
+  const dragStartW = useRef(0)
+
+  function toggleMachine(machine: string) {
+    setCollapsedMachines(prev => {
+      const next = new Set(prev)
+      next.has(machine) ? next.delete(machine) : next.add(machine)
+      return next
+    })
+  }
+
+  function onDragStart(e: React.MouseEvent) {
+    isDragging.current = true
+    dragStartX.current = e.clientX
+    dragStartW.current = labelWidth
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!isDragging.current) return
+      const delta = e.clientX - dragStartX.current
+      const newW = Math.max(140, Math.min(420, dragStartW.current + delta))
+      setLabelWidth(newW)
+    }
+    function onMouseUp() {
+      if (isDragging.current) {
+        isDragging.current = false
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
 
   const COL_W = ZOOM_COL_W[zoom]
 
@@ -209,7 +253,8 @@ export default function GanttPage() {
   const conflicting  = filtered.filter(j => j.has_conflict)
   const chartHeight  = activeTab === 'jobs'
     ? filtered.length * ROW_H
-    : Object.values(machineGroups).reduce((acc, arr) => acc + (1 + arr.length) * ROW_H, 0)
+    : Object.entries(machineGroups).reduce((acc, [m, arr]) =>
+        acc + ROW_H + (collapsedMachines.has(m) ? 0 : arr.length * ROW_H), 0)
 
   // ── Header rows ─────────────────────────────────────────────────────────────
   // Month sub-header (always shown)
@@ -488,10 +533,10 @@ export default function GanttPage() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Label column — scrolls vertically in sync */}
-        <div className="flex-shrink-0 border-r border-gray-200 flex flex-col" style={{ width: LABEL_W }}>
-          <div className="border-b border-gray-200 bg-gray-50 flex items-end px-3 pb-2 flex-shrink-0" style={{ height: HEADER_H }}>
+        <div className="flex-shrink-0 flex flex-col relative" style={{ width: labelWidth }}>
+          <div className="border-b border-gray-200 bg-gray-50 flex items-end px-3 pb-2 flex-shrink-0" style={{ height: HEADER_H, width: labelWidth }}>
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-              {activeTab === 'jobs' ? 'Job' : 'Machine / Job'}
+              {activeTab === 'jobs' ? 'Job' : 'Machine'}
             </span>
           </div>
           <div className="overflow-y-auto flex-1" id="gantt-label-scroll" onScroll={e => {
@@ -512,29 +557,52 @@ export default function GanttPage() {
                     </span>
                   </div>
                 ))
-              : Object.entries(machineGroups).map(([machine, machineJobs]) => (
-                  <div key={machine}>
-                    <div style={{ height: ROW_H }} className="flex items-center px-3 border-b border-gray-200 bg-gray-50">
-                      <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide truncate">🔧 {machine}</span>
-                    </div>
-                    {machineJobs.map(job => (
-                      <div key={job.id} onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)}
+              : Object.entries(machineGroups).map(([machine, machineJobs]) => {
+                  const collapsed = collapsedMachines.has(machine)
+                  return (
+                    <div key={machine}>
+                      {/* Machine header row — clickable to collapse */}
+                      <div
                         style={{ height: ROW_H }}
-                        className={`flex items-center gap-2 pl-6 pr-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${selectedJob?.id === job.id ? 'bg-blue-50' : ''}`}>
-                        <BlinkDot icon={job.status_icon ?? 'ready'} />
-                        <span className="text-xs font-medium truncate"
-                          style={{ color: job.has_conflict ? '#991b1b' : '#374151' }}
-                          title={job.name}>
-                          {job.has_conflict && '⚠️ '}{job.name}
+                        onClick={() => toggleMachine(machine)}
+                        className="flex items-center gap-2 px-2 border-b border-gray-200 bg-gray-50 cursor-pointer hover:bg-gray-100 select-none group">
+                        <span className="text-gray-400 group-hover:text-gray-600 transition-colors flex-shrink-0">
+                          {collapsed
+                            ? <ChevronRight size={14} />
+                            : <ChevronDown size={14} />}
                         </span>
+                        <span className="text-xs font-bold text-gray-700 uppercase tracking-wide truncate" title={machine}>
+                          🔧 {machine}
+                        </span>
+                        <span className="ml-auto text-xs text-gray-400 flex-shrink-0">{machineJobs.length}</span>
                       </div>
-                    ))}
-                  </div>
-                ))
+                      {/* Job sub-rows */}
+                      {!collapsed && machineJobs.map(job => (
+                        <div key={job.id} onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)}
+                          style={{ height: ROW_H }}
+                          className={`flex items-center gap-2 pl-6 pr-2 border-b border-gray-100 cursor-pointer hover:bg-blue-50 transition-colors ${selectedJob?.id === job.id ? 'bg-blue-50' : ''}`}>
+                          <BlinkDot icon={job.status_icon ?? 'ready'} />
+                          <span className="text-xs text-gray-600 truncate"
+                            style={{ color: job.has_conflict ? '#991b1b' : '#4b5563' }}
+                            title={job.name}>
+                            {job.has_conflict && '⚠️ '}{job.name}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })
             }
             </div>
           </div>
         </div>
+
+        {/* Drag handle */}
+        <div
+          onMouseDown={onDragStart}
+          className="w-1.5 flex-shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 active:bg-blue-500 transition-colors relative z-10"
+          title="Drag to resize"
+        />
 
         {/* Scrollable chart — horizontal AND vertical */}
         <div ref={scrollRef} id="gantt-chart-scroll" className="flex-1 overflow-x-auto overflow-y-auto" onScroll={e => {
@@ -581,8 +649,10 @@ export default function GanttPage() {
               {/* Bars — Machines */}
               {activeTab === 'machines' && (() => {
                 let y = 0
-                return Object.entries(machineGroups).map(([, machineJobs]) => {
+                return Object.entries(machineGroups).map(([machine, machineJobs]) => {
+                  const collapsed = collapsedMachines.has(machine)
                   y += ROW_H  // header row
+                  if (collapsed) return null
                   return machineJobs.map(job => {
                     const bar = renderBar(job, y)
                     y += ROW_H

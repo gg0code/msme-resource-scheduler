@@ -1,15 +1,8 @@
 // components/common/CsvImport.tsx
-// --------------------------------
-// Reusable CSV import button + result modal.
-// Props:
-//   resource   — "employees" | "machines" | "skills"
-//   onSuccess  — called after successful import so parent can refetch
-//
-// Shows: Download Template button + Upload CSV button
-// After upload: result modal with rows_imported, rows_failed, error list
+// Supports CSV and XLSX import with unavailability columns in templates.
 
 import { useRef, useState } from 'react'
-import { Upload, Download, CheckCircle2, XCircle, AlertTriangle, X, Loader2, FileText } from 'lucide-react'
+import { Upload, Download, CheckCircle2, XCircle, AlertTriangle, X, Loader2, FileText, ChevronDown } from 'lucide-react'
 import apiClient from '../../api/client'
 import type { ImportResult } from '../../types'
 
@@ -26,22 +19,31 @@ const LABELS: Record<string, string> = {
 
 export default function CsvImport({ resource, onSuccess }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
-  const [result, setResult]       = useState<ImportResult | null>(null)
-  const [error, setError]         = useState('')
+  const [uploading, setUploading]   = useState(false)
+  const [result, setResult]         = useState<ImportResult | null>(null)
+  const [error, setError]           = useState('')
+  const [showTemplates, setShowTemplates] = useState(false)
 
-  function downloadTemplate() {
-    // Trigger browser download via anchor
+  function downloadTemplate(format: 'csv' | 'xlsx') {
     const a = document.createElement('a')
-    a.href = `http://localhost:8000/api/import/template/${resource}`
-    a.download = `${resource}_template.csv`
+    if (format === 'xlsx' && resource !== 'skills') {
+      a.href = `http://localhost:8000/api/import/template-xlsx/${resource}`
+      a.download = `${resource}_template.xlsx`
+    } else {
+      a.href = `http://localhost:8000/api/import/template/${resource}`
+      a.download = `${resource}_template.csv`
+    }
     a.click()
+    setShowTemplates(false)
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    if (!file.name.endsWith('.csv')) { setError('Please select a .csv file'); return }
+    if (!file.name.endsWith('.csv') && !file.name.endsWith('.xlsx')) {
+      setError('Please select a .csv or .xlsx file')
+      return
+    }
 
     setUploading(true); setResult(null); setError('')
     try {
@@ -62,20 +64,46 @@ export default function CsvImport({ resource, onSuccess }: Props) {
   return (
     <>
       <div className="flex items-center gap-2">
-        <button
-          onClick={downloadTemplate}
-          title={`Download ${LABELS[resource]} CSV template`}
-          className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white hover:bg-gray-50 transition-colors">
-          <Download size={13}/> Template
-        </button>
+        {/* Template dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setShowTemplates(v => !v)}
+            className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg px-3 py-2 bg-white hover:bg-gray-50 transition-colors">
+            <Download size={13}/> Template <ChevronDown size={11}/>
+          </button>
+          {showTemplates && (
+            <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-36 overflow-hidden">
+              <button onClick={() => downloadTemplate('csv')}
+                className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                <FileText size={12} className="text-gray-400"/> CSV Template
+              </button>
+              {resource !== 'skills' && (
+                <button onClick={() => downloadTemplate('xlsx')}
+                  className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-green-50 flex items-center gap-2 border-t border-gray-100">
+                  <FileText size={12} className="text-green-500"/> Excel Template
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Upload button */}
         <button
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
           className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 border border-blue-300 rounded-lg px-3 py-2 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 transition-colors">
-          {uploading ? <><Loader2 size={13} className="animate-spin"/>Importing...</> : <><Upload size={13}/>Import CSV</>}
+          {uploading
+            ? <><Loader2 size={13} className="animate-spin"/>Importing...</>
+            : <><Upload size={13}/>Import CSV / Excel</>
+          }
         </button>
-        <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange}/>
+        <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleFileChange}/>
       </div>
+
+      {/* Click outside to close template dropdown */}
+      {showTemplates && (
+        <div className="fixed inset-0 z-10" onClick={() => setShowTemplates(false)}/>
+      )}
 
       {/* Result modal */}
       {(result || error) && (

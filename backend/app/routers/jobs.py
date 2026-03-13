@@ -18,6 +18,7 @@ from app.models.job import Job, JobSkillRequirement, JobAssignment
 from app.core.dependencies import get_current_user, require_role
 from app.core.plan_limits import check_plan_limit
 from app.models.auth import User, Tenant
+from app.models.unavailability import EmployeeLeave, MachineDowntime
 from app.services.availability_engine import check_availability
 
 router = APIRouter()
@@ -544,6 +545,30 @@ def auto_schedule(
 
     for j in locked_jobs:
         _occupy(j)
+
+    # ── Block out employee leaves ─────────────────────────────────────────────
+    emp_leaves = (
+        db.query(EmployeeLeave)
+        .filter(EmployeeLeave.tenant_id == tenant_id)
+        .all()
+    )
+    for leave in emp_leaves:
+        key = f"emp:{leave.employee_id}"
+        occupied.setdefault(key, set()).update(
+            _date_range(leave.start_date, leave.end_date)
+        )
+
+    # ── Block out machine downtimes ───────────────────────────────────────────
+    mach_downtimes = (
+        db.query(MachineDowntime)
+        .filter(MachineDowntime.tenant_id == tenant_id)
+        .all()
+    )
+    for dt in mach_downtimes:
+        key = f"mach:{dt.machine_id}"
+        occupied.setdefault(key, set()).update(
+            _date_range(dt.start_date, dt.end_date)
+        )
 
     def _duration_days(job: Job) -> int:
         if job.start_date and job.end_date:

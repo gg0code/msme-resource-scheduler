@@ -12,6 +12,7 @@ import {
   ChevronRight, CalendarDays, Briefcase,
 } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner } from '../components/PlanLimitGuard'
+import UnavailabilityPanel from '../components/common/UnavailabilityPanel'
 
 interface Skill         { id: number; name: string }
 interface EmployeeSkill { id: number; skill_id: number; skill_level: string }
@@ -64,9 +65,21 @@ type SortKey = 'full_name' | 'base_availability_pct' | 'department' | 'hourly_ra
 
 // ── Expandable assignment sub-row ──────────────────────
 function AssignmentRows({ employeeId }: { employeeId: number }) {
+  const qc = useQueryClient()
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+
   const { data: assignments = [], isLoading, isError } = useQuery<Assignment[]>({
     queryKey: ['emp-assignments', employeeId],
     queryFn: () => apiClient.get(`/api/assignments/employee/${employeeId}`).then(r => r.data),
+  })
+
+  const removeAssignment = useMutation({
+    mutationFn: (assignmentId: number) => apiClient.delete(`/api/assignments/${assignmentId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['emp-assignments', employeeId] })
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      setDeletingId(null)
+    },
   })
 
   if (isLoading) return (
@@ -98,7 +111,8 @@ function AssignmentRows({ employeeId }: { employeeId: number }) {
                   <th className="pb-1.5 pr-4">Start Date</th>
                   <th className="pb-1.5 pr-4">End Date</th>
                   <th className="pb-1.5 pr-4">Status</th>
-                  <th className="pb-1.5">Priority</th>
+                  <th className="pb-1.5 pr-4">Priority</th>
+                  <th className="pb-1.5 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-blue-100">
@@ -106,8 +120,8 @@ function AssignmentRows({ employeeId }: { employeeId: number }) {
                   <tr key={a.assignment_id} className="hover:bg-blue-100/40 transition-colors">
                     <td className="py-2 pl-1 pr-4 font-medium text-gray-800">{a.job_name}</td>
                     <td className="py-2 pr-4 text-gray-500">{a.customer ?? '—'}</td>
-                    <td className="py-2 pr-4 text-gray-600 flex items-center gap-1">
-                      <CalendarDays size={11} className="text-gray-400"/>{a.start_date}
+                    <td className="py-2 pr-4 text-gray-600">
+                      <span className="flex items-center gap-1"><CalendarDays size={11} className="text-gray-400"/>{a.start_date}</span>
                     </td>
                     <td className="py-2 pr-4 text-gray-600">{a.end_date}</td>
                     <td className="py-2 pr-4">
@@ -115,10 +129,30 @@ function AssignmentRows({ employeeId }: { employeeId: number }) {
                         {a.status}
                       </span>
                     </td>
-                    <td className="py-2">
+                    <td className="py-2 pr-4">
                       <span className={`px-2 py-0.5 rounded-full font-medium ${priorityColour[a.priority] ?? ''}`}>
                         {a.priority}
                       </span>
+                    </td>
+                    <td className="py-2 text-right">
+                      {deletingId === a.assignment_id ? (
+                        <span className="inline-flex items-center gap-2 text-xs">
+                          <span className="text-red-600">Remove?</span>
+                          <button onClick={() => removeAssignment.mutate(a.assignment_id)}
+                            className="px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700 font-medium">
+                            {removeAssignment.isPending ? '...' : 'Yes'}
+                          </button>
+                          <button onClick={() => setDeletingId(null)}
+                            className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded hover:bg-gray-300">
+                            No
+                          </button>
+                        </span>
+                      ) : (
+                        <button onClick={() => setDeletingId(a.assignment_id)}
+                          className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 border border-red-200 rounded px-2 py-0.5 ml-auto">
+                          <X size={10}/> Remove
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -425,6 +459,13 @@ export default function Employees() {
 
                       {/* Expanded assignment sub-rows */}
                       {isExpanded && <AssignmentRows employeeId={emp.id}/>}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={7} className="p-0">
+                            <UnavailabilityPanel resourceType="employee" resourceId={emp.id} accentColor="blue"/>
+                          </td>
+                        </tr>
+                      )}
                     </>
                   )
                 })}

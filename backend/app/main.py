@@ -1,10 +1,7 @@
 """
-app/main.py — V3.2 (Block 2)
-Added: scan router, auto-advance background task
+app/main.py — V3.1
+Added: scheduler router (/api/scheduler/*)
 """
-import asyncio
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,31 +10,17 @@ from app.routers import (
     auth, assignments, availability, dashboard,
     employees, import_csv, jobs, machines, skills,
     timer, gantt,
-    scheduling,
-    scheduler_router as scheduler,
+    scan,          # V3.2 QR scan tokens
+    scheduling,    # V3.0
+    scheduler_router as scheduler,  # V3.1 NEW
+    unavailability,  # V3.2 employee leaves + machine downtimes
 )
-from app.routers import scan as scan_router
-from app.routers import steps as steps_router
-from app.tasks.auto_advance import auto_advance_loop
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    task = asyncio.create_task(auto_advance_loop())
-    yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
-
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
-    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -66,6 +49,6 @@ app.include_router(skills.router,       prefix="/api/skills",       tags=["skill
 app.include_router(timer.router,        prefix="/api/timer",        tags=["timer"])
 app.include_router(gantt.router,        prefix="/api/gantt",        tags=["gantt"])
 app.include_router(scheduling.router,   prefix="/api",              tags=["scheduling"])
-app.include_router(scheduler.router,    prefix="/api",              tags=["scheduler"])
-app.include_router(steps_router.router, prefix="/api",              tags=["steps"])
-app.include_router(scan_router.router,  prefix="/api",              tags=["scan"])
+app.include_router(scheduler.router,    prefix="/api",              tags=["scheduler"])  # V3.1
+app.include_router(scan.router,           prefix="/api",               tags=["scan"])             # V3.2 QR
+app.include_router(unavailability.router, prefix="/api/unavailability", tags=["unavailability"])  # V3.2
