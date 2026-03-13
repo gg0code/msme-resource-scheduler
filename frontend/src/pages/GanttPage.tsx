@@ -20,14 +20,7 @@ const ZOOM_COL_W: Record<string, number> = {
   month:  4,
 }
 
-const JOB_COLORS = [
-  '#0369a1', '#7c3aed', '#c2410c', '#0f766e',
-  '#be185d', '#4d7c0f', '#4338ca', '#b45309',
-]
-const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-const getJobColor = (idx: number) => JOB_COLORS[idx % JOB_COLORS.length]
+const PRIORITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
 
 function parseDate(s?: string): Date | null {
   if (!s) return null
@@ -182,8 +175,24 @@ export default function GanttPage() {
       return pa - pb
     })
 
-  const colorMap: Record<number, string> = {}
-  jobs.forEach((j, i) => { colorMap[j.id] = getJobColor(i) })
+  // Health + priority based colours (replaces random index colours)
+  const getHealthColor = (job: GanttJob): string => {
+    const isComplete = ['Completed', 'Cancelled', 'Stopped'].includes(job.status ?? '')
+    if (isComplete) return '#6b7280'          // grey — done
+    if (job.has_conflict) return '#7c3aed'   // purple — conflict
+    const end = parseDate(job.end_date)
+    if (end) {
+      const daysLeft = daysBetween(today, end)
+      if (end < today) return '#ef4444'       // red — overdue
+      if (daysLeft <= 3 && ['Draft','Scheduled'].includes(job.status ?? '')) return '#f59e0b' // amber — at risk
+    }
+    // Normal: priority colour
+    const p = job.priority?.toLowerCase()
+    if (p === 'critical') return '#dc2626'   // red
+    if (p === 'high')     return '#ea580c'   // orange
+    if (p === 'medium')   return '#2563eb'   // blue
+    return '#16a34a'                          // green — low
+  }
 
   // Build machine groups
   const machineGroups: Record<string, GanttJob[]> = {}
@@ -260,12 +269,9 @@ export default function GanttPage() {
     const isAtRisk    = !isDelayed && !isConflict && !isComplete
                         && daysLeft <= 3 && daysLeft >= 0
                         && ['Draft', 'Scheduled'].includes(job.status ?? '')
-    const isSelected = selectedJob?.id === job.id
-    const color     = isConflict ? '#7c3aed'
-                    : isDelayed  ? '#ef4444'
-                    : isAtRisk   ? '#f59e0b'
-                    : colorMap[job.id]
-    const strokeClr = isSelected ? '#1d4ed8' : isConflict ? '#6d28d9' : isDelayed ? '#dc2626' : isAtRisk ? '#d97706' : 'transparent'
+    const isSelected  = selectedJob?.id === job.id
+    const color       = getHealthColor(job)
+    const strokeClr   = isSelected ? '#1d4ed8' : isConflict ? '#6d28d9' : isDelayed ? '#dc2626' : isAtRisk ? '#d97706' : 'transparent'
     const textColor = '#ffffff'
 
     return (
@@ -345,11 +351,16 @@ export default function GanttPage() {
             ))}
           </div>
           {/* Health legend */}
-          <div className="flex items-center gap-3 text-[11px] text-gray-500">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-green-500 opacity-80"/><span>On track</span></span>
+          <div className="flex items-center gap-3 text-[11px] text-gray-500 flex-wrap">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-red-600 opacity-80"/><span>Critical</span></span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-orange-600 opacity-80"/><span>High</span></span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-blue-600 opacity-80"/><span>Medium</span></span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-green-600 opacity-80"/><span>Low</span></span>
+            <span className="w-px h-3 bg-gray-200 inline-block"/>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-amber-400 opacity-80"/><span>At risk</span></span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-red-500 opacity-80"/><span>Delayed</span></span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-red-500 opacity-80"/><span>Overdue</span></span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-violet-600 opacity-80"/><span>Conflict</span></span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block bg-gray-400 opacity-80"/><span>Done</span></span>
           </div>
         </div>
       </div>

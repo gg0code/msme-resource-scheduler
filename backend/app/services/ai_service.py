@@ -35,10 +35,26 @@ def safe_date_parse(check_str: Any, fallback: date) -> date:
     except (ValueError, TypeError):
         return fallback
 
-def safe_days(d1: Any, d2: Any, default: int = 0) -> int:
-    """Safely compute (d1 - d2).days, returning default on any error."""
+def as_date(d):
+    """Normalise date/datetime/str to plain date. Returns None on failure."""
+    if d is None:
+        return None
+    if isinstance(d, datetime):
+        return d.date()
+    if isinstance(d, date):
+        return d
     try:
-        return (d1 - d2).days
+        return date.fromisoformat(str(d)[:10])
+    except Exception:
+        return None
+
+def safe_days(d1, d2, default: int = 0) -> int:
+    """Safely compute (d1 - d2).days, normalising datetime to date first."""
+    try:
+        a, b = as_date(d1), as_date(d2)
+        if a is None or b is None:
+            return default
+        return (a - b).days
     except Exception:
         return default
 
@@ -366,7 +382,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
                     for rm in j.raw_materials
                 )
                 total += job_rm_total
-                breakdown.append({"job": j.name, "cost": round(job_rm_total, 2)})
+                breakdown.append({"id": j.id, "job": j.name, "cost": round(job_rm_total, 2)})
 
         return {
             "month": f"{month}/{year}",
@@ -389,13 +405,13 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             days_to_end = safe_days(j.end_date, today)
             if days_to_end < 0:
                 delayed.append({
-                    "name": j.name, "customer": j.customer,
+                    "id": j.id, "name": j.name, "customer": j.customer,
                     "status": j.status, "overdue_days": abs(days_to_end),
                     "priority": j.priority,
                 })
             elif days_to_end <= 5 and j.status in ["Draft", "Scheduled"]:
                 at_risk.append({
-                    "name": j.name, "customer": j.customer,
+                    "id": j.id, "name": j.name, "customer": j.customer,
                     "status": j.status, "days_remaining": days_to_end,
                     "priority": j.priority,
                 })
@@ -554,6 +570,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         margin_pct  = round((profit / order_value * 100), 1) if order_value > 0 else 0
 
         return {
+            "job_id":            job.id,
             "job_name":          job.name,
             "customer":          job.customer,
             "status":            job.status,
@@ -664,7 +681,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         completed = [j for j in all_jobs if j.status == "Completed"]
 
         # Delayed
-        delayed = [j for j in all_jobs if j.end_date and j.status not in ["Completed", "Cancelled"] and j.end_date < today]
+        delayed = [j for j in all_jobs if j.end_date and j.status not in ["Completed", "Cancelled"] and as_date(j.end_date) < today]
         at_risk = [j for j in all_jobs if j.end_date and j.status in ["Draft","Scheduled"] and safe_days(j.end_date, today) <= 5]
 
         # Machine + employee availability
@@ -679,7 +696,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         total_machines  = db.query(_func.count()).select_from(Machine).filter(Machine.tenant_id == tenant_id, Machine.status == "Operational").scalar()
         total_employees = db.query(_func.count()).select_from(Employee).filter(Employee.tenant_id == tenant_id, Employee.status == "Active").scalar()
 
-        mtd_revenue = sum(j.order_value or 0 for j in completed if j.end_date.month == today.month)
+        mtd_revenue = sum(j.order_value or 0 for j in completed if as_date(j.end_date).month == today.month)
 
         return {
             "date": str(today),
@@ -731,6 +748,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
                     if a.employee_id not in emp_job_map:
                         emp_job_map[a.employee_id] = []
                     emp_job_map[a.employee_id].append({
+                        "job_id":   j.id,
                         "job_name": j.name,
                         "customer": j.customer,
                         "status":   j.status,
@@ -780,7 +798,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         for j in jobs:
             if not j.start_date or not j.end_date:
                 continue
-            dur   = max((j.end_date - j.start_date).days + 1, 1)
+            dur   = max((as_date(j.end_date) - as_date(j.start_date)).days + 1, 1)
             hrs   = dur * (j.estimated_hours_per_day or 0)
             ec    = sum((a.employee.hourly_rate or 0)*hrs for a in j.assignments if a.employee)
             mc    = sum((a.machine.hourly_rate  or 0)*hrs for a in j.assignments if a.machine)
@@ -791,7 +809,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             pf    = ov - tc
             mg    = round(pf/ov*100,1) if ov > 0 else None
             total_emp += ec; total_mac += mc; total_rm += rc; total_misc += misc; total_ov += ov
-            job_details.append({"job_name":j.name,"customer":j.customer,"status":j.status,
+            job_details.append({"job_id":j.id,"job_name":j.name,"customer":j.customer,"status":j.status,
                 "emp_cost":round(ec,2),"mac_cost":round(mc,2),"rm_cost":round(rc,2),
                 "misc_cost":round(misc,2),"total_cost":round(tc,2),"order_value":round(ov,2),
                 "profit":round(pf,2),"margin_pct":mg})
@@ -843,15 +861,15 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
                 "message":"No scheduling conflicts found." if not conflicts else f"{len(conflicts)} conflict(s) detected."}
 
         elif mode == "not_started":
-            data = [{"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
+            data = [{"id":j.id,"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
                 "should_have_started":str(j.start_date),"days_late":safe_days(today,j.start_date)}
-                for j in all_jobs if j.start_date and j.start_date < today and j.status in ["Draft","Scheduled"]]
+                for j in all_jobs if j.start_date and as_date(j.start_date) < today and j.status in ["Draft","Scheduled"]]
             data.sort(key=lambda x:x["days_late"],reverse=True)
             return {"mode":"not_started","count":len(data),"jobs":data}
 
         elif mode == "due_this_week":
             week_end = today + dt.timedelta(days=7)
-            data = [{"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
+            data = [{"id":j.id,"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
                 "end_date":str(j.end_date),"days_remaining":safe_days(j.end_date,today)}
                 for j in all_jobs if j.end_date and today<=j.end_date<=week_end]
             data.sort(key=lambda x:x["days_remaining"])
@@ -860,7 +878,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         elif mode == "starting_next_week":
             nws = today + dt.timedelta(days=(7-today.weekday()))
             nwe = nws + dt.timedelta(days=6)
-            data = [{"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
+            data = [{"id":j.id,"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
                 "start_date":str(j.start_date),"end_date":str(j.end_date)}
                 for j in all_jobs if j.start_date and nws<=j.start_date<=nwe]
             data.sort(key=lambda x:x["start_date"])
@@ -879,7 +897,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
                 "jobs_running":sorted_days[0][1] if sorted_days else 0,"top_5_days":sorted_days[:5]}
 
         elif mode == "critical_status":
-            data = [{"name":j.name,"customer":j.customer,"status":j.status,
+            data = [{"id":j.id,"name":j.name,"customer":j.customer,"status":j.status,
                 "start_date":str(j.start_date),"end_date":str(j.end_date),
                 "not_started":j.status in ["Draft","Scheduled"] and bool(j.start_date) and j.start_date<=today,
                 "overdue":bool(j.end_date) and j.end_date<today} for j in all_jobs if j.priority=="Critical"]
@@ -890,7 +908,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
 
         elif mode == "ending_soon":
             cutoff = today + dt.timedelta(days=days_ahead)
-            data = [{"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
+            data = [{"id":j.id,"name":j.name,"customer":j.customer,"priority":j.priority,"status":j.status,
                 "end_date":str(j.end_date),"days_remaining":safe_days(j.end_date,today),
                 "has_assignments":len(j.assignments)>0}
                 for j in all_jobs if j.end_date and today<=j.end_date<=cutoff]
@@ -909,21 +927,21 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             if not j.end_date:
                 continue
             dl = safe_days(j.end_date, today)
-            if j.end_date < today:
-                overdue.append({"name":j.name,"priority":j.priority,"status":j.status,
-                    "overdue_days":(today-j.end_date).days,"customer":j.customer})
-            if j.priority=="Critical" and j.status in ["Draft","Scheduled"] and j.start_date<=today:
-                crit_ns.append({"name":j.name,"start_date":str(j.start_date),"customer":j.customer})
+            if as_date(j.end_date) < today:
+                overdue.append({"id":j.id,"name":j.name,"priority":j.priority,"status":j.status,
+                    "overdue_days":(today-as_date(j.end_date)).days,"customer":j.customer})
+            if j.priority=="Critical" and j.status in ["Draft","Scheduled"] and as_date(j.start_date)<=today:
+                crit_ns.append({"id":j.id,"name":j.name,"start_date":str(j.start_date),"customer":j.customer})
             if not j.assignments:
-                unassigned.append({"name":j.name,"priority":j.priority,"status":j.status,
+                unassigned.append({"id":j.id,"name":j.name,"priority":j.priority,"status":j.status,
                     "start_date":str(j.start_date),"customer":j.customer})
             if not j.raw_materials or len(j.raw_materials)==0:
-                no_rm.append({"name":j.name,"priority":j.priority,"status":j.status})
+                no_rm.append({"id":j.id,"name":j.name,"priority":j.priority,"status":j.status})
             if 0<=dl<=3:
-                ending.append({"name":j.name,"priority":j.priority,"status":j.status,
+                ending.append({"id":j.id,"name":j.name,"priority":j.priority,"status":j.status,
                     "end_date":str(j.end_date),"days_remaining":dl})
             if j.order_value and j.start_date and j.end_date:
-                dur = max((j.end_date-j.start_date).days+1,1)
+                dur = max((as_date(j.end_date)-as_date(j.start_date)).days+1,1)
                 hrs = dur*(j.estimated_hours_per_day or 0)
                 ec = sum((a.employee.hourly_rate or 0)*hrs for a in j.assignments if a.employee)
                 mc = sum((a.machine.hourly_rate  or 0)*hrs for a in j.assignments if a.machine)
@@ -932,7 +950,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
                 pf = j.order_value-tc
                 mg = round(pf/j.order_value*100,1)
                 if mg < margin_threshold:
-                    low_mg.append({"name":j.name,"customer":j.customer,"margin_pct":mg,
+                    low_mg.append({"id":j.id,"name":j.name,"customer":j.customer,"margin_pct":mg,
                         "profit":round(pf,2),"order_value":round(j.order_value,2),
                         "status":j.status,"is_loss":pf<0})
         low_mg.sort(key=lambda x:x["margin_pct"])
@@ -959,12 +977,12 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             ajobs=[]; tcost=0.0; bdays=set()
             for j in mjobs:
                 if any(a.machine_id==m.id for a in j.assignments):
-                    os=max(j.start_date,ms); oe=min(j.end_date,me)
+                    os=max(as_date(j.start_date),ms); oe=min(as_date(j.end_date),me)
                     od=(oe-os).days+1; hrs=od*j.estimated_hours_per_day
                     c=(m.hourly_rate or 0)*hrs; tcost+=c
                     d=os
                     while d<=oe: bdays.add(d); d+=dt.timedelta(days=1)
-                    ajobs.append({"job_name":j.name,"customer":j.customer,
+                    ajobs.append({"job_id":j.id,"job_name":j.name,"customer":j.customer,
                         "start_date":str(j.start_date),"end_date":str(j.end_date),
                         "status":j.status,"cost":round(c,2)})
             bd=len(bdays); idle=max(wdays-bd,0)
@@ -1001,7 +1019,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         mjobs = db.query(Job).options(selectinload(Job.assignments).selectinload(JobAssignment.employee), selectinload(Job.assignments).selectinload(JobAssignment.machine)).filter(Job.tenant_id==tenant_id,Job.start_date<=me,Job.end_date>=ms).all()
         ehours={e.id:0.0 for e in all_e}; ejobs={e.id:[] for e in all_e}
         for j in mjobs:
-            os=max(j.start_date,ms); oe=min(j.end_date,me)
+            os=max(as_date(j.start_date),ms); oe=min(as_date(j.end_date),me)
             hrs=((oe-os).days+1)*j.estimated_hours_per_day
             for a in j.assignments:
                 if a.employee_id and a.employee_id in ehours:
@@ -1039,7 +1057,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             for j in all_jobs:
                 k=j.customer or "(No Customer)"
                 if k not in groups: groups[k]={"customer":k,"jobs":[],"total_value":0.0,"job_count":0}
-                groups[k]["jobs"].append({"name":j.name,"status":j.status,"priority":j.priority,
+                groups[k]["jobs"].append({"id":j.id,"name":j.name,"status":j.status,"priority":j.priority,
                     "start_date":str(j.start_date),"end_date":str(j.end_date),"order_value":j.order_value or 0})
                 groups[k]["total_value"]+=j.order_value or 0; groups[k]["job_count"]+=1
             return {"mode":"by_customer","total_customers":len(groups),
@@ -1051,7 +1069,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             groups={"Critical":[],"High":[],"Medium":[],"Low":[]}
             for j in all_jobs:
                 p=j.priority if j.priority in groups else "Medium"
-                groups[p].append({"name":j.name,"status":j.status,"customer":j.customer,
+                groups[p].append({"id":j.id,"name":j.name,"status":j.status,"customer":j.customer,
                     "end_date":str(j.end_date),"order_value":j.order_value or 0})
             return {"mode":"by_priority","groups":groups,"counts":{k:len(v) for k,v in groups.items()}}
 
@@ -1059,7 +1077,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             ms=date(year,month,1); me=date(year,month,cal.monthrange(year,month)[1])
             done=db.query(Job).options(selectinload(Job.assignments).selectinload(JobAssignment.employee), selectinload(Job.assignments).selectinload(JobAssignment.machine)).filter(Job.tenant_id==tenant_id,Job.status=="Completed",
                 Job.end_date>=ms,Job.end_date<=me).all()
-            jl=[{"name":j.name,"customer":j.customer,"end_date":str(j.end_date),
+            jl=[{"id":j.id,"name":j.name,"customer":j.customer,"end_date":str(j.end_date),
                 "order_value":j.order_value or 0,"priority":j.priority} for j in done]
             jl.sort(key=lambda x:x["order_value"],reverse=True)
             return {"mode":"completed_this_month","month":f"{month}/{year}","count":len(done),
@@ -1071,7 +1089,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             all_jobs=db.query(Job).options(selectinload(Job.assignments).selectinload(JobAssignment.employee), selectinload(Job.assignments).selectinload(JobAssignment.machine)).filter(Job.tenant_id==tenant_id,
                 Job.start_date>=nws,Job.start_date<=nwe,
                 Job.status.notin_(["Completed","Cancelled"])).all()
-            jl=[{"name":j.name,"customer":j.customer,"status":j.status,"priority":j.priority,
+            jl=[{"id":j.id,"name":j.name,"customer":j.customer,"status":j.status,"priority":j.priority,
                 "start_date":str(j.start_date),"end_date":str(j.end_date) if j.end_date else None,
                 "has_assignments":len(j.assignments)>0,"order_value":j.order_value or 0} for j in all_jobs]
             jl.sort(key=lambda x:x["start_date"])
@@ -1087,7 +1105,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         results=[]
         for j in active:
             if not j.order_value or not j.start_date or not j.end_date: continue
-            dur=max((j.end_date-j.start_date).days+1,1); hrs=dur*(j.estimated_hours_per_day or 0)
+            dur=max((as_date(j.end_date)-as_date(j.start_date)).days+1,1); hrs=dur*(j.estimated_hours_per_day or 0)
             ec=sum((a.employee.hourly_rate or 0)*hrs for a in j.assignments if a.employee)
             mc=sum((a.machine.hourly_rate  or 0)*hrs for a in j.assignments if a.machine)
             rc=sum(rm.get("total_cost") or (rm.get("quantity",0)*rm.get("unit_cost",0)) for rm in (j.raw_materials or []))
@@ -1096,7 +1114,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             cur_p=ov-cur_t; new_p=ov-new_t
             cur_m=round(cur_p/ov*100,1) if ov>0 else None
             new_m=round(new_p/ov*100,1) if ov>0 else None
-            results.append({"job_name":j.name,"customer":j.customer,"status":j.status,
+            results.append({"job_id":j.id,"job_name":j.name,"customer":j.customer,"status":j.status,
                 "current_rm_cost":round(rc,2),"new_rm_cost":round(new_rc,2),
                 "rm_increase":round(new_rc-rc,2),"current_profit":round(cur_p,2),
                 "new_profit":round(new_p,2),"current_margin":cur_m,"new_margin":new_m,
@@ -1139,7 +1157,7 @@ Rules:
 - Keep responses short and to the point
 - Never call the same tool twice in one response
 - If asked about something you can't answer with available tools, say so honestly
-- Always refer to jobs as "Job Name #ID" (e.g. "Crankshaft Machining #106"). Never use ID alone.
+- Always refer to jobs as "Job Name #ID" (e.g. "Crankshaft Machining #106"). Never use ID alone. The job id is always available in tool results as "job_id", "id", or similar field — always include it.
 
 TOOL ROUTING — always pick the most specific tool:
 - "most utilised / busiest employee", "if employee absent"         → get_employee_utilisation

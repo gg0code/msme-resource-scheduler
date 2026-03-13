@@ -19,7 +19,7 @@ import {
   X, Check, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp,
   Users, ClipboardCheck, AlertTriangle, UserCheck, Factory,
   Play, Pause, Square, RotateCcw, Clock, Package,
-  Lock, Unlock, Zap, Tag, FolderOpen,
+  Lock, Unlock, Zap, Tag, FolderOpen, ListTodo, ChevronRight as ChevronRightIcon,
 } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner, RawMaterialLimitHint } from '../components/PlanLimitGuard'
 
@@ -91,6 +91,31 @@ interface CheckResult {
   employees: EmpInfo[]
   currently_assigned_employee_ids: number[]
   currently_assigned_machine_ids: number[]
+}
+
+
+// ── Step types ─────────────────────────────────────────
+interface StepResource {
+  id: number
+  step_id: number
+  resource_type: 'employee' | 'machine' | 'material'
+  resource_id: number | null
+  resource_name: string | null
+  quantity: number | null
+  unit_cost: number | null
+  notes: string | null
+}
+interface JobStep {
+  id: number
+  job_id: number
+  sequence_no: number
+  name: string
+  step_type: 'setup' | 'production' | 'inspection'
+  duration_minutes: number
+  status: 'locked' | 'ready' | 'in_progress' | 'complete'
+  notes: string | null
+  use_job_resources: boolean
+  resources: StepResource[]
 }
 
 // ── Constants ──────────────────────────────────────────
@@ -362,6 +387,383 @@ function StartModeSelector({
 }
 
 
+
+// ── Job Steps Panel ────────────────────────────────────
+function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string }) {
+  const qc = useQueryClient()
+  const [addingStep, setAddingStep]       = useState(false)
+  const [newStep, setNewStep]             = useState({ name: '', step_type: 'production', duration_minutes: 60, notes: '' })
+  const [expandedStep, setExpandedStep]   = useState<number | null>(null)
+  const [addingRes, setAddingRes]         = useState<number | null>(null)   // step_id being assigned resource
+  const [resForm, setResForm]             = useState({ resource_type: 'employee', resource_id: '', notes: '', quantity: '1', unit_cost: '' })
+
+  const { data: steps = [], isLoading } = useQuery<JobStep[]>({
+    queryKey: ['steps', jobId],
+    queryFn: () => apiClient.get(`/api/jobs/${jobId}/steps`).then(r => r.data),
+  })
+
+  const { data: employees = [] } = useQuery<{ id: number; full_name: string }[]>({
+    queryKey: ['employees-list'],
+    queryFn: () => apiClient.get('/api/employees/').then(r => r.data),
+  })
+
+  const { data: machines = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ['machines-list'],
+    queryFn: () => apiClient.get('/api/machines/').then(r => r.data),
+  })
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['steps', jobId] })
+
+  const createStep = useMutation({
+    mutationFn: (body: typeof newStep) => apiClient.post(`/api/jobs/${jobId}/steps`, body),
+    onSuccess: () => { invalidate(); setAddingStep(false); setNewStep({ name: '', step_type: 'production', duration_minutes: 60, notes: '' }) },
+  })
+
+  const deleteStep = useMutation({
+    mutationFn: (stepId: number) => apiClient.delete(`/api/jobs/${jobId}/steps/${stepId}`),
+    onSuccess: invalidate,
+  })
+
+  const updateStatus = useMutation({
+    mutationFn: ({ stepId, status }: { stepId: number; status: string }) =>
+      apiClient.patch(`/api/jobs/${jobId}/steps/${stepId}/status`, { status }),
+    onSuccess: () => { invalidate(); qc.invalidateQueries({ queryKey: ['jobs'] }) },
+    onError: (e: any) => alert(e?.response?.data?.detail ?? 'Cannot change status'),
+  })
+
+  const addResource = useMutation({
+    mutationFn: ({ stepId, body }: { stepId: number; body: object }) =>
+      apiClient.post(`/api/jobs/${jobId}/steps/${stepId}/resources`, body),
+    onSuccess: () => { invalidate(); setAddingRes(null) },
+    onError: (e: any) => alert(e?.response?.data?.detail ?? 'Failed to add resource'),
+  })
+
+  const removeResource = useMutation({
+    mutationFn: ({ stepId, resId }: { stepId: number; resId: number }) =>
+      apiClient.delete(`/api/jobs/${jobId}/steps/${stepId}/resources/${resId}`),
+    onSuccess: invalidate,
+  })
+
+  const resetToJobResources = useMutation({
+    mutationFn: (stepId: number) =>
+      apiClient.post(`/api/jobs/${jobId}/steps/${stepId}/use-job-resources`),
+    onSuccess: invalidate,
+  })
+
+  const STEP_TYPE_LABEL: Record<string, string> = {
+    setup: '⚙️ Setup', production: '🔨 Production', inspection: '🔍 Inspection'
+  }
+  const STATUS_COLOUR: Record<string, string> = {
+    locked:      'bg-gray-100 text-gray-400',
+    ready:       'bg-blue-100 text-blue-700',
+    in_progress: 'bg-purple-100 text-purple-700',
+    complete:    'bg-green-100 text-green-700',
+  }
+  const STATUS_ICON: Record<string, string> = {
+    locked: '🔒', ready: '▶', in_progress: '⏳', complete: '✅'
+  }
+  const fmtDuration = (mins: number) =>
+    mins >= 60 ? `${Math.floor(mins/60)}h${mins%60 > 0 ? ` ${mins%60}m` : ''}` : `${mins}m`
+
+  const isJobDone = ['Completed', 'Cancelled'].includes(jobStatus)
+  const lastStepId = steps.length > 0 ? steps[steps.length - 1].id : null
+
+  if (isLoading) return (
+    <div className="flex items-center gap-2 py-4 text-xs text-gray-400">
+      <Loader2 size={12} className="animate-spin"/> Loading steps...
+    </div>
+  )
+
+  return (
+    <div className="mt-3 pt-3 border-t border-blue-100">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-bold text-gray-600 flex items-center gap-1.5">
+          <ListTodo size={13} className="text-blue-500"/>
+          Steps <span className="text-gray-400 font-normal">({steps.length})</span>
+        </span>
+        {!isJobDone && (
+          <button onClick={() => setAddingStep(s => !s)}
+            className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-800 font-medium">
+            <Plus size={12}/> Add Step
+          </button>
+        )}
+      </div>
+
+      {/* Add step inline form */}
+      {addingStep && (
+        <div className="mb-3 bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
+          <input
+            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+            placeholder="Step name (e.g. Setup CNC, Quality Check)"
+            value={newStep.name}
+            onChange={e => setNewStep(s => ({ ...s, name: e.target.value }))}
+          />
+          <div className="flex gap-2">
+            <select
+              className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
+              value={newStep.step_type}
+              onChange={e => setNewStep(s => ({ ...s, step_type: e.target.value }))}>
+              <option value="production">🔨 Production</option>
+              <option value="setup">⚙️ Setup</option>
+              <option value="inspection">🔍 Inspection</option>
+            </select>
+            <div className="flex items-center gap-1 border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white">
+              <input type="number" min="1" className="w-16 focus:outline-none text-xs"
+                value={newStep.duration_minutes}
+                onChange={e => setNewStep(s => ({ ...s, duration_minutes: Number(e.target.value) }))}
+              />
+              <span className="text-gray-400">min</span>
+            </div>
+          </div>
+          <input
+            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none"
+            placeholder="Notes (optional)"
+            value={newStep.notes}
+            onChange={e => setNewStep(s => ({ ...s, notes: e.target.value }))}
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => createStep.mutate(newStep)}
+              disabled={!newStep.name || createStep.isPending}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs py-1.5 rounded-lg font-medium">
+              {createStep.isPending ? 'Adding...' : 'Add Step'}
+            </button>
+            <button onClick={() => setAddingStep(false)}
+              className="px-3 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs py-1.5 rounded-lg">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Steps list */}
+      {steps.length === 0 ? (
+        <p className="text-xs text-gray-400 italic py-2">No steps yet — add steps to track progress within this job.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {steps.map(step => {
+            const isExpanded  = expandedStep === step.id
+            const isLast      = step.id === lastStepId
+            const canStart    = step.status === 'ready'    && !isJobDone
+            const canComplete = step.status === 'in_progress' && !isJobDone
+            const isDone      = step.status === 'complete'
+
+            return (
+              <div key={step.id}
+                className={`rounded-xl border transition-all ${
+                  isDone            ? 'border-gray-100 bg-gray-50 opacity-70'
+                  : step.status === 'in_progress' ? 'border-purple-200 bg-purple-50'
+                  : step.status === 'ready'       ? 'border-blue-200 bg-white'
+                  : 'border-gray-100 bg-gray-50'
+                }`}>
+
+                {/* Row header */}
+                <div
+                  className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
+                  onClick={() => setExpandedStep(isExpanded ? null : step.id)}>
+                  {/* Sequence */}
+                  <span className="text-xs font-bold text-gray-400 w-4 shrink-0">{step.sequence_no}</span>
+
+                  {/* Status icon */}
+                  <span className="text-sm shrink-0">{STATUS_ICON[step.status]}</span>
+
+                  {/* Name + type + duration */}
+                  <div className="flex-1 min-w-0">
+                    <span className={`text-xs font-semibold ${isDone ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                      {step.name}
+                    </span>
+                    <span className="text-[10px] text-gray-400 ml-2">{STEP_TYPE_LABEL[step.step_type]}</span>
+                  </div>
+
+                  {/* Duration */}
+                  <span className="text-[10px] text-gray-400 shrink-0">{fmtDuration(step.duration_minutes)}</span>
+
+                  {/* Resources indicator */}
+                  <span className={`text-[10px] shrink-0 ${step.use_job_resources ? 'text-gray-300' : 'text-blue-500 font-medium'}`}>
+                    {step.use_job_resources ? '(job default)' : `${step.resources.length} res`}
+                  </span>
+
+                  {/* Status badge */}
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${STATUS_COLOUR[step.status]}`}>
+                    {step.status.replace('_', ' ')}
+                  </span>
+
+                  {/* Action buttons */}
+                  {canStart && (
+                    <button
+                      onClick={e => { e.stopPropagation(); updateStatus.mutate({ stepId: step.id, status: 'in_progress' }) }}
+                      className="shrink-0 text-[10px] px-2 py-0.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                      Start
+                    </button>
+                  )}
+                  {canComplete && (
+                    <button
+                      onClick={e => { e.stopPropagation(); updateStatus.mutate({ stepId: step.id, status: 'complete' }) }}
+                      className="shrink-0 text-[10px] px-2 py-0.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">
+                      Complete
+                    </button>
+                  )}
+
+                  {/* Delete (last step only) */}
+                  {isLast && !isJobDone && (
+                    <button
+                      onClick={e => {
+                        e.stopPropagation()
+                        if (confirm('Delete this step?')) deleteStep.mutate(step.id)
+                      }}
+                      className="shrink-0 text-red-300 hover:text-red-500 ml-1">
+                      <Trash2 size={11}/>
+                    </button>
+                  )}
+
+                  {/* Expand chevron */}
+                  <ChevronRightIcon size={12} className={`text-gray-300 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}/>
+                </div>
+
+                {/* Expanded: resources panel */}
+                {isExpanded && (
+                  <div className="border-t border-gray-100 px-3 py-2.5 space-y-2">
+                    {/* Notes */}
+                    {step.notes && (
+                      <p className="text-xs text-gray-500 italic bg-yellow-50 rounded-lg px-2 py-1.5">📝 {step.notes}</p>
+                    )}
+
+                    {/* Resources */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Resources</span>
+                        {!step.use_job_resources && (
+                          <button
+                            onClick={() => resetToJobResources.mutate(step.id)}
+                            className="text-[10px] text-gray-400 hover:text-blue-600 underline">
+                            Use job-level resources instead
+                          </button>
+                        )}
+                      </div>
+
+                      {step.use_job_resources ? (
+                        <p className="text-xs text-gray-400 italic">(using job-level resources)</p>
+                      ) : step.resources.length === 0 ? (
+                        <p className="text-xs text-gray-400 italic">No resources assigned yet.</p>
+                      ) : (
+                        <div className="space-y-1 mb-2">
+                          {step.resources.map(r => (
+                            <div key={r.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-2.5 py-1.5 text-xs">
+                              <span>
+                                {r.resource_type === 'employee' ? '👤' : r.resource_type === 'machine' ? '⚙️' : '📦'}
+                                {' '}
+                                <span className="font-medium text-gray-700">
+                                  {r.resource_name ?? (r.resource_type === 'material' ? `Material` : `#${r.resource_id}`)}
+                                </span>
+                                {r.quantity != null && <span className="text-gray-400 ml-1">× {r.quantity}</span>}
+                              </span>
+                              {!isJobDone && (
+                                <button onClick={() => removeResource.mutate({ stepId: step.id, resId: r.id })}
+                                  className="text-red-300 hover:text-red-500 ml-2"><X size={11}/></button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Add resource */}
+                      {!isJobDone && (
+                        addingRes === step.id ? (
+                          <div className="bg-blue-50 border border-blue-200 rounded-xl p-2.5 space-y-2 mt-1">
+                            <select
+                              className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
+                              value={resForm.resource_type}
+                              onChange={e => setResForm(f => ({ ...f, resource_type: e.target.value, resource_id: '' }))}>
+                              <option value="employee">👤 Employee</option>
+                              <option value="machine">⚙️ Machine</option>
+                              <option value="material">📦 Material</option>
+                            </select>
+
+                            {resForm.resource_type === 'employee' && (
+                              <select className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
+                                value={resForm.resource_id}
+                                onChange={e => setResForm(f => ({ ...f, resource_id: e.target.value }))}>
+                                <option value="">Select employee...</option>
+                                {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                              </select>
+                            )}
+
+                            {resForm.resource_type === 'machine' && (
+                              <select className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
+                                value={resForm.resource_id}
+                                onChange={e => setResForm(f => ({ ...f, resource_id: e.target.value }))}>
+                                <option value="">Select machine...</option>
+                                {machines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                              </select>
+                            )}
+
+                            {resForm.resource_type === 'material' && (
+                              <div className="flex gap-2">
+                                <input type="number" min="0.01" step="0.01" placeholder="Qty"
+                                  className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
+                                  value={resForm.quantity}
+                                  onChange={e => setResForm(f => ({ ...f, quantity: e.target.value }))}/>
+                                <input type="number" min="0" placeholder="Unit cost"
+                                  className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
+                                  value={resForm.unit_cost}
+                                  onChange={e => setResForm(f => ({ ...f, unit_cost: e.target.value }))}/>
+                              </div>
+                            )}
+
+                            <input placeholder="Notes (optional)"
+                              className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs"
+                              value={resForm.notes}
+                              onChange={e => setResForm(f => ({ ...f, notes: e.target.value }))}/>
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  const body: Record<string, unknown> = {
+                                    resource_type: resForm.resource_type,
+                                    notes: resForm.notes || null,
+                                  }
+                                  if (resForm.resource_type !== 'material') {
+                                    if (!resForm.resource_id) return alert('Select a resource')
+                                    body.resource_id = Number(resForm.resource_id)
+                                  } else {
+                                    body.quantity = Number(resForm.quantity) || 1
+                                    body.unit_cost = resForm.unit_cost ? Number(resForm.unit_cost) : null
+                                  }
+                                  addResource.mutate({ stepId: step.id, body })
+                                }}
+                                disabled={addResource.isPending}
+                                className="flex-1 bg-blue-600 text-white text-xs py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
+                                {addResource.isPending ? 'Adding...' : 'Add'}
+                              </button>
+                              <button onClick={() => setAddingRes(null)}
+                                className="px-3 bg-gray-100 text-gray-600 text-xs py-1.5 rounded-lg hover:bg-gray-200">
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setAddingRes(step.id)
+                              setResForm({ resource_type: 'employee', resource_id: '', notes: '', quantity: '1', unit_cost: '' })
+                            }}
+                            className="mt-1 text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-1 font-medium">
+                            <Plus size={10}/> Add Resource
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ══════════════════════════════════════════════════════
 export default function Jobs() {
   const qc = useQueryClient()
@@ -411,12 +813,7 @@ export default function Jobs() {
   const [deleteId, setDeleteId]           = useState<number | null>(null)
   const [pdfJob,   setPdfJob]             = useState<Job | null>(null)
   const [toast, setToast]                 = useState('')
-  const [schedulerRunning, setSchedulerRunning] = useState(false)
-  const [scheduleDirty, setScheduleDirty]       = useState(true)
-  const [scheduleReport, setScheduleReport]     = useState<null | {
-    scheduled: number; skipped: number
-    details: { job_id: number; job_name: string; result: string; reason?: string; has_conflict?: boolean; conflict_reasons?: string[] }[]
-  }>(null)
+
   const [viewMode, setViewMode] = useState<'list'>('list')
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500) }
@@ -463,29 +860,6 @@ export default function Jobs() {
     })
   }, [jobs, availCache, runAvailCheck])
 
-  // ── Auto-Scheduler ────────────────────────────────────
-  // Sorts unlocked jobs by priority and re-assigns start dates sequentially
-  // This is a client-side scheduler stub — real scheduling happens backend
-  async function runAutoScheduler() {
-    setSchedulerRunning(true)
-    try {
-      const res = await apiClient.post('/api/jobs/auto-schedule')
-      const data = res.data
-      const { scheduled, skipped } = data
-      // Clear stale availability cache so all jobs get re-checked
-      setAvailCache({})
-      qc.invalidateQueries({ queryKey: ['jobs'] })
-      setScheduleDirty(false)
-      setScheduleReport(data)
-      showToast(`Auto-scheduler done: ${scheduled} scheduled, ${skipped} skipped.`)
-    } catch (e: unknown) {
-      const msg = (e as {response?:{data?:{detail?:string}}})?.response?.data?.detail ?? 'Auto-scheduler failed'
-      showToast(`Error: ${msg}`)
-    } finally {
-      setSchedulerRunning(false)
-    }
-  }
-
   function openPdfExport(job: Job) { setPdfJob(job) }
 
   // ── Filters ───────────────────────────────────────────
@@ -523,7 +897,6 @@ export default function Jobs() {
       qc.invalidateQueries({queryKey:['dashboard']})
       qc.invalidateQueries({queryKey:['plan-limits']})
       setTimeout(() => runAvailCheck(newJobId), 500)
-      setScheduleDirty(true)
       closeWizard()
       showToast('Job created!')
     },
@@ -535,7 +908,6 @@ export default function Jobs() {
       qc.invalidateQueries({queryKey:['jobs']})
       setEditJob(null)
       runAvailCheck((vars as {id:number}).id)
-      setScheduleDirty(true)
       showToast('Job updated!')
     },
   })
@@ -1138,6 +1510,9 @@ export default function Jobs() {
                 </div>
               </div>
 
+              {/* Steps panel */}
+              <JobStepsPanel jobId={job.id} jobStatus={job.status} />
+
               {/* Action buttons */}
               <div className="flex gap-2 mt-4 pt-3 border-t border-blue-100">
                 <button onClick={()=>openEdit(job)}
@@ -1177,21 +1552,7 @@ export default function Jobs() {
             <p className="text-xs text-gray-400 mt-0.5">Production job board</p>
           </div>
           <div className="flex items-center gap-2">
-            <CoachMark id="jobs-autoschedule" title="Auto-Scheduler" description="Resolves date conflicts across all unlocked jobs automatically, sorted by priority." position="bottom" step={1} totalSteps={4}>
-              <button
-                onClick={runAutoScheduler}
-                disabled={schedulerRunning || !scheduleDirty}
-                title={!scheduleDirty ? 'Already scheduled — create or edit a job to re-enable' : 'Re-schedule all UNLOCKED jobs by priority'}
-                className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg transition-colors shadow-sm ${
-                  scheduleDirty
-                    ? 'bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50'
-                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                }`}>
-                {schedulerRunning ? <Loader2 className="animate-spin" size={14}/> : <Zap size={14}/>}
-                Auto-Schedule
-              </button>
-            </CoachMark>
-            <CoachMark id="jobs-new" title="Create your first job" description="Pick a machine — skills are auto-suggested. Set dates and assign your team." position="bottom" step={2} totalSteps={4}>
+            <CoachMark id="jobs-new" title="Create your first job" description="Pick a machine — skills are auto-suggested. Set dates and assign your team." position="bottom" step={1} totalSteps={3}>
               <LimitedButton resource="jobs" planLimits={planLimits} onClick={openWizard}>
                 <Plus size={16}/> New Job
               </LimitedButton>
@@ -1249,56 +1610,7 @@ export default function Jobs() {
         </div>
       )}
 
-      {/* ── Auto-Schedule Report ─────────────────────────── */}
-      {scheduleReport && (() => {
-        const stillConflicted = scheduleReport.details.filter(d => d.result === 'scheduled' && d.has_conflict)
-        const skipped         = scheduleReport.details.filter(d => d.result === 'skipped')
-        const allClear        = stillConflicted.length === 0 && skipped.length === 0
-        return (
-          <div className={`mt-3 rounded-xl border px-4 py-3 text-sm ${allClear ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 font-semibold">
-                {allClear
-                  ? <><Check size={15} className="text-green-600"/><span className="text-green-700">All {scheduleReport.scheduled} jobs scheduled with no conflicts</span></>
-                  : <><AlertTriangle size={15} className="text-amber-600"/><span className="text-amber-700">{scheduleReport.scheduled} scheduled — {stillConflicted.length + skipped.length} still need attention</span></>
-                }
-              </div>
-              <button onClick={() => setScheduleReport(null)} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
-            </div>
 
-            {(stillConflicted.length > 0 || skipped.length > 0) && (
-              <div className="mt-3 space-y-2">
-                {stillConflicted.map(d => (
-                  <div key={d.job_id} className="bg-white border border-amber-200 rounded-lg px-3 py-2">
-                    <div className="flex items-center gap-1.5 font-medium text-gray-800 mb-1">
-                      <AlertTriangle size={12} className="text-amber-500"/> {d.job_name}
-                      <span className="text-xs text-amber-600 font-normal ml-1">— scheduled but still has skill gap</span>
-                    </div>
-                    {d.conflict_reasons?.map((r, i) => (
-                      <p key={i} className="text-xs text-red-600 mb-0.5">· {r}</p>
-                    ))}
-                    <p className="text-xs text-gray-400 mt-1.5 border-t pt-1.5">
-                      Fix: Go to <strong>Employees</strong> → add the required skill at the required level, or lower the skill requirement on this job.
-                    </p>
-                  </div>
-                ))}
-                {skipped.map(d => (
-                  <div key={d.job_id} className="bg-white border border-gray-200 rounded-lg px-3 py-2">
-                    <div className="flex items-center gap-1.5 font-medium text-gray-800 mb-1">
-                      <AlertCircle size={12} className="text-gray-400"/> {d.job_name}
-                      <span className="text-xs text-gray-400 font-normal ml-1">— could not be scheduled</span>
-                    </div>
-                    <p className="text-xs text-gray-500">· {d.reason}</p>
-                    <p className="text-xs text-gray-400 mt-1.5 border-t pt-1.5">
-                      Fix: Set this job to <strong>Flexible</strong> mode with a wider date range, or unlock conflicting jobs.
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )
-      })()}
 
       {/* ── Toolbar ─────────────────────────────────────── */}
       <div className="bg-white border-b border-gray-100 py-3 flex items-center gap-3 flex-wrap">

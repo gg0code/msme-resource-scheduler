@@ -481,30 +481,97 @@ export default function Dashboard() {
 
 
       {/* Smart Alerts */}
-      <CoachMark id="dashboard-conflicts" title="Conflict alerts" description="Red pills mean jobs have resource or skill conflicts. Resolve them in the Jobs page." position="bottom" step={2} totalSteps={3}>
+      <CoachMark id="dashboard-conflicts" title="Smart Alerts" description="Real-time alerts for conflicts, overdue jobs, idle shop floor and more." position="bottom" step={2} totalSteps={3}>
         {(() => {
-          const delayed   = jobs.filter(j => j.status !== 'Completed' && j.status !== 'Stopped' && j.has_conflict)
-          const notStarted = jobs.filter(j => j.status === 'Scheduled' || j.status === 'Draft')
-          const running   = jobs.filter(j => j.timer_status === 'running')
-          const allAlerts: { type: 'error'|'warning'|'info'; msg: string }[] = []
-          if (delayed.length)    allAlerts.push({ type: 'error',   msg: `${delayed.length} job${delayed.length > 1 ? 's' : ''} ${delayed.length > 1 ? 'have' : 'has'} conflicts: ${delayed.slice(0,2).map(j=>j.name).join(', ')}${delayed.length > 2 ? ` +${delayed.length-2} more` : ''}` })
-          if (notStarted.length) allAlerts.push({ type: 'warning', msg: `${notStarted.length} job${notStarted.length > 1 ? 's' : ''} not yet started: ${notStarted.slice(0,2).map(j=>j.name).join(', ')}${notStarted.length > 2 ? ` +${notStarted.length-2} more` : ''}` })
-          if (running.length === 0 && jobs.length > 0) allAlerts.push({ type: 'warning', msg: 'No jobs currently running — shop floor is idle' })
-          if (allAlerts.length === 0) allAlerts.push({ type: 'info', msg: 'All clear — no alerts today 🎉' })
+          const today = new Date(); today.setHours(0,0,0,0)
+          const activeJobs = jobs.filter(j => j.status !== 'Completed' && j.status !== 'Stopped' && j.status !== 'Cancelled')
+
+          // Build typed alerts
+          type AlertType = 'error' | 'warning' | 'info' | 'success'
+          const allAlerts: { type: AlertType; emoji: string; msg: string }[] = []
+
+          // 🔴 Conflicts
+          const conflicted = activeJobs.filter(j => j.has_conflict)
+          if (conflicted.length) allAlerts.push({
+            type: 'error', emoji: '🔴',
+            msg: `${conflicted.length} job${conflicted.length > 1 ? 's have' : ' has'} resource conflicts: ${conflicted.slice(0,2).map(j => j.name).join(', ')}${conflicted.length > 2 ? ` +${conflicted.length - 2} more` : ''}`
+          })
+
+          // 🔴 Overdue jobs (past end date, not complete)
+          const overdue = activeJobs.filter(j => {
+            if (!j.end_date) return false
+            const end = new Date(j.end_date); end.setHours(0,0,0,0)
+            return end < today && j.status !== 'Completed' && j.status !== 'Stopped'
+          })
+          if (overdue.length) allAlerts.push({
+            type: 'error', emoji: '⏰',
+            msg: `${overdue.length} overdue job${overdue.length > 1 ? 's' : ''}: ${overdue.slice(0,2).map(j => j.name).join(', ')}${overdue.length > 2 ? ` +${overdue.length - 2} more` : ''}`
+          })
+
+          // 🟡 Ending within 3 days (not started or still running)
+          const endingSoon = activeJobs.filter(j => {
+            if (!j.end_date || j.status === 'Completed' || j.status === 'Stopped') return false
+            const end = new Date(j.end_date); end.setHours(0,0,0,0)
+            const diff = Math.ceil((end.getTime() - today.getTime()) / 86400000)
+            return diff >= 0 && diff <= 3
+          })
+          if (endingSoon.length) allAlerts.push({
+            type: 'warning', emoji: '⚠️',
+            msg: `${endingSoon.length} job${endingSoon.length > 1 ? 's' : ''} ending within 3 days: ${endingSoon.slice(0,2).map(j => j.name).join(', ')}${endingSoon.length > 2 ? ` +${endingSoon.length - 2} more` : ''}`
+          })
+
+          // 🟡 Critical jobs not started
+          const critNotStarted = activeJobs.filter(j =>
+            j.priority === 'Critical' && (j.status === 'Draft' || j.status === 'Scheduled') && j.timer_status === 'idle'
+          )
+          if (critNotStarted.length) allAlerts.push({
+            type: 'warning', emoji: '🚨',
+            msg: `${critNotStarted.length} Critical job${critNotStarted.length > 1 ? 's' : ''} not started: ${critNotStarted.slice(0,2).map(j => j.name).join(', ')}`
+          })
+
+          // 🟡 Idle shop floor
+          const running = jobs.filter(j => j.timer_status === 'running')
+          if (running.length === 0 && jobs.length > 0) allAlerts.push({
+            type: 'warning', emoji: '😴',
+            msg: 'No jobs currently running — shop floor is idle'
+          })
+
+          // ✅ All clear
+          if (allAlerts.length === 0) allAlerts.push({
+            type: 'success', emoji: '✅',
+            msg: 'All clear — no alerts today!'
+          })
+
+          const bgMap: Record<AlertType, string> = {
+            error:   'bg-red-50 border-l-4 border-l-red-400',
+            warning: 'bg-amber-50 border-l-4 border-l-amber-400',
+            info:    'bg-blue-50 border-l-4 border-l-blue-400',
+            success: 'bg-green-50 border-l-4 border-l-green-400',
+          }
+          const textMap: Record<AlertType, string> = {
+            error: 'text-red-700', warning: 'text-amber-700',
+            info: 'text-blue-700', success: 'text-green-700',
+          }
+
           return (
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
               <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
                 <Zap size={14} className="text-amber-500" />
                 <span className="text-sm font-semibold text-gray-700">Smart Alerts</span>
-                <span className="ml-auto text-[10px] text-gray-400 uppercase tracking-wide">Today</span>
+                <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                  allAlerts.some(a => a.type === 'error') ? 'bg-red-100 text-red-600'
+                  : allAlerts.some(a => a.type === 'warning') ? 'bg-amber-100 text-amber-600'
+                  : 'bg-green-100 text-green-600'
+                }`}>
+                  {allAlerts.filter(a => a.type !== 'success').length || '✓'}
+                </span>
+                <span className="ml-auto text-[10px] text-gray-400 uppercase tracking-wide">Live</span>
               </div>
               <div className="divide-y divide-gray-50">
                 {allAlerts.map((a, i) => (
-                  <div key={i} className={`flex items-start gap-3 px-4 py-2.5 ${a.type === 'error' ? 'bg-red-50' : a.type === 'warning' ? 'bg-amber-50' : 'bg-green-50'}`}>
-                    <span className="mt-0.5 shrink-0">
-                      {a.type === 'error' ? '🔴' : a.type === 'warning' ? '🟡' : '✅'}
-                    </span>
-                    <p className={`text-xs leading-relaxed ${a.type === 'error' ? 'text-red-700' : a.type === 'warning' ? 'text-amber-700' : 'text-green-700'}`}>{a.msg}</p>
+                  <div key={i} className={`flex items-start gap-3 px-4 py-2.5 ${bgMap[a.type]}`}>
+                    <span className="mt-0.5 shrink-0 text-sm">{a.emoji}</span>
+                    <p className={`text-xs leading-relaxed font-medium ${textMap[a.type]}`}>{a.msg}</p>
                   </div>
                 ))}
               </div>
