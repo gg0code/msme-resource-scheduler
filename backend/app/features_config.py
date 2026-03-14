@@ -17,5 +17,5 @@ FEATURE_FLAGS: dict[str, bool] = {
     "qr_scan":            False,
     "step_intelligence":  False,
     "csv_import":         False,
-    "ai_copilot":         False,
+    "ai_copilot":         True,
 }

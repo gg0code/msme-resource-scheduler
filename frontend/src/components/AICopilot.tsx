@@ -146,22 +146,33 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
   useEffect(() => {
     if (isOpen) {
-      // Refresh greeting with the current page — but only if conversation hasn't started
-      setMessages(prev => {
-        if (prev.length === 1 && prev[0].role === 'assistant') {
-          return [{
-            role: 'assistant' as const,
-            content: `Namaste! 👋 I'm your AI Copilot.\n\nI can see you're on **${pageLabel}**. Use suggestions below or switch to **Tools** for 50 pre-built queries.`,
-            timestamp: new Date(),
-          }]
-        }
-        return prev
-      })
+      // V3.9 — fetch proactive greeting only if conversation hasn't started
+      if (messages.length === 1 && messages[0].role === 'assistant') {
+        fetchGreeting()
+      }
       setTimeout(() => inputRef.current?.focus(), 300)
       fetchUsage()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
+
+  const fetchGreeting = async () => {
+    try {
+      const res = await apiClient.get('/api/ai/greeting')
+      setMessages([{
+        role: 'assistant' as const,
+        content: res.data.message,
+        timestamp: new Date(),
+      }])
+    } catch {
+      // Fallback to static greeting if fetch fails
+      setMessages([{
+        role: 'assistant' as const,
+        content: `Namaste! 👋 I'm your AI Copilot.\n\nUse suggestions below or switch to **Tools** for 50 pre-built queries.`,
+        timestamp: new Date(),
+      }])
+    }
+  }
 
   const fetchUsage = async () => {
     try {

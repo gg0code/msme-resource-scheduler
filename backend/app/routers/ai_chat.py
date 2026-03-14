@@ -183,3 +183,111 @@ def get_usage(
         plan=tenant.plan,
         date=str(date.today()),
     )
+
+
+# ── Proactive greeting endpoint — V3.9 ────────────────────────────────────────
+@router.get("/greeting")
+def get_greeting(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns a proactive shop floor summary for the AI opening message.
+    Pure DB query — no LLM call. Fast and always grounded in real data.
+    """
+    guard = require_feature("ai_copilot")
+    if guard:
+        return guard
+
+    from app.models.job import Job, JobAssignment
+    from app.models.employee import Employee
+    from app.models.machine import Machine
+    from datetime import datetime
+    from sqlalchemy import func
+
+    tenant_id = current_user.tenant_id
+    today = date.today()
+
+    # All active jobs
+    active_jobs = db.query(Job).filter(
+        Job.tenant_id == tenant_id,
+        Job.status.notin_(["Completed", "Cancelled"]),
+    ).all()
+
+    # Running jobs
+    running = [j for j in active_jobs if j.timer_status == "running"]
+
+    # At risk — due within 3 days and not started
+    at_risk = [
+        j for j in active_jobs
+        if j.end_date and j.status in ["Draft", "Scheduled"]
+        and 0 <= (j.end_date.date() if hasattr(j.end_date, 'date') else j.end_date - today).days <= 3
+    ]
+
+    # Overdue
+    overdue = [
+        j for j in active_jobs
+        if j.end_date and (j.end_date.date() if hasattr(j.end_date, 'date') else j.end_date) < today
+    ]
+
+    # Unassigned
+    unassigned = [j for j in active_jobs if not j.assignments]
+
+    # Resource counts
+    total_employees = db.query(func.count()).select_from(Employee).filter(
+        Employee.tenant_id == tenant_id, Employee.status == "Active"
+    ).scalar() or 0
+
+    total_machines = db.query(func.count()).select_from(Machine).filter(
+        Machine.tenant_id == tenant_id, Machine.status == "Operational"
+    ).scalar() or 0
+
+    # Build greeting message
+    total_active = len(active_jobs)
+
+    if total_active == 0:
+        message = (
+            "Namaste! 👋 Your shop floor is quiet — no active jobs right now.\n\n"
+            "Use the **Getting Started** checklist on your Dashboard to set up your first job, "
+            "or ask me anything about your resources."
+        )
+    else:
+        lines = [f"Namaste! 👋 Here's your shop floor right now:\n"]
+
+        lines.append(f"📋 **{total_active} active job{'s' if total_active > 1 else ''}**")
+
+        if running:
+            names = ", ".join(j.name for j in running[:2])
+            suffix = f" +{len(running)-2} more" if len(running) > 2 else ""
+            lines.append(f"▶️  Running: {names}{suffix}")
+
+        if overdue:
+            names = ", ".join(j.name for j in overdue[:2])
+            suffix = f" +{len(overdue)-2} more" if len(overdue) > 2 else ""
+            lines.append(f"🔴 Overdue: {names}{suffix}")
+
+        if at_risk:
+            names = ", ".join(j.name for j in at_risk[:2])
+            suffix = f" +{len(at_risk)-2} more" if len(at_risk) > 2 else ""
+            lines.append(f"⚠️  At risk (due soon): {names}{suffix}")
+
+        if unassigned:
+            lines.append(f"📌 {len(unassigned)} job{'s' if len(unassigned) > 1 else ''} with no resources assigned")
+
+        lines.append(f"\n👥 {total_employees} employees · 🏭 {total_machines} machines")
+        lines.append("\nWhat would you like to know?")
+
+        message = "\n".join(lines)
+
+    return {
+        "message": message,
+        "data": {
+            "total_active": total_active,
+            "running": len(running),
+            "overdue": len(overdue),
+            "at_risk": len(at_risk),
+            "unassigned": len(unassigned),
+            "total_employees": total_employees,
+            "total_machines": total_machines,
+        }
+    }

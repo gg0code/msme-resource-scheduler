@@ -15,6 +15,7 @@ from app.routers import (
     scheduler_router as scheduler,  # V3.1 NEW
     unavailability,  # V3.2 employee leaves + machine downtimes
     features,      # V3.7 feature flags
+    ai_chat,       # V3.9 AI Copilot
 )
 
 app = FastAPI(
@@ -54,3 +55,4 @@ app.include_router(scheduler.router,    prefix="/api",              tags=["sched
 app.include_router(scan.router,           prefix="/api",               tags=["scan"])             # V3.2 QR
 app.include_router(unavailability.router, prefix="/api/unavailability", tags=["unavailability"])  # V3.2
 app.include_router(features.router,     prefix="/api",              tags=["features"])   # V3.7
+app.include_router(ai_chat.router,      prefix="/api/ai",           tags=["ai"])         # V3.9
