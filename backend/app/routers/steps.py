@@ -27,6 +27,7 @@ from app.models.job import Job
 from app.models.job_steps import JobStep, StepResource
 from app.models.employee import Employee
 from app.models.machine import Machine
+from app.utils.feature_guard import require_feature
 
 router = APIRouter()
 
@@ -130,6 +131,10 @@ def list_steps(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("step_intelligence")
+    if guard:
+        return guard
     _get_job(job_id, current_user.tenant_id, db)
     steps = (
         db.query(JobStep)
@@ -147,6 +152,10 @@ def create_step(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("step_intelligence")
+    if guard:
+        return guard
     _get_job(job_id, current_user.tenant_id, db)
 
     if body.step_type not in STEP_TYPES:
@@ -191,6 +200,10 @@ def update_step(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("step_intelligence")
+    if guard:
+        return guard
     step = _get_step(step_id, job_id, current_user.tenant_id, db)
 
     if body.name is not None:
@@ -223,6 +236,10 @@ def delete_step(
     Only the last step (highest sequence_no) can be deleted.
     After deletion, remaining steps are renumbered gap-free.
     """
+    # V3.7 — feature flag guard
+    guard = require_feature("step_intelligence")
+    if guard:
+        return guard
     _get_job(job_id, current_user.tenant_id, db)
     step = _get_step(step_id, job_id, current_user.tenant_id, db)
 
@@ -273,6 +290,10 @@ def update_step_status(
       - next step (sequence_no + 1) automatically becomes ready
       - if this was the last step, job status is set to Completed
     """
+    # V3.7 — feature flag guard
+    guard = require_feature("step_intelligence")
+    if guard:
+        return guard
     step = _get_step(step_id, job_id, current_user.tenant_id, db)
     target = body.status
 
@@ -321,6 +342,10 @@ def list_step_resources(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("step_intelligence")
+    if guard:
+        return guard
     step = _get_step(step_id, job_id, current_user.tenant_id, db)
     return [resource_to_dict(r, db) for r in step.resources]
 
@@ -333,6 +358,10 @@ def add_step_resource(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("step_intelligence")
+    if guard:
+        return guard
     step = _get_step(step_id, job_id, current_user.tenant_id, db)
 
     if body.resource_type not in RES_TYPES:

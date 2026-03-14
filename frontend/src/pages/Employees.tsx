@@ -6,6 +6,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
+import { useFeatureFlags } from '../context/FeatureFlags'
+
 import {
   Plus, Pencil, Trash2, Loader2, AlertCircle,
   Search, X, Check, ChevronUp, ChevronDown, IndianRupee,
@@ -167,6 +169,7 @@ function AssignmentRows({ employeeId }: { employeeId: number }) {
 // ══════════════════════════════════════════════════════
 export default function Employees() {
   const qc = useQueryClient()
+  const flags = useFeatureFlags() 
   const [search, setSearch]             = useState('')
   const [filterDept, setFilterDept]     = useState('All')
   const [filterStatus, setFilterStatus] = useState('All')
@@ -286,7 +289,7 @@ export default function Employees() {
           <p className="text-sm text-gray-500 mt-0.5">{filtered.length} of {employees.length} employees · click a row to see assigned jobs</p>
         </div>
         <div className="flex items-center gap-2">
-          <CsvImport resource="employees" onSuccess={() => qc.invalidateQueries({queryKey:['employees']})}/>
+          {flags.csv_import && <CsvImport resource="employees" onSuccess={() => qc.invalidateQueries({queryKey:['employees']})}/>}
           <CoachMark id="employees-add" title="Add your team" description="Add each worker with their role, hourly rate, and skills. Skills are matched to job requirements." position="bottom" step={1} totalSteps={3}>
             <LimitedButton resource="employees" planLimits={planLimits} onClick={openCreate}>
               <Plus size={16}/> Add Employee

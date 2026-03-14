@@ -7,6 +7,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
+import { useFeatureFlags } from '../context/FeatureFlags'
+
 import {
   Plus, Pencil, Trash2, Loader2, AlertCircle, Factory,
   Search, X, Check, ChevronRight, ChevronDown,
@@ -170,6 +172,7 @@ const emptyForm = () => ({
 // ══════════════════════════════════════════════════════
 export default function Machines() {
   const qc = useQueryClient()
+   const flags = useFeatureFlags()
   const [search, setSearch]             = useState('')
   const [filterType, setFilterType]     = useState('All')
   const [filterBay, setFilterBay]       = useState('All')
@@ -268,7 +271,7 @@ export default function Machines() {
           <p className="text-sm text-gray-500 mt-0.5">{filtered.length} of {machines.length} machines · click a row to see assigned jobs</p>
         </div>
         <div className="flex items-center gap-2">
-          <CsvImport resource="machines" onSuccess={() => qc.invalidateQueries({ queryKey: ['machines'] })}/>
+          {flags.csv_import && <CsvImport resource="machines" onSuccess={() => qc.invalidateQueries({ queryKey: ['machines'] })}/>}
           <CoachMark id="machines-add" title="Register your machines" description="Add equipment with hourly cost and bay location. The scheduler assigns them to jobs automatically." position="bottom" step={1} totalSteps={2}>
             <LimitedButton resource="machines" planLimits={planLimits} onClick={openCreate}>
               <Plus size={16}/> Add Machine
