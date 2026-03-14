@@ -170,7 +170,7 @@ function AvailBadge({ result, loading, status }: { result?: AvailResult | null; 
     <div ref={ref} className="relative inline-block">
       <button onClick={() => setShowTip(t => !t)}
         className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold text-white ${c.badge} hover:opacity-80`}
-        title="Click for details">
+        title="Feasibility shows whether assigned employees and machines are available for this job's dates. Click for details.">
         {result.feasibility_score}% {c.label}
       </button>
       {showTip && (
@@ -1171,7 +1171,10 @@ export default function Jobs() {
                     <Users size={11} className="text-blue-500"/> People & Machines
                   </p>
                   {job.assigned_employees.length === 0 && job.assigned_machines.length === 0
-                    ? <p className="text-xs text-amber-500 flex items-center gap-1"><AlertTriangle size={10}/>No resources assigned yet</p>
+                    ? <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50 px-4 py-3 text-center">
+                        <p className="text-xs text-amber-600 font-medium mb-1">No resources assigned yet</p>
+                        <p className="text-xs text-amber-500">Click <strong>Assign</strong> below to add employees and machines to this job.</p>
+                      </div>
                     : <>
                         {job.assigned_employees.map(e => {
                           const key = `e-${job.id}-${e.id}`
@@ -1586,6 +1589,7 @@ export default function Jobs() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">End Date *</label>
                     <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       value={details.end_date} onChange={e=>setDetails({...details,end_date:e.target.value})}/>
+                    <p className="text-xs text-gray-400 mt-1">The date by which production must be complete.</p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Delivery Date (optional)</label>
@@ -1603,6 +1607,7 @@ export default function Jobs() {
                       value={details.priority} onChange={e=>setDetails({...details,priority:e.target.value})}>
                       {PRIORITIES.map(p=><option key={p}>{p}</option>)}
                     </select>
+                    <p className="text-xs text-gray-400 mt-1">Critical and High priority jobs are scheduled first.</p>
                   </div>
                   <div className="col-span-2">
                     <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>

@@ -7,6 +7,7 @@
 //   - Auto-poll every POLL_INTERVAL_MS for conflict resolution detection
 
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import {
   Play, Pause, RotateCcw, Square, CheckCircle2,
@@ -20,6 +21,7 @@ import timerApi from '../api/api_timer'
 import EndJobModal from '../components/EndJobModal'
 import type { DashboardData, DashboardJob } from '../api/api_dashboard'
 import GettingStarted from '../components/GettingStarted'
+import EmptyState from '../components/EmptyState'
 
 // ─── Poll interval ─────────────────────────────────────────────────────────
 // Change this value to adjust how often dashboard checks for conflict resolution.
@@ -348,6 +350,7 @@ function CollapsibleSection({ title, count, colorClass, icon, defaultOpen = true
   )
 }
 export default function Dashboard() {
+  const navigate = useNavigate()
   const [now, setNow] = useState(new Date())
   const [data, setData] = useState<DashboardData | null>(null)
   const [loadingData, setLoadingData] = useState(true)
@@ -685,10 +688,13 @@ export default function Dashboard() {
       )}
 
       {jobs.length === 0 && (
-        <div className="text-center py-16 text-gray-400">
-          <BriefcaseBusiness size={32} className="mx-auto mb-2 opacity-30" />
-          <p className="text-sm">No jobs yet. Create your first job to get started.</p>
-        </div>
+        <EmptyState
+          icon={<BriefcaseBusiness size={32} />}
+          title="No jobs yet"
+          description="Create your first job to start tracking production. Assign employees and machines to get a full picture of your shop floor."
+          actionLabel="Create First Job"
+          onAction={() => navigate('/jobs')}
+        />
       )}
 
       {/* End Job Modal */}
