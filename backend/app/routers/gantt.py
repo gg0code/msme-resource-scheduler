@@ -1,5 +1,5 @@
 """
-routers/gantt.py — V2.0
+routers/gantt.py — V3.7
 
 GET /api/gantt/
 Returns all jobs for the tenant enriched with:
@@ -9,6 +9,7 @@ Returns all jobs for the tenant enriched with:
 
 Read-only. No writes.
 Registered in main.py as /api/gantt
+V3.7: feature flag guard — returns warm message if gantt flag is False
 """
 
 from fastapi import APIRouter, Depends
@@ -25,6 +26,7 @@ from app.models.employee import Employee
 from app.models.machine import Machine
 from app.services.availability_engine import check_availability
 from app.services.cost_service import compute_tentative_cost, compute_actual_cost
+from app.utils.feature_guard import require_feature
 
 router = APIRouter()
 
@@ -80,6 +82,11 @@ def get_gantt_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("gantt")
+    if guard:
+        return guard
+
     tenant_id = current_user.tenant_id
 
     jobs = (

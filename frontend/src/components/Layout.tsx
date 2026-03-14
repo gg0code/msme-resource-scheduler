@@ -1,6 +1,7 @@
-// src/components/Layout.tsx — V3.2
+// src/components/Layout.tsx — V3.7
 // Removed: Availability, Avail. Checker, Scheduling Jobs nav items
 // Added: AICopilot floating panel
+// V3.7: gantt and ai_copilot nav items + button are gated by feature flags
 
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
@@ -12,15 +13,7 @@ import {
 import { useAuth } from '../auth/AuthContext'
 import SchedulerToolbar from '../scheduler/SchedulerToolbar'
 import AICopilot from './AICopilot'
-
-const navItems = [
-  { to: '/dashboard',  label: 'Dashboard',   icon: LayoutDashboard  },
-  { to: '/jobs',       label: 'Jobs',         icon: BriefcaseBusiness },
-  { to: '/gantt',      label: 'Timeline',     icon: BarChart2        },
-  { to: '/employees',  label: 'Employees',    icon: Users            },
-  { to: '/machines',   label: 'Machines',     icon: Factory          },
-  { to: '/skills',     label: 'Skills',       icon: Settings         },
-]
+import { useFeatureFlags } from '../context/FeatureFlags'
 
 const ROLE_BADGE: Record<string, { label: string; color: string }> = {
   proprietor: { label: 'Proprietor', color: 'bg-blue-600' },
@@ -32,6 +25,7 @@ export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [aiOpen, setAiOpen] = useState(false)
+  const flags = useFeatureFlags()
 
   async function handleLogout() {
     await logout()
@@ -39,6 +33,15 @@ export default function Layout() {
   }
 
   const badge = ROLE_BADGE[user?.role ?? '']
+
+  // ── Nav items — always visible ──────────────────────────────────────────
+  const coreNavItems = [
+    { to: '/dashboard', label: 'Dashboard',  icon: LayoutDashboard   },
+    { to: '/jobs',      label: 'Jobs',        icon: BriefcaseBusiness },
+    { to: '/employees', label: 'Employees',   icon: Users             },
+    { to: '/machines',  label: 'Machines',    icon: Factory           },
+    { to: '/skills',    label: 'Skills',      icon: Settings          },
+  ]
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
@@ -55,7 +58,8 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
-          {navItems.map(({ to, label, icon: Icon }) => (
+          {/* Core nav — always visible */}
+          {coreNavItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -71,6 +75,23 @@ export default function Layout() {
               {label}
             </NavLink>
           ))}
+
+          {/* Gantt — V3.7 gated */}
+          {flags.gantt && (
+            <NavLink
+              to="/gantt"
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                 ${isActive
+                   ? 'bg-blue-600 text-white'
+                   : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                 }`
+              }
+            >
+              <BarChart2 size={16} />
+              Timeline
+            </NavLink>
+          )}
         </nav>
 
         <div className="px-4 py-4 border-t border-gray-700">
@@ -103,18 +124,21 @@ export default function Layout() {
         </main>
       </div>
 
-      {/* AI Copilot floating button */}
-      <button
-        onClick={() => setAiOpen(o => !o)}
-        className={`fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg text-white text-sm font-medium transition-all
-          ${aiOpen ? 'bg-gray-700 hover:bg-gray-800' : 'bg-blue-600 hover:bg-blue-700'}`}
-      >
-        <Bot size={18} />
-        {aiOpen ? 'Close AI' : 'AI Copilot'}
-      </button>
+      {/* AI Copilot floating button — V3.7 gated */}
+      {flags.ai_copilot && (
+        <>
+          <button
+            onClick={() => setAiOpen(o => !o)}
+            className={`fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg text-white text-sm font-medium transition-all
+              ${aiOpen ? 'bg-gray-700 hover:bg-gray-800' : 'bg-blue-600 hover:bg-blue-700'}`}
+          >
+            <Bot size={18} />
+            {aiOpen ? 'Close AI' : 'AI Copilot'}
+          </button>
 
-      {/* AI Copilot panel */}
-      <AICopilot isOpen={aiOpen} onClose={() => setAiOpen(false)} />
+          <AICopilot isOpen={aiOpen} onClose={() => setAiOpen(false)} />
+        </>
+      )}
     </div>
   )
 }

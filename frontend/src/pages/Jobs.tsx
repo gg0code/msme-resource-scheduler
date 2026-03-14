@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import { CoachMark } from '../components/onboarding'
+import { useFeatureFlags } from '../context/FeatureFlags'
 import {
   Plus, Pencil, Trash2, Loader2, AlertCircle, CalendarDays, IndianRupee,
   X, Check, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp,
@@ -893,6 +894,7 @@ export default function Jobs() {
 
   // ── Render a single job row ───────────────────────────
   function JobRow({ job }: { job: Job }) {
+    const flags = useFeatureFlags()
     const avail    = availCache[job.id]
     const aLoading = avail === 'loading'
     const result   = typeof avail === 'object' ? avail : null
@@ -903,6 +905,7 @@ export default function Jobs() {
     const profitPos  = profit != null && profit >= 0
     const displayId  = jobDisplayId(job, jobPrefix)
     const ts         = TIMER_STYLE[job.timer_status] ?? TIMER_STYLE['idle']
+    
 
     // One-liner summary
     const summaryParts = [
@@ -1284,8 +1287,8 @@ export default function Jobs() {
                 </div>
               </div>
 
-              {/* Steps Panel */}
-              <JobStepsPanel jobId={job.id} jobStatus={job.status} />
+              {/* Steps Panel V3.7 gated  */}
+              {flags.step_intelligence && (<JobStepsPanel jobId={job.id} jobStatus={job.status} />)}
 
               {/* Action buttons */}
               <div className="flex gap-2 mt-4 pt-3 border-t border-blue-100 px-4 pb-4">
@@ -1303,11 +1306,12 @@ export default function Jobs() {
                   className="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 font-medium flex items-center gap-1.5">
                   {job.is_locked ? <><Lock size={11}/> Unlock</> : <><Unlock size={11}/> Lock</>}
                 </button>
-                <button
+                {flags.qr_scan && (<button
                   onClick={() => navigate(`/jobs/${job.id}/print`)}
                   className="text-xs px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 border border-purple-200 font-medium flex items-center gap-1.5">
                   <Package size={11}/> Print Job Card
                 </button>
+                )}
                 <button onClick={()=>setDeleteId(job.id)}
                   className="text-xs px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 border border-red-100 font-medium flex items-center gap-1.5 ml-auto">
                   <Trash2 size={11}/> Delete

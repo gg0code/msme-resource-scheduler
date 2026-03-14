@@ -1,11 +1,14 @@
 """
-app/routers/scan.py — Block 2 V3.0 + V3.1
+app/routers/scan.py — V3.7
 Token generation and scan execution endpoints.
 
 Endpoints:
   POST /api/jobs/{job_id}/scan-tokens   — generate all tokens for a job (auth required)
   POST /api/scan/execute                — execute a scan action (no auth, token-based)
   GET  /api/scan/verify                 — verify token and return metadata (no auth)
+
+V3.7: feature flag guard on token generation — returns warm message if qr_scan flag is False.
+      verify and execute endpoints are NOT guarded — a printed QR card must always be scannable.
 """
 
 from datetime import datetime, timezone
@@ -18,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.routers.auth import get_current_user
 from app.services.token_service import create_scan_token, verify_scan_token
+from app.utils.feature_guard import require_feature
 
 router = APIRouter()
 
@@ -105,6 +109,11 @@ def generate_job_tokens(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard (token generation only — execute/verify always allowed)
+    guard = require_feature("qr_scan")
+    if guard:
+        return guard
+
     from app.models.job_steps import JobStep
 
     tenant_id = current_user.tenant_id
@@ -174,7 +183,7 @@ def generate_job_tokens(
     summary="Verify a scan token and return step metadata (no auth)",
 )
 def verify_token(token: str, db: Session = Depends(get_db)):
-    # Decode token
+    # NOTE: No feature guard here — a printed QR card must always be verifiable
     try:
         payload = verify_scan_token(token)
     except ValueError as e:
@@ -200,7 +209,6 @@ def verify_token(token: str, db: Session = Depends(get_db)):
             can_execute=False, reason="invalid",
         )
 
-    # Check if action is executable given current status
     action = payload["action"]
     can_execute = (
         (action == "start_step" and step.status == "ready") or
@@ -237,10 +245,10 @@ def verify_token(token: str, db: Session = Depends(get_db)):
     summary="Execute a scan action — start or complete a step (no auth)",
 )
 def execute_scan(body: ScanExecuteRequest, db: Session = Depends(get_db)):
+    # NOTE: No feature guard here — a printed QR card must always be executable
     from app.models.job_steps import JobStep
     from app.models.job import Job
 
-    # Verify token
     try:
         payload = verify_scan_token(body.token)
     except ValueError as e:
@@ -258,7 +266,6 @@ def execute_scan(body: ScanExecuteRequest, db: Session = Depends(get_db)):
     if not step:
         raise HTTPException(status_code=404, detail={"error": "invalid", "message": "Step not found"})
 
-    # Enforce status transitions
     if action == "start_step":
         if step.status != "ready":
             raise HTTPException(
@@ -277,7 +284,6 @@ def execute_scan(body: ScanExecuteRequest, db: Session = Depends(get_db)):
         step.status = "complete"
         step.updated_at = datetime.now(timezone.utc)
 
-        # Unlock next step
         next_step = (
             db.query(JobStep)
             .filter(
@@ -293,7 +299,6 @@ def execute_scan(body: ScanExecuteRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(step)
 
-    # Check if last step → auto-complete job
     all_steps = (
         db.query(JobStep)
         .filter(JobStep.job_id == job_id, JobStep.tenant_id == tenant_id)
@@ -309,7 +314,6 @@ def execute_scan(body: ScanExecuteRequest, db: Session = Depends(get_db)):
             db.commit()
             job_completed = True
 
-    # Next step info
     next_step_after = (
         db.query(JobStep)
         .filter(
@@ -322,9 +326,9 @@ def execute_scan(body: ScanExecuteRequest, db: Session = Depends(get_db)):
     is_last = next_step_after is None
 
     message = (
-        f"Job completed! All steps done." if job_completed
+        "Job completed! All steps done." if job_completed
         else f"Next: {next_step_after.name} is now ready" if (next_step_after and action == "complete_step")
-        else f"Step started. Scan Done QR when finished."
+        else "Step started. Scan Done QR when finished."
     )
 
     return ScanExecuteResponse(

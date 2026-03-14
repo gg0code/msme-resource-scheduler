@@ -1,9 +1,10 @@
 """
-app/routers/ai_chat.py — V3.2
+app/routers/ai_chat.py — V3.7
 AI Copilot chat endpoint using Groq + Llama 3.3
 POST /api/ai/chat
 GET  /api/ai/usage  — get current usage for tenant
 Added: per-tenant daily query tracking + token counting
+V3.7: feature flag guard — returns warm message if ai_copilot flag is False
 """
 
 import traceback
@@ -17,6 +18,7 @@ from app.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.auth import User, Tenant
 from app.services.ai_service import run_ai_chat
+from app.utils.feature_guard import require_feature
 
 try:
     from groq import RateLimitError as GroqRateLimitError
@@ -79,6 +81,11 @@ def ai_chat(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("ai_copilot")
+    if guard:
+        return guard
+
     if not request.messages:
         raise HTTPException(status_code=400, detail="No messages provided")
 
@@ -155,6 +162,11 @@ def get_usage(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("ai_copilot")
+    if guard:
+        return guard
+
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")

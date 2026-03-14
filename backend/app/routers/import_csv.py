@@ -1,8 +1,9 @@
 """
-routers/import_csv.py — V1.1
+routers/import_csv.py — V3.7
 Added: JWT auth, RBAC
   GET  template — any authenticated user
   POST import   — scheduler+
+V3.7: feature flag guard — returns warm message if csv_import flag is False
 """
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -13,6 +14,7 @@ from app.database import get_db
 from app.utils.csv_import import import_employees, import_machines, import_skills, TEMPLATES, XLSX_TEMPLATES
 from app.core.dependencies import get_current_user, require_role
 from app.models.auth import User
+from app.utils.feature_guard import require_feature
 
 router = APIRouter()
 
@@ -22,6 +24,11 @@ def download_template(
     resource: str,
     current_user: User = Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("csv_import")
+    if guard:
+        return guard
+
     if resource not in TEMPLATES:
         raise HTTPException(status_code=404, detail=f"No template for '{resource}'. Use: employees, machines, skills")
     filename, content = TEMPLATES[resource]
@@ -37,6 +44,11 @@ def download_xlsx_template(
     resource: str,
     current_user: User = Depends(get_current_user),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("csv_import")
+    if guard:
+        return guard
+
     if resource not in XLSX_TEMPLATES:
         raise HTTPException(status_code=404, detail=f"No xlsx template for '{resource}'. Use: employees, machines")
     filename, content_bytes = XLSX_TEMPLATES[resource]
@@ -53,6 +65,11 @@ async def upload_employees(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("proprietor", "scheduler")),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("csv_import")
+    if guard:
+        return guard
+
     if not (file.filename.endswith(".csv") or file.filename.endswith(".xlsx")):
         raise HTTPException(status_code=400, detail="Only .csv or .xlsx files are accepted")
     content = await file.read()
@@ -66,6 +83,11 @@ async def upload_machines(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("proprietor", "scheduler")),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("csv_import")
+    if guard:
+        return guard
+
     if not (file.filename.endswith(".csv") or file.filename.endswith(".xlsx")):
         raise HTTPException(status_code=400, detail="Only .csv or .xlsx files are accepted")
     content = await file.read()
@@ -79,6 +101,11 @@ async def upload_skills(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("proprietor", "scheduler")),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("csv_import")
+    if guard:
+        return guard
+
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only .csv files are accepted")
     content = await file.read()

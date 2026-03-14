@@ -1,5 +1,5 @@
 """
-backend/app/routers/scheduler.py — Prompt 2 Part B
+backend/app/routers/scheduler.py — V3.7
 
 POST /api/scheduler/run
   - Loads all jobs/steps/resources for tenant from DB
@@ -10,6 +10,8 @@ POST /api/scheduler/run
 
 GET /api/scheduler/entries
   - Returns all schedule_entries for current tenant
+
+V3.7: feature flag guard — returns warm message if scheduler flag is False
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from app.scheduler.engine import (
     ResourceSlot, ScheduleEntry, SchedulerResult,
     StepInput, run_scheduler,
 )
+from app.utils.feature_guard import require_feature
 
 router = APIRouter()
 
@@ -126,7 +129,6 @@ def _load_jobs(db: Session, tenant_id: int) -> List[JobInput]:
 
 
 def _load_steps(db: Session, tenant_id: int) -> List[StepInput]:
-    # Get all step IDs for this tenant via their job
     job_ids = db.scalars(
         select(SchedJob.id).where(SchedJob.tenant_id == tenant_id)
     ).all()
@@ -137,7 +139,6 @@ def _load_steps(db: Session, tenant_id: int) -> List[StepInput]:
         select(SchedStep).where(SchedStep.job_id.in_(job_ids))
     ).all()
 
-    # Load resource links
     machine_links = db.execute(
         select(SchedStepMachine.step_id, SchedStepMachine.resource_id)
         .where(SchedStepMachine.step_id.in_([s.id for s in steps]))
@@ -206,7 +207,6 @@ def _load_locked_entries(db: Session, tenant_id: int) -> List[LockedEntry]:
                 start=e.scheduled_start, end=e.scheduled_end,
             ))
 
-    # Also include reserve_machine_id from step definition
     all_steps = db.scalars(
         select(SchedStep).where(SchedStep.job_id.in_(locked_job_ids))
     ).all()
@@ -231,15 +231,18 @@ def run_scheduler_endpoint(
     db: Session = Depends(get_db),
     tenant_id: int = Depends(_tenant),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("scheduler")
+    if guard:
+        return guard
+
     schedule_date = body.schedule_date or date.today()
 
-    # Load data from DB
     resources      = _load_resources(db, tenant_id)
     jobs           = _load_jobs(db, tenant_id)
     steps          = _load_steps(db, tenant_id)
     locked_entries = _load_locked_entries(db, tenant_id)
 
-    # Run engine
     result = run_scheduler(
         jobs=jobs,
         steps=steps,
@@ -248,14 +251,12 @@ def run_scheduler_endpoint(
         schedule_date=schedule_date,
     )
 
-    # Persist resolved entries — skip locked jobs
     locked_job_ids = {j.id for j in jobs if j.lock_status}
     unlocked_step_ids = {
         e.step_id for e in result.resolved
         if e.job_id not in locked_job_ids
     }
 
-    # Delete stale unlocked entries for this tenant
     stale = db.scalars(
         select(ScheduleEntryModel).where(
             ScheduleEntryModel.tenant_id == tenant_id,
@@ -268,7 +269,6 @@ def run_scheduler_endpoint(
             db.delete(row)
     db.flush()
 
-    # Insert new resolved entries
     for entry in result.resolved:
         if entry.job_id in locked_job_ids:
             continue
@@ -284,7 +284,6 @@ def run_scheduler_endpoint(
 
     db.commit()
 
-    # Build response with DB IDs from freshly saved rows
     saved = db.scalars(
         select(ScheduleEntryModel).where(
             ScheduleEntryModel.tenant_id == tenant_id,
@@ -299,7 +298,6 @@ def run_scheduler_endpoint(
         if row:
             resolved_out.append(ScheduleEntryOut.model_validate(row))
         else:
-            # locked job — construct a virtual response row
             resolved_out.append(ScheduleEntryOut(
                 id=0, tenant_id=tenant_id,
                 job_id=entry.job_id, step_id=entry.step_id,
@@ -327,6 +325,11 @@ def get_schedule_entries(
     db: Session = Depends(get_db),
     tenant_id: int = Depends(_tenant),
 ):
+    # V3.7 — feature flag guard
+    guard = require_feature("scheduler")
+    if guard:
+        return guard
+
     rows = db.scalars(
         select(ScheduleEntryModel)
         .where(ScheduleEntryModel.tenant_id == tenant_id)
