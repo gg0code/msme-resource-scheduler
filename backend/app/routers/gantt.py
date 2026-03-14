@@ -77,7 +77,7 @@ def _derive_status_icon(job: Job, has_conflict: bool) -> str:
     return "ready"
 
 
-@router.get("/", response_model=List[GanttJob])
+@router.get("/")
 def get_gantt_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

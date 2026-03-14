@@ -530,6 +530,7 @@ function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string 
 export default function Jobs() {
   const qc = useQueryClient()
   const { markDirty } = useSchedulerContext()
+  const flags = useFeatureFlags() 
   const navigate = useNavigate()
   const today = new Date().toISOString().split('T')[0]
 
@@ -655,7 +656,10 @@ export default function Jobs() {
       const newJobId = res.data.id
       if ((selectedEmps.length > 0 || selectedMachines.length > 0) && newJobId) {
         try { await apiClient.post('/api/assignments/', { job_id:newJobId, employee_ids:selectedEmps, machine_ids:selectedMachines }) }
-        catch (_) {}
+        catch (err: any) {
+          const msg = err?.response?.data?.detail || 'Could not assign resources.'
+          showToast(msg, 'error') 
+        }
       }
       qc.invalidateQueries({queryKey:['jobs']})
       qc.invalidateQueries({queryKey:['dashboard']})
@@ -894,7 +898,7 @@ export default function Jobs() {
 
   // ── Render a single job row ───────────────────────────
   function JobRow({ job }: { job: Job }) {
-    const flags = useFeatureFlags()
+   
     const avail    = availCache[job.id]
     const aLoading = avail === 'loading'
     const result   = typeof avail === 'object' ? avail : null

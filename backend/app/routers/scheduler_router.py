@@ -225,7 +225,7 @@ def _load_locked_entries(db: Session, tenant_id: int) -> List[LockedEntry]:
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
 
-@router.post("/scheduler/run", response_model=SchedulerResultOut)
+@router.post("/scheduler/run")
 def run_scheduler_endpoint(
     body: RunSchedulerRequest = RunSchedulerRequest(),
     db: Session = Depends(get_db),
@@ -320,7 +320,7 @@ def run_scheduler_endpoint(
     )
 
 
-@router.get("/scheduler/entries", response_model=List[ScheduleEntryOut])
+@router.get("/scheduler/entries")
 def get_schedule_entries(
     db: Session = Depends(get_db),
     tenant_id: int = Depends(_tenant),

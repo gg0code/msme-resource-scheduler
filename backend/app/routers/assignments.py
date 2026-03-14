@@ -1,16 +1,23 @@
 """
-routers/assignments.py — V1.1
+routers/assignments.py — V3.7.1
 Added: JWT auth, tenant_id scoping on all endpoints + passed to availability engine
   POST /api/assignments/                        — scheduler+
   GET  /api/assignments/check/{job_id}          — any authenticated user
   GET  /api/assignments/employee/{employee_id}  — any authenticated user
   GET  /api/assignments/machine/{machine_id}    — any authenticated user
+
+V3.7.1 — Pain Point 4 + 1 fix:
+  - Overbooking check: before saving, query existing assignments for each machine
+    in the same date window. If a clash is found, return a warm conflict message
+    that names the clashing job specifically.
+  - Machine clash message now says which job is clashing, not just "conflict".
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List
+from datetime import date
 
 from app.database import get_db
 from app.core.dependencies import get_current_user, require_role
@@ -34,12 +41,110 @@ class AssignRequest(BaseModel):
     machine_ids: List[int] = []
 
 
+# ── V3.7.1 — Overbooking check helper ────────────────────────────────────────
+
+def _check_machine_overbooking(
+    db: Session,
+    job_id: int,
+    machine_ids: List[int],
+    tenant_id: int,
+) -> list[dict]:
+    """
+    For each machine_id being assigned, check if it is already assigned
+    to a different job with overlapping dates.
+
+    Returns a list of conflict dicts:
+      { "machine_name": str, "clashing_job_name": str,
+        "clashing_start": str, "clashing_end": str }
+
+    Returns empty list if no conflicts.
+    """
+    if not machine_ids:
+        return []
+
+    # Get the job being assigned — need its date range
+    job = db.query(Job).filter(
+        Job.id == job_id,
+        Job.tenant_id == tenant_id,
+    ).first()
+
+    if not job or not job.start_date or not job.end_date:
+        return []  # no dates set yet — skip check
+
+    # Always call .date() on datetime columns per architecture rules
+    new_start = job.start_date.date() if hasattr(job.start_date, 'date') else job.start_date
+    new_end   = job.end_date.date()   if hasattr(job.end_date,   'date') else job.end_date
+
+    conflicts = []
+
+    for machine_id in machine_ids:
+        # Find any existing assignment for this machine that overlaps the date range
+        # Overlap condition: existing.start <= new_end AND existing.end >= new_start
+        clashing = (
+            db.query(JobAssignment)
+            .join(Job, JobAssignment.job_id == Job.id)
+            .filter(
+                JobAssignment.machine_id == machine_id,
+                JobAssignment.tenant_id  == tenant_id,
+                JobAssignment.job_id     != job_id,          # exclude the job being assigned
+                Job.start_date           <= new_end,
+                Job.end_date             >= new_start,
+                Job.status.notin_(["Completed", "Cancelled"]),  # ignore closed jobs
+            )
+            .options(selectinload(JobAssignment.job))
+            .first()
+        )
+
+        if clashing and clashing.job:
+            machine = db.query(Machine).filter(
+                Machine.id        == machine_id,
+                Machine.tenant_id == tenant_id,
+            ).first()
+
+            machine_name = machine.name if machine else f"Machine #{machine_id}"
+
+            # .date() on clashing job dates per architecture rules
+            c_start = clashing.job.start_date.date() if hasattr(clashing.job.start_date, 'date') else clashing.job.start_date
+            c_end   = clashing.job.end_date.date()   if hasattr(clashing.job.end_date,   'date') else clashing.job.end_date
+
+            conflicts.append({
+                "machine_name":      machine_name,
+                "clashing_job_name": clashing.job.name,
+                "clashing_start":    str(c_start),
+                "clashing_end":      str(c_end),
+            })
+
+    return conflicts
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def create_assignment(
     payload: AssignRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("proprietor", "scheduler")),
 ):
+    # V3.7.1 — Check for machine overbooking before saving
+    clashes = _check_machine_overbooking(
+        db=db,
+        job_id=payload.job_id,
+        machine_ids=payload.machine_ids,
+        tenant_id=current_user.tenant_id,
+    )
+
+    if clashes:
+        # Build a clear, specific message naming each clashing job
+        messages = []
+        for c in clashes:
+            messages.append(
+                f"{c['machine_name']} is already assigned to "
+                f"'{c['clashing_job_name']}' "
+                f"({c['clashing_start']} to {c['clashing_end']})"
+            )
+        detail = "Machine overbooking detected. " + " | ".join(messages)
+        raise HTTPException(status_code=409, detail=detail)
+
     try:
         result = assign_resources(
             db=db,
@@ -84,6 +189,31 @@ def check_job_availability(
         overrides = db.query(AvailabilityOverride).filter(AvailabilityOverride.machine_id == m.id).all()
         blocked = any(_effective_availability(m.base_availability_pct, overrides, d) <= 0 for d in days)
         busy = _is_machine_busy(db, m.id, job_id, days, tenant_id=tid)
+        busy_reason = None
+        if blocked:
+            busy_reason = "On maintenance / override"
+        elif busy:
+            clashing = (
+                db.query(JobAssignment)
+                .join(Job, JobAssignment.job_id == Job.id)
+                .filter(
+                    JobAssignment.machine_id == m.id,
+                    JobAssignment.tenant_id  == tid,
+                    JobAssignment.job_id     != job_id,
+                    Job.start_date           <= max(days),
+                    Job.end_date             >= min(days),
+                    Job.status.notin_(["Completed", "Cancelled"]),
+                )
+                .options(selectinload(JobAssignment.job))
+                .first()
+            )
+            if clashing and clashing.job:
+                c_start = clashing.job.start_date.date() if hasattr(clashing.job.start_date, 'date') else clashing.job.start_date
+                c_end   = clashing.job.end_date.date()   if hasattr(clashing.job.end_date,   'date') else clashing.job.end_date
+                busy_reason = f"Assigned to '{clashing.job.name}' ({c_start} to {c_end})"
+            else:
+                busy_reason = "Assigned to another job"
+
         machines_info.append({
             "id": m.id,
             "name": m.name,
@@ -91,7 +221,7 @@ def check_job_availability(
             "location_bay": m.location_bay,
             "hourly_rate": m.hourly_rate,
             "available": not blocked and not busy,
-            "busy_reason": "On maintenance/override" if blocked else ("Assigned to another job" if busy else None),
+            "busy_reason": busy_reason,
             "skill_requirements": [
                 {
                     "skill_id": sr.skill_id,
