@@ -1,12 +1,10 @@
-// src/pages/LoginPage.tsx — V2.1
-// Shows role context selector (Scheduler / Proprietor / Admin) as a visual indicator.
-// The actual role is tied to the user account — the selector simply guides which
-// credential the user intends to log in with. The JWT role returned by the server
-// is always authoritative; a banner displays the actual logged-in role after auth.
+// src/pages/LoginPage.tsx — V3.7.3
+// Fixed: now uses AuthContext.login() instead of direct apiClient call
+// This ensures the in-memory tokenStore is populated and ProtectedRoute works correctly
 
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import apiClient from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import { Factory } from 'lucide-react'
 
 const ROLE_OPTIONS = [
@@ -17,36 +15,22 @@ const ROLE_OPTIONS = [
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const { login } = useAuth()
   const [selectedRole, setSelectedRole] = useState<string>('proprietor')
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState<string | null>(null)
   const [loading, setLoading]   = useState(false)
-  const [actualRole, setActualRole] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setLoading(true)
     try {
-      const res = await apiClient.post('/auth/login', { email, password })
-      const token = res.data.access_token
-      localStorage.setItem('access_token', token)
-      // Decode role from JWT payload
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]))
-        setActualRole(payload.role ?? null)
-        if (payload.role && payload.role !== selectedRole) {
-          // Brief mismatch warning then redirect
-          setTimeout(() => navigate('/'), 1200)
-        } else {
-          navigate('/')
-        }
-      } catch {
-        navigate('/')
-      }
+      await login(email, password)
+      navigate('/')
     } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Login failed. Check email / password.')
+      setError(err?.response?.data?.detail ?? err?.message ?? 'Login failed. Check email / password.')
     } finally {
       setLoading(false)
     }
@@ -95,13 +79,6 @@ export default function LoginPage() {
               {ROLE_OPTIONS.find(r => r.value === selectedRole)?.desc}
             </p>
           </div>
-
-          {/* Actual role mismatch notice */}
-          {actualRole && actualRole !== selectedRole && (
-            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
-              ⚠️ Your account has <strong>{actualRole}</strong> role. Redirecting…
-            </div>
-          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>

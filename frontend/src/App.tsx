@@ -1,11 +1,13 @@
-// src/App.tsx — V3.2 (Block 2)
-// Added: /scan and /jobs/:jobId/print routes
+// src/App.tsx — V3.7.3
+// FeatureFlagProvider moved here — inside AuthProvider, wrapping Layout only
+// This ensures flags are fetched after auth is established
 
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
 import { ProtectedRoute } from './auth/ProtectedRoute'
 import { OnboardingProvider } from './components/onboarding'
 import { SchedulerProvider } from './scheduler/SchedulerContext'
+import { FeatureFlagProvider } from './context/FeatureFlags'
 import Layout from './components/Layout'
 
 // Auth pages
@@ -51,11 +53,13 @@ export default function App() {
         {/* Protected routes with layout */}
         <Route element={<ProtectedRoute />}>
           <Route element={
-            <SchedulerProvider>
-              <OnboardingProvider>
-                <Layout />
-              </OnboardingProvider>
-            </SchedulerProvider>
+            <FeatureFlagProvider>
+              <SchedulerProvider>
+                <OnboardingProvider>
+                  <Layout />
+                </OnboardingProvider>
+              </SchedulerProvider>
+            </FeatureFlagProvider>
           }>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard"    element={<Dashboard />} />

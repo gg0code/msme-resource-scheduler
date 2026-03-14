@@ -19,6 +19,7 @@ import { CoachMark } from '../components/onboarding'
 import timerApi from '../api/api_timer'
 import EndJobModal from '../components/EndJobModal'
 import type { DashboardData, DashboardJob } from '../api/api_dashboard'
+import GettingStarted from '../components/GettingStarted'
 
 // ─── Poll interval ─────────────────────────────────────────────────────────
 // Change this value to adjust how often dashboard checks for conflict resolution.
@@ -353,6 +354,8 @@ export default function Dashboard() {
   const [dataError, setDataError] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
   const [endModalJobId, setEndModalJobId] = useState<number | null>(null)
+  const [empCount,  setEmpCount]  = useState(0)
+  const [machCount, setMachCount] = useState(0)
 
   // Live clock
   useEffect(() => {
@@ -366,6 +369,8 @@ export default function Dashboard() {
       .then(r => { setData(r.data); setDataError(false) })
       .catch(() => setDataError(true))
       .finally(() => setLoadingData(false))
+    apiClient.get('/api/employees/').then(r => setEmpCount(r.data?.length ?? 0)).catch(() => {})
+    apiClient.get('/api/machines/').then(r => setMachCount(r.data?.length ?? 0)).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -479,6 +484,19 @@ export default function Dashboard() {
         </div>
       </CoachMark>
 
+
+        {/* Getting Started checklist — V3.8 */}
+      <GettingStarted
+        employeeCount={empCount}
+        machineCount={machCount}
+        jobCount={jobs.length}
+        assignedJobCount={jobs.filter(j =>
+          j.assigned_employees.length > 0 && j.assigned_machines.length > 0
+        ).length}
+        activeJobCount={jobs.filter(j =>
+          j.status === 'In Progress' || j.status === 'Completed'
+        ).length}
+      />
 
       {/* Smart Alerts */}
       <CoachMark id="dashboard-conflicts" title="Smart Alerts" description="Real-time alerts for conflicts, overdue jobs, idle shop floor and more." position="bottom" step={2} totalSteps={3}>
