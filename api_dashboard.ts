@@ -55,5 +55,5 @@ export interface DashboardData {
 }
 
 export const dashboardApi = {
-  get: () => apiClient.get<DashboardData>('/api/dashboard/').then(r => r.data),
+  get: () => apiClient.get<DashboardData>('/dashboard/').then(r => r.data),
 }

@@ -66,7 +66,7 @@ function StatusIcon({ icon }: { icon: string }) {
   }
   const dot: Record<string, string> = {
     ready: 'bg-green-500',
-    conflict: 'bg-red-500',
+    conflict: 'bg-amber-500',   // amber = skill gap (most common); real conflicts shown red in card
     completed: 'bg-blue-500',
     stopped: 'bg-gray-900',
   }
@@ -177,13 +177,24 @@ function JobCard({ job, onAction, actionLoading }: JobCardProps) {
               {job.start_date} → {job.end_date}
             </p>
 
-            {/* Conflict warning */}
-            {job.has_conflict && (
-              <div className="mt-1.5 flex items-start gap-1.5 text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1.5">
-                <AlertCircle size={12} className="mt-0.5 flex-shrink-0" />
-                <span>{job.conflict_reasons[0] ?? 'Resource conflict detected'}</span>
-              </div>
-            )}
+            {/* Conflict warning — split skill gaps from scheduling conflicts */}
+            {job.has_conflict && (() => {
+              const reason = job.conflict_reasons[0] ?? ''
+              const isSkillGap = reason.toLowerCase().includes('skill') ||
+                                 reason.toLowerCase().includes('qualified') ||
+                                 reason.toLowerCase().includes('no one assigned')
+              return isSkillGap ? (
+                <div className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5">
+                  <AlertCircle size={12} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                  <span>{reason || 'Skill gap — assign qualified staff'}</span>
+                </div>
+              ) : (
+                <div className="mt-1.5 flex items-start gap-1.5 text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1.5">
+                  <AlertCircle size={12} className="mt-0.5 flex-shrink-0" />
+                  <span>{reason || 'Scheduling conflict — check resource assignments'}</span>
+                </div>
+              )
+            })()}
 
             {/* Cost grid */}
             <CostGrid job={job} />
@@ -511,11 +522,24 @@ export default function Dashboard() {
           type AlertType = 'error' | 'warning' | 'info' | 'success'
           const allAlerts: { type: AlertType; emoji: string; msg: string }[] = []
 
-          // 🔴 Conflicts
+          // Split conflicted jobs into skill gaps vs real scheduling conflicts
           const conflicted = activeJobs.filter(j => j.has_conflict)
-          if (conflicted.length) allAlerts.push({
+          const skillGapJobs = conflicted.filter(j => {
+            const r = (j.conflict_reasons?.[0] ?? '').toLowerCase()
+            return r.includes('skill') || r.includes('qualified') || r.includes('no one assigned')
+          })
+          const realConflictJobs = conflicted.filter(j => !skillGapJobs.includes(j))
+
+          // 🟡 Skill gaps — amber (action: assign qualified staff)
+          if (skillGapJobs.length) allAlerts.push({
+            type: 'warning', emoji: '🟡',
+            msg: `${skillGapJobs.length} job${skillGapJobs.length > 1 ? 's have' : ' has'} skill gaps — assign qualified staff: ${skillGapJobs.slice(0,2).map(j => j.name).join(', ')}${skillGapJobs.length > 2 ? ` +${skillGapJobs.length - 2} more` : ''}`
+          })
+
+          // 🔴 Real scheduling conflicts — red (action: change dates or reassign resource)
+          if (realConflictJobs.length) allAlerts.push({
             type: 'error', emoji: '🔴',
-            msg: `${conflicted.length} job${conflicted.length > 1 ? 's have' : ' has'} resource conflicts: ${conflicted.slice(0,2).map(j => j.name).join(', ')}${conflicted.length > 2 ? ` +${conflicted.length - 2} more` : ''}`
+            msg: `${realConflictJobs.length} job${realConflictJobs.length > 1 ? 's have' : ' has'} scheduling conflicts: ${realConflictJobs.slice(0,2).map(j => j.name).join(', ')}${realConflictJobs.length > 2 ? ` +${realConflictJobs.length - 2} more` : ''}`
           })
 
           // 🔴 Overdue jobs (past end date, not complete)
@@ -605,7 +629,8 @@ export default function Dashboard() {
       <div className="flex items-center gap-5 text-xs text-gray-500 bg-white border border-gray-100 rounded-xl px-4 py-2.5 flex-wrap">
         <span className="font-medium text-gray-400 uppercase tracking-wide text-xs">Legend</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse inline-block" />Ready to start</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />Has conflict</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />Skill gap</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />Scheduling conflict</span>
         <span className="flex items-center gap-1.5">
           <svg viewBox="0 0 16 16" className="w-3.5 h-3.5"><path d="M3 2l10 6-10 6V2z" fill="#16a34a" /></svg>In progress
         </span>
@@ -628,20 +653,44 @@ export default function Dashboard() {
         </CollapsibleSection>
       )}
 
-      {/* Conflict jobs */}
-      {conflictJobs.length > 0 && (
-        <CollapsibleSection
-          title="Needs Attention — Conflicts"
-          count={conflictJobs.length}
-          colorClass="text-red-600"
-          defaultOpen={true}
-          icon={<AlertCircle size={14} />}
-        >
-          {conflictJobs.map(j => (
-            <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
-          ))}
-        </CollapsibleSection>
-      )}
+      {/* Jobs needing attention — split skill gaps from scheduling conflicts */}
+      {conflictJobs.length > 0 && (() => {
+        const skillGapSection = conflictJobs.filter(j => {
+          const r = (j.conflict_reasons?.[0] ?? '').toLowerCase()
+          return r.includes('skill') || r.includes('qualified') || r.includes('no one assigned')
+        })
+        const realConflictSection = conflictJobs.filter(j => !skillGapSection.includes(j))
+        return (
+          <>
+            {skillGapSection.length > 0 && (
+              <CollapsibleSection
+                title="Needs Attention — Skill Gaps"
+                count={skillGapSection.length}
+                colorClass="text-amber-600"
+                defaultOpen={true}
+                icon={<AlertCircle size={14} className="text-amber-500" />}
+              >
+                {skillGapSection.map(j => (
+                  <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+                ))}
+              </CollapsibleSection>
+            )}
+            {realConflictSection.length > 0 && (
+              <CollapsibleSection
+                title="Needs Attention — Scheduling Conflicts"
+                count={realConflictSection.length}
+                colorClass="text-red-600"
+                defaultOpen={true}
+                icon={<AlertCircle size={14} />}
+              >
+                {realConflictSection.map(j => (
+                  <JobCard key={j.id} job={j} onAction={handleAction} actionLoading={actionLoading} />
+                ))}
+              </CollapsibleSection>
+            )}
+          </>
+        )
+      })()}
 
       {/* Paused jobs */}
       {pausedJobs.length > 0 && (
