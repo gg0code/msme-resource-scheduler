@@ -14,6 +14,13 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
+import {
+  getResourceAvailability,
+  employeeStatusColor,
+  employeeStatusLabel,
+  machineStatusLabel,
+  type ResourceAvailabilityResponse,
+} from '../api/api_resource_availability'
 import { CoachMark } from '../components/onboarding'
 import { useFeatureFlags } from '../context/FeatureFlags'
 import {
@@ -548,6 +555,9 @@ export default function Jobs() {
   const [openMenu,    setOpenMenu]        = useState<number | null>(null)
   const [allocPct,    setAllocPct]        = useState<Record<string, number>>({})
   const [savingAlloc, setSavingAlloc]     = useState(false)
+  // v3.9.4 — real-time resource availability per job, fetched on row expand
+  const [resAvail,        setResAvail]        = useState<Record<number, ResourceAvailabilityResponse>>({})
+  const [resAvailLoading, setResAvailLoading] = useState<Record<number, boolean>>({})
 
   // Wizard
   const [wizardOpen, setWizardOpen]       = useState(false)
@@ -926,7 +936,25 @@ export default function Jobs() {
     return (
       <>
         <tr
-          onClick={() => setExpandedRow(isExpanded ? null : job.id)}
+          onClick={async () => {
+            if (isExpanded) {
+              setExpandedRow(null)
+            } else {
+              setExpandedRow(job.id)
+              // v3.9.4: fetch real-time resource availability when row expands
+              if (!resAvail[job.id]) {
+                setResAvailLoading(p => ({ ...p, [job.id]: true }))
+                try {
+                  const data = await getResourceAvailability(job.id)
+                  setResAvail(p => ({ ...p, [job.id]: data }))
+                } catch (_) {
+                  // silently fall back to static values if fetch fails
+                } finally {
+                  setResAvailLoading(p => ({ ...p, [job.id]: false }))
+                }
+              }
+            }
+          }}
           className={`cursor-pointer group border-b transition-colors
             ${job.has_conflict
               ? isExpanded
@@ -1165,7 +1193,7 @@ export default function Jobs() {
                   }
                 </div>
 
-                {/* People & Machines with allocation sliders */}
+                {/* People & Machines — v3.9.4: real-time availability */}
                 <div>
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
                     <Users size={11} className="text-blue-500"/> People & Machines
@@ -1176,31 +1204,67 @@ export default function Jobs() {
                         <p className="text-xs text-amber-500">Click <strong>Assign</strong> below to add employees and machines to this job.</p>
                       </div>
                     : <>
+                        {/* Loading spinner while fetching availability */}
+                        {resAvailLoading[job.id] && (
+                          <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-2">
+                            <Loader2 size={11} className="animate-spin"/> Checking availability...
+                          </div>
+                        )}
+                        {/* No dates set message */}
+                        {resAvail[job.id]?.error === 'no_dates' && (
+                          <p className="text-xs text-gray-400 italic mb-2">
+                            Set start and end dates to see real-time availability.
+                          </p>
+                        )}
+                        {/* Employees */}
                         {job.assigned_employees.map(e => {
-                          const key = `e-${job.id}-${e.id}`
-                          const val = allocPct[key] ?? (e.allocation_pct ?? 100)
+                          const key      = `e-${job.id}-${e.id}`
+                          const val      = allocPct[key] ?? (e.allocation_pct ?? 100)
+                          const empAvail = resAvail[job.id]?.employees?.find(ea => ea.employee_id === e.id)
+                          const dotColor = empAvail ? employeeStatusColor(empAvail.status) : '#60a5fa'
+                          const subtitle = empAvail ? employeeStatusLabel(empAvail) : ''
+                          const displayPct = empAvail ? Math.round(empAvail.free_pct) : val
                           return (
-                            <div key={e.id} className="flex items-center gap-2 mb-1.5 bg-white rounded-lg border border-gray-100 px-3 py-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"/>
-                              <span className="text-xs text-gray-700 flex-1">{e.full_name}</span>
+                            <div key={e.id} className="flex items-start gap-2 mb-1.5 bg-white rounded-lg border border-gray-100 px-3 py-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: dotColor }}/>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-xs text-gray-700">{e.full_name}</span>
+                                {subtitle && (
+                                  <p className="text-xs mt-0.5" style={{ color: dotColor }}>{subtitle}</p>
+                                )}
+                              </div>
                               <input type="range" min={10} max={100} step={5} value={val}
                                 onChange={ev => setAllocPct(p => ({...p, [key]: Number(ev.target.value)}))}
-                                className="w-16 accent-blue-600"/>
-                              <span className="text-xs font-semibold text-blue-700 w-8 text-right">{val}%</span>
+                                className="w-16 mt-1" style={{ accentColor: dotColor }}/>
+                              <span className="text-xs font-semibold w-8 text-right mt-1" style={{ color: dotColor }}>
+                                {displayPct}%
+                              </span>
                             </div>
                           )
                         })}
+                        {/* Machines */}
                         {job.assigned_machines.map(m => {
-                          const key = `m-${job.id}-${m.id}`
-                          const val = allocPct[key] ?? (m.allocation_pct ?? 100)
+                          const key      = `m-${job.id}-${m.id}`
+                          const val      = allocPct[key] ?? (m.allocation_pct ?? 100)
+                          const machAvail = resAvail[job.id]?.machines?.find(ma => ma.machine_id === m.id)
+                          const isBusy   = machAvail ? !machAvail.is_free : false
+                          const dotColor = isBusy ? '#A32D2D' : '#a855f7'
+                          const statusText = machAvail ? machineStatusLabel(machAvail) : ''
                           return (
-                            <div key={m.id} className="flex items-center gap-2 mb-1.5 bg-white rounded-lg border border-gray-100 px-3 py-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0"/>
-                              <span className="text-xs text-gray-700 flex-1 truncate" title={m.name}>{m.name}</span>
+                            <div key={m.id} className="flex items-start gap-2 mb-1.5 bg-white rounded-lg border border-gray-100 px-3 py-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: dotColor }}/>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-xs text-gray-700 truncate block" title={m.name}>{m.name}</span>
+                                {statusText && (
+                                  <p className="text-xs mt-0.5" style={{ color: dotColor }}>{statusText}</p>
+                                )}
+                              </div>
                               <input type="range" min={10} max={100} step={5} value={val}
                                 onChange={ev => setAllocPct(p => ({...p, [key]: Number(ev.target.value)}))}
-                                className="w-16 accent-purple-600"/>
-                              <span className="text-xs font-semibold text-purple-700 w-8 text-right">{val}%</span>
+                                className="w-16 mt-1" style={{ accentColor: dotColor }}/>
+                              <span className="text-xs font-semibold w-8 text-right mt-1" style={{ color: dotColor }}>
+                                {val}%
+                              </span>
                             </div>
                           )
                         })}
@@ -1222,6 +1286,9 @@ export default function Jobs() {
                                 ]
                                 await apiClient.patch(`/api/assignments/${job.id}/allocation`, { allocations: patches })
                                 qc.invalidateQueries({ queryKey: ['jobs'] })
+                                // Refresh availability after saving allocation
+                                const updated = await getResourceAvailability(job.id)
+                                setResAvail(p => ({ ...p, [job.id]: updated }))
                               } catch(_) {}
                               setSavingAlloc(false)
                             }}
@@ -1229,6 +1296,55 @@ export default function Jobs() {
                             {savingAlloc ? <Loader2 size={11} className="animate-spin"/> : <Check size={11}/>} Save Allocation
                           </button>
                         )}
+
+                        {/* Skill requirements coverage — shows which skills are met vs missing */}
+                        {(() => {
+                          const checkResult = typeof availCache[job.id] === 'object' ? availCache[job.id] as any : null
+                          const skillReqs = checkResult?.skill_requirements ?? []
+                          if (skillReqs.length === 0) return null
+                          return (
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                <ClipboardCheck size={11} className="text-blue-400"/> Skill Coverage
+                              </p>
+                              <div className="space-y-1.5">
+                                {skillReqs.map((req: any) => {
+                                  // Count how many assigned employees actually cover this skill
+                                  const assignedIds = job.assigned_employees.map(e => e.id)
+                                  const coveredCount = (req.available_employee_ids ?? [])
+                                    .filter((id: number) => assignedIds.includes(id)).length
+                                  const needed   = req.employees_required
+                                  const covered  = Math.min(coveredCount, needed)
+                                  const isMet    = covered >= needed
+                                  const isPartial = covered > 0 && covered < needed
+                                  const dotColor = isMet ? '#1D9E75' : isPartial ? '#BA7517' : '#A32D2D'
+                                  const statusLabel = isMet
+                                    ? `${covered}/${needed} assigned`
+                                    : isPartial
+                                    ? `${covered}/${needed} — need ${needed - covered} more`
+                                    : `0/${needed} — nobody assigned`
+                                  return (
+                                    <div key={req.id} className="flex items-center gap-2 bg-white rounded-lg border border-gray-100 px-3 py-1.5">
+                                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: dotColor }}/>
+                                      <div className="flex-1 min-w-0">
+                                        <span className="text-xs text-gray-700">{req.skill_name}</span>
+                                        <span className="text-xs text-gray-400 ml-1.5">{req.min_skill_level}</span>
+                                      </div>
+                                      <span className="text-xs font-semibold shrink-0" style={{ color: dotColor }}>
+                                        {statusLabel}
+                                      </span>
+                                    </div>
+                                  )
+                                })}
+                                {!checkResult?.feasible && (
+                                  <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1">
+                                    <AlertTriangle size={10}/> Click <strong>Assign</strong> to add qualified staff
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })()}
                       </>
                   }
                 </div>
@@ -1257,12 +1373,61 @@ export default function Jobs() {
                       </div>
                     )}
                   </div>
-                  {result && result.conflicts.length > 0 && (
-                    <div className="mb-3 bg-red-50 rounded-lg border border-red-200 px-3 py-2">
-                      <p className="text-xs font-semibold text-red-600 mb-1 flex items-center gap-1"><AlertTriangle size={10}/>Conflicts</p>
-                      {result.conflicts.map((c,i) => <div key={i} className="text-xs text-red-600">{c.resource_name}: {c.reason}</div>)}
-                    </div>
-                  )}
+                  {result && result.conflicts.length > 0 && (() => {
+                    // Split conflicts into skill gaps (employee) vs real scheduling conflicts (machine)
+                    const skillGaps  = result.conflicts.filter(c => c.resource_type === 'employee')
+                    const realConflicts = result.conflicts.filter(c => c.resource_type !== 'employee')
+                    return (
+                      <>
+                        {/* Skill Gaps — amber, action: assign qualified staff */}
+                        {skillGaps.length > 0 && (
+                          <div className="mb-2 bg-amber-50 rounded-lg border border-amber-200 px-3 py-2">
+                            <p className="text-xs font-semibold text-amber-700 mb-1.5 flex items-center gap-1">
+                              <AlertTriangle size={10}/> Skill Gaps
+                            </p>
+                            {skillGaps.map((c, i) => {
+                              // Parse "Skill: X (need N, found M)" into friendlier format
+                              const nameMatch  = c.resource_name.match(/Skill:\s*(.+?)\s*\(/)
+                              const needMatch  = c.resource_name.match(/need\s*(\d+)/)
+                              const foundMatch = c.resource_name.match(/found\s*(\d+)/)
+                              const skillName  = nameMatch?.[1]  ?? c.resource_name
+                              const need       = needMatch?.[1]  ?? '?'
+                              const found      = foundMatch?.[1] ?? '0'
+                              return (
+                                <div key={i} className="text-xs text-amber-700 mb-1 flex items-start gap-1.5">
+                                  <span className="shrink-0 mt-0.5">·</span>
+                                  <span>
+                                    <span className="font-medium">{skillName}</span>
+                                    {' '}— need {need}, only {found} qualified {found === '0' ? 'assigned' : 'available'}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                            <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1 border-t border-amber-100 pt-1.5">
+                              <ClipboardCheck size={10}/> Click <strong className="mx-0.5">Assign</strong> to add staff with these skills
+                            </p>
+                          </div>
+                        )}
+                        {/* Real scheduling conflicts — red, action: change dates or reassign resource */}
+                        {realConflicts.length > 0 && (
+                          <div className="mb-2 bg-red-50 rounded-lg border border-red-200 px-3 py-2">
+                            <p className="text-xs font-semibold text-red-600 mb-1.5 flex items-center gap-1">
+                              <AlertTriangle size={10}/> Scheduling Conflicts
+                            </p>
+                            {realConflicts.map((c, i) => (
+                              <div key={i} className="text-xs text-red-600 mb-1 flex items-start gap-1.5">
+                                <span className="shrink-0 mt-0.5">·</span>
+                                <span><span className="font-medium">{c.resource_name}</span>: {c.reason}</span>
+                              </div>
+                            ))}
+                            <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1 border-t border-red-100 pt-1.5">
+                              <AlertTriangle size={10}/> Change job dates or reassign the conflicting resource
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                   {/* Invoice & payment */}
                   {(job.invoice_number || job.payment_status !== 'Unpaid') && (
                     <div className="mb-3">

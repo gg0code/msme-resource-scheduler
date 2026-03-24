@@ -244,11 +244,16 @@ def check_availability(
 
         if len(qualified) < req.employees_required:
             skill_name = req.skill.name if req.skill else f"skill#{req.skill_id}"
+            shortfall  = req.employees_required - len(qualified)
             conflicts.append(ConflictDetail(
                 resource_type="employee", resource_id=req.skill_id,
                 resource_name=f"Skill: {skill_name} (need {req.employees_required}, found {len(qualified)})",
                 dates=[str(d) for d in days],
-                reason=f"Insufficient qualified employees for '{skill_name}' at '{req.min_skill_level}' level",
+                reason=(
+                    f"No one assigned has '{skill_name}' skill at '{req.min_skill_level}' level"
+                    if len(qualified) == 0
+                    else f"Need {shortfall} more person(s) with '{skill_name}' at '{req.min_skill_level}' level"
+                ),
             ))
 
     # --- Step 5: Feasibility Score ---
