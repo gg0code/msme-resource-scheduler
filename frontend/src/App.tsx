@@ -24,7 +24,6 @@ import Jobs from './pages/Jobs'
 import GanttPage from './pages/GanttPage'
 
 // Scheduling engine pages — removed in v3.9.5 (merged into /jobs)
-import JobPrintPage from './pages/JobPrintPage' // kept for backwards compat — remove in v4
 
 // Block 2 — QR Execution
 import ScanPage from './pages/ScanPage'
