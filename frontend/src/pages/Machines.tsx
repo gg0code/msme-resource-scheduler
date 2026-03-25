@@ -5,6 +5,7 @@ import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
+import { useLabels } from '../context/IndustryContext'
 import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
 import { useFeatureFlags } from '../context/FeatureFlags'
@@ -196,6 +197,7 @@ export default function Machines() {
     queryFn:  () => apiClient.get('/api/skills/').then(r => r.data),
   })
   const { planLimits } = usePlanLimits()
+  const labels = useLabels()
 
   const types = useMemo(() => ['All', ...Array.from(new Set(machines.map(m => m.machine_type).filter(Boolean) as string[])).sort()], [machines])
   const bays  = useMemo(() => ['All', ...Array.from(new Set(machines.map(m => m.location_bay).filter(Boolean) as string[])).sort()], [machines])
@@ -267,14 +269,14 @@ export default function Machines() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-800">Machines</h2>
+          <h2 className="text-xl font-bold text-gray-800">{labels.machinesPageTitle}</h2>
           <p className="text-sm text-gray-500 mt-0.5">{filtered.length} of {machines.length} machines · click a row to see assigned jobs</p>
         </div>
         <div className="flex items-center gap-2">
           {flags.csv_import && <CsvImport resource="machines" onSuccess={() => qc.invalidateQueries({ queryKey: ['machines'] })}/>}
           <CoachMark id="machines-add" title="Register your machines" description="Add equipment with hourly cost and bay location. The scheduler assigns them to jobs automatically." position="bottom" step={1} totalSteps={2}>
             <LimitedButton resource="machines" planLimits={planLimits} onClick={openCreate}>
-              <Plus size={16}/> Add Machine
+              <Plus size={16}/> Add {labels.machine}
             </LimitedButton>
           </CoachMark>
         </div>
@@ -485,7 +487,7 @@ export default function Machines() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h3 className="font-bold text-gray-800">{editingMachine ? 'Edit Machine' : 'New Machine'}</h3>
+              <h3 className="font-bold text-gray-800">{editingMachine ? `Edit ${labels.machine}` : `New ${labels.machine}`}</h3>
               <button onClick={closeForm}><X size={18} className="text-gray-400 hover:text-gray-600"/></button>
             </div>
             <div className="p-6 space-y-4">
@@ -555,7 +557,7 @@ export default function Machines() {
             <div className="flex gap-2 px-6 pb-6">
               <button onClick={submitForm} disabled={!form.name || isSaving}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm py-2.5 rounded-lg font-medium transition-colors">
-                {isSaving ? 'Saving...' : editingMachine ? 'Update Machine' : 'Add Machine'}
+                {isSaving ? 'Saving...' : editingMachine ? `Update ${labels.machine}` : `Add ${labels.machine}`}
               </button>
               <button onClick={closeForm} className="px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm py-2.5 rounded-lg transition-colors">Cancel</button>
             </div>
