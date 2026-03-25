@@ -19,6 +19,7 @@ from app.routers import (
     resource_availability,              # V3.9.4 real-time resource availability
     steps,               # V3.9.5 job step CRUD
     schedule_suggestions,# V3.9.7 schedule suggestions
+    material_estimate,   # V3.9.8 material estimate
 )
 
 app = FastAPI(
@@ -64,3 +65,4 @@ app.include_router(ai_chat.router,              prefix="/api/ai",               
 app.include_router(resource_availability.router, prefix="/api/jobs",               tags=["resource-availability"])  # V3.9.4
 app.include_router(steps.router,                prefix="/api",                      tags=["steps"])               # V3.9.5
 app.include_router(schedule_suggestions.router, prefix="/api",                      tags=["schedule-suggestions"])  # V3.9.7
+app.include_router(material_estimate.router,    prefix="/api",                      tags=["material-estimate"])      # V3.9.8
