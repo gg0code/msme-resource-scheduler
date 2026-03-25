@@ -20,10 +20,11 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 export type Role = "proprietor" | "scheduler" | "viewer";
 
 export interface AuthUser {
-  id: number;
-  email: string;
-  role: Role;
-  tenant_id: number;
+  id:            number;
+  email:         string;
+  role:          Role;
+  tenant_id:     number;
+  industry_type: string;   // v4.0.2 — loaded from tenant at login
 }
 
 interface AuthState {
@@ -40,10 +41,11 @@ interface AuthContextValue extends AuthState {
 }
 
 export interface RegisterPayload {
-  email: string;
-  password: string;
-  company_name: string;
-  slug: string;
+  email:         string;
+  password:      string;
+  company_name:  string;
+  slug:          string;
+  industry_type: string;   // v4.0.2
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
