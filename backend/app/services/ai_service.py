@@ -1202,16 +1202,46 @@ def run_ai_chat(
     messages: list[dict],
     db: Session,
     tenant_id: int,
+    structured_data: dict | None = None,
 ) -> str:
     """
     Run a full Groq tool-calling conversation cycle.
     messages: list of {role, content} — full conversation history
+    structured_data: pre-computed data from v3.9.7/v3.9.8 endpoints.
+                     If provided, AI skips tool calls and narrates this data only.
     Returns: final text response string
     """
     client = get_groq_client()
 
     # Trim history to last 8 messages to reduce token usage (keeps context without bloat)
     trimmed = messages[-8:] if len(messages) > 8 else messages
+
+    # v3.9.9 — if structured data is provided, inject into system prompt and
+    # return a direct narration without tool calls.
+    # The engine computed the data; AI only explains. Never re-compute.
+    if structured_data:
+        data_type = structured_data.get("_type", "data")
+        data_json = json.dumps(structured_data, indent=2, default=str)
+        structured_system = (
+            _build_system_prompt() +
+            f"\n\n--- PRE-COMPUTED {data_type.upper().replace('_',' ')} DATA ---\n"
+            f"The scheduling engine has already computed the following data. "
+            f"Do NOT call any tools. Do NOT re-compute. "
+            f"Your ONLY job is to explain this data clearly in plain English, "
+            f"using bullet points where helpful.\n\n"
+            f"{data_json}\n"
+            f"--- END OF DATA ---"
+        )
+        direct_response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": structured_system},
+                *trimmed,
+            ],
+            max_tokens=600,
+            temperature=0.3,
+        )
+        return direct_response.choices[0].message.content or "Here is the data."
 
     # Add dynamic system prompt (includes today's date)
     full_messages = [{"role": "system", "content": _build_system_prompt()}] + trimmed
