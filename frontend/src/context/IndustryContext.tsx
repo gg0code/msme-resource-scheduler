@@ -1,24 +1,13 @@
-// src/context/IndustryContext.tsx — v4.0.2
+// src/context/IndustryContext.tsx — v4.0.7
 //
-// Loads the industry config for the logged-in tenant and makes it
-// available everywhere via useIndustry() and useLabels() hooks.
-//
-// How it works:
-//   1. Reads industry_type from the authenticated user (via /auth/me)
-//   2. Loads the matching IndustryConfig from the config files
-//   3. Injects it into all child components via context
+// Loads the industry config and applies a theme class to <body>
+// so CSS variables in index.css take effect for full theme switching.
 //
 // Usage:
 //   const labels = useLabels()
-//   <h1>{labels.jobsPageTitle}</h1>  → "Jobs" | "Production Orders" | etc
-//
 //   const { config } = useIndustry()
-//   <span>{config.branding.productName}</span>  → "PrintFlow Scheduler" | etc
-//
-// Wrap inside <AuthProvider> and <FeatureFlagProvider> in App.tsx.
-// Industry config is loaded once per session — no refetch needed.
 
-import { createContext, useContext, useMemo } from 'react'
+import { createContext, useContext, useMemo, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { getIndustryConfig } from '../config/industries'
@@ -32,23 +21,30 @@ interface IndustryContextValue {
   industryType: string
 }
 
-// ── Context ───────────────────────────────────────────────────────────────────
-
 const IndustryContext = createContext<IndustryContextValue | null>(null)
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
+const INDUSTRY_TYPES = ['printing', 'manufacturing', 'fabrication', 'chemical', 'field_service']
+
 export function IndustryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
-
-  // industry_type comes from the authenticated user object (added in v4.0.2)
-  // Falls back to 'printing' if not set — safe for existing tenants
   const industryType = (user as any)?.industry_type ?? 'printing'
 
   const config = useMemo(
     () => getIndustryConfig(industryType),
     [industryType]
   )
+
+  // v4.0.7 — apply theme-{industry} class to <body>
+  // index.css defines CSS variables per class (brand-primary, brand-sidebar-bg etc)
+  useEffect(() => {
+    INDUSTRY_TYPES.forEach(t => document.body.classList.remove(`theme-${t}`))
+    document.body.classList.add(`theme-${industryType}`)
+    return () => {
+      document.body.classList.remove(`theme-${industryType}`)
+    }
+  }, [industryType])
 
   return (
     <IndustryContext.Provider value={{
@@ -63,24 +59,12 @@ export function IndustryProvider({ children }: { children: ReactNode }) {
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 
-/**
- * Returns the full industry config including branding and labels.
- * Use when you need branding info (product name, color, icon).
- */
 export function useIndustry(): IndustryContextValue {
   const ctx = useContext(IndustryContext)
   if (!ctx) throw new Error('useIndustry must be used inside <IndustryProvider>')
   return ctx
 }
 
-/**
- * Returns just the labels object — the most commonly used hook.
- * Use in any component that displays entity names or page titles.
- *
- * Example:
- *   const labels = useLabels()
- *   <h2>{labels.jobs}</h2>  → "Jobs" or "Production Orders"
- */
 export function useLabels(): IndustryLabels {
   return useIndustry().labels
 }
