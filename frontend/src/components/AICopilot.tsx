@@ -30,7 +30,7 @@ interface AICopilotProps {
 
 const PAGE_SUGGESTIONS: Record<string, { icon: string; text: string }[]> = {
   dashboard:    [{ icon: '📊', text: "Today's shop floor summary" }, { icon: '⚠️', text: 'Any alerts or delays?' }, { icon: '💰', text: 'Revenue this month?' }],
-  jobs:         [{ icon: '💰', text: 'Cost breakdown for latest job?' }, { icon: '👷', text: 'Best employee to assign?' }, { icon: '📈', text: 'Any jobs running late?' }],
+  jobs:         [{ icon: '📦', text: 'How much material do I need for Box Run Gamma?' }, { icon: '📅', text: 'When should I schedule Box Run Gamma?' }, { icon: '📈', text: 'Any jobs running late?' }],
   machines:     [{ icon: '✅', text: 'Which machines are free today?' }, { icon: '📊', text: 'Machine utilisation this week?' }, { icon: '🔧', text: 'Any maintenance due?' }],
   employees:    [{ icon: '🙋', text: 'Who is available tomorrow?' }, { icon: '🏆', text: 'Top performer this week?' }, { icon: '⏰', text: 'Overtime hours this month?' }],
   gantt:        [{ icon: '⚠️', text: 'Any scheduling conflicts?' }, { icon: '📅', text: 'Busiest day this month?' }, { icon: '🔄', text: 'Suggest reschedule for delays?' }],
@@ -49,6 +49,54 @@ function getPageLabel(c: string) {
 }
 function fmt(text: string) {
   return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>').replace(/₹([\d,]+)/g, '<span style="font-family:monospace;font-weight:600">₹$1</span>')
+}
+
+// ── v3.9.9 Intent detection + data pre-fetch ─────────────────────────────────
+
+// Patterns that indicate a material estimate question
+const MATERIAL_PATTERNS = [
+  /how much material/i,
+  /material.*need/i,
+  /estimate.*material/i,
+  /material.*estimate/i,
+  /raw material/i,
+  /how much.*need/i,
+  /consumable/i,
+]
+
+// Patterns that indicate a schedule suggestion question
+const SCHEDULE_PATTERNS = [
+  /when.*schedule/i,
+  /best.*date/i,
+  /when.*start/i,
+  /suggest.*schedule/i,
+  /schedule.*suggest/i,
+  /when should i/i,
+  /best time/i,
+  /good slot/i,
+]
+
+// Extract job name from message — looks for quoted names or "for <JobName>"
+function extractJobName(text: string): string | null {
+  // Check for quoted name first: "Box Run Gamma" or 'Box Run Gamma'
+  const quoted = text.match(/["']([^"']+)["']/)
+  if (quoted) return quoted[1]
+  // Check for "for <JobName>" pattern
+  const forMatch = text.match(/for\s+([A-Za-z0-9][^?.,!]+)/i)
+  if (forMatch) return forMatch[1].trim()
+  // Check for "schedule <JobName>" pattern
+  const schedMatch = text.match(/schedule\s+([A-Za-z0-9][^?.,!]+)/i)
+  if (schedMatch) return schedMatch[1].trim()
+  // Check for "need for <JobName>" pattern
+  const needMatch = text.match(/need.*?for\s+([A-Za-z0-9][^?.,!]+)/i)
+  if (needMatch) return needMatch[1].trim()
+  return null
+}
+
+function detectIntent(text: string): 'material' | 'schedule' | null {
+  if (MATERIAL_PATTERNS.some(p => p.test(text))) return 'material'
+  if (SCHEDULE_PATTERNS.some(p => p.test(text))) return 'schedule'
+  return null
 }
 
 function UsageBar({ usage }: { usage: Usage | null }) {
@@ -197,9 +245,48 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
     if (tab === 'tools') setTab('chat')
 
     try {
+      // v3.9.9 — intent detection: pre-fetch structured data before calling AI
+      let structuredData: Record<string, unknown> | null = null
+      const intent = detectIntent(text)
+      console.log('[v3.9.9] intent:', intent, '| text:', text)
+
+      if (intent) {
+        // Try to find a job ID from recent messages or page context
+        // First look for a job name in the question, then search jobs list
+        const jobName = extractJobName(text)
+        console.log('[v3.9.9] jobName extracted:', jobName)
+        if (jobName) {
+          try {
+            // Search for job by name in the cached jobs list
+            const jobsRes = await apiClient.get('/api/jobs/')
+            const jobs: { id: number; name: string }[] = jobsRes.data
+            const match = jobs.find(j =>
+              j.name.toLowerCase().includes(jobName.toLowerCase()) ||
+              jobName.toLowerCase().includes(j.name.toLowerCase())
+            )
+            console.log('[v3.9.9] job match:', match)
+            if (match) {
+              if (intent === 'material') {
+                console.log('[v3.9.9] fetching material-estimate for job', match.id)
+                const dataRes = await apiClient.get(`/api/jobs/${match.id}/material-estimate`)
+                structuredData = { _type: 'material_estimate', ...dataRes.data }
+              } else if (intent === 'schedule') {
+                console.log('[v3.9.9] fetching schedule-suggestions for job', match.id)
+                const dataRes = await apiClient.get(`/api/jobs/${match.id}/schedule-suggestions`)
+                structuredData = { _type: 'schedule_suggestions', ...dataRes.data }
+              }
+            }
+          } catch (fetchErr: unknown) {
+            // Log fetch error so we can debug — AI will answer from general knowledge
+            console.warn('[v3.9.9] structured data fetch failed:', fetchErr)
+          }
+        }
+      }
+
       const res = await apiClient.post('/api/ai/chat', {
         messages: updated.map(m => ({ role: m.role, content: m.content })),
         page_context: pageContext,
+        structured_data: structuredData,
       })
 
       setMessages(prev => [...prev, { role: 'assistant', content: res.data.reply, timestamp: new Date() }])

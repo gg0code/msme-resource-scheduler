@@ -42,6 +42,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     page_context: Optional[str] = None
+    structured_data: Optional[dict] = None   # v3.9.9 — pre-fetched endpoint data passed by frontend
 
 class ChatResponse(BaseModel):
     reply: str
@@ -112,10 +113,13 @@ def ai_chat(
                 break
 
     try:
+        # v3.9.9 — pass structured_data to run_ai_chat so it injects into system prompt
+        # Engine computed the data; AI only narrates. Never re-compute.
         reply = run_ai_chat(
             messages=messages,
             db=db,
             tenant_id=current_user.tenant_id,
+            structured_data=request.structured_data,
         )
 
         tenant.ai_queries_today = (tenant.ai_queries_today or 0) + 1
