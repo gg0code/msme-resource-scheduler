@@ -536,7 +536,7 @@ function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string 
 // ══════════════════════════════════════════════════════
 export default function Jobs() {
   const qc = useQueryClient()
-  const { markDirty } = useSchedulerContext()
+  const { markDirty, checkAllLocked } = useSchedulerContext()
   const flags = useFeatureFlags() 
   const navigate = useNavigate()
   const today = new Date().toISOString().split('T')[0]
@@ -634,6 +634,11 @@ export default function Jobs() {
       }
     })
   }, [jobs, availCache, runAvailCheck])
+
+  // v3.9.5 — keep greyed-locked state in sync with jobs list
+  useEffect(() => {
+    checkAllLocked(jobs.map(j => ({ lock_status: j.is_locked })))
+  }, [jobs, checkAllLocked])
 
   function openPdfExport(job: Job) { setPdfJob(job) }
 

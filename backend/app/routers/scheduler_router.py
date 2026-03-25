@@ -1,8 +1,8 @@
 """
-backend/app/routers/scheduler.py — V3.7
+backend/app/routers/scheduler_router.py — v3.9.5
 
 POST /api/scheduler/run
-  - Loads all jobs/steps/resources for tenant from DB
+  - Loads all jobs/steps/resources for tenant from Job, JobStep, Machine, Employee
   - Builds locked_entries from existing schedule_entries for locked jobs
   - Calls run_scheduler()
   - Persists ScheduleEntry results (skips locked jobs)
@@ -11,7 +11,8 @@ POST /api/scheduler/run
 GET /api/scheduler/entries
   - Returns all schedule_entries for current tenant
 
-V3.7: feature flag guard — returns warm message if scheduler flag is False
+v3.9.5: loaders rewritten to read from Job/JobStep/Machine/Employee tables.
+        SchedJob / SchedStep / SchedResource are no longer used here.
 """
 
 from __future__ import annotations
@@ -19,18 +20,17 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import Column, DateTime, Integer, String, select
+from sqlalchemy import Column, DateTime, Integer, select
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
 from sqlalchemy.orm import Session
 
 from app.database import Base, get_db
-from app.models.scheduling import (
-    SchedJob, SchedResource, SchedStep,
-    SchedStepMachine, SchedStepHelper,
-    StepStatus,
-)
+from app.models.job import Job
+from app.models.job_steps import JobStep, StepResource
+from app.models.machine import Machine
+from app.models.employee import Employee
 from app.routers.auth import get_current_user
 from app.scheduler.engine import (
     ConflictEntry, JobInput, LockedEntry,
@@ -40,6 +40,24 @@ from app.scheduler.engine import (
 from app.utils.feature_guard import require_feature
 
 router = APIRouter()
+
+# ─── Shift defaults (Job model has no shift field) ───────────────────────────
+
+_DEFAULT_SHIFT_START = time(8, 0)
+_DEFAULT_SHIFT_END   = time(17, 0)
+
+# ─── Priority normalisation ───────────────────────────────────────────────────
+# Job.priority uses Title case: Critical / High / Medium / Low
+# Engine expects lowercase:     critical / urgent / low
+
+def _norm_priority(p: str) -> str:
+    mapping = {
+        "critical": "critical",
+        "high":     "urgent",
+        "medium":   "low",
+        "low":      "low",
+    }
+    return mapping.get((p or "").lower(), "low")
 
 
 # ─── DB Model for persisted schedule entries ─────────────────────────────────
@@ -99,87 +117,161 @@ def _tenant(current_user=Depends(get_current_user)) -> int:
 # ─── Loaders ─────────────────────────────────────────────────────────────────
 
 def _load_resources(db: Session, tenant_id: int) -> List[ResourceSlot]:
-    rows = db.scalars(
-        select(SchedResource).where(SchedResource.tenant_id == tenant_id)
+    """
+    Build ResourceSlot list from Machine + Employee tables.
+    Machines → type='machine', Employees → type='helper'.
+    Shift times default to 08:00–17:00 (Job model has no shift field).
+    """
+    slots: List[ResourceSlot] = []
+
+    machines = db.scalars(
+        select(Machine).where(Machine.tenant_id == tenant_id)
     ).all()
-    return [
-        ResourceSlot(
-            id=r.id, name=r.name, type=r.type.value,
-            shift_start=r.shift_start, shift_end=r.shift_end,
-        )
-        for r in rows
-    ]
+    for m in machines:
+        slots.append(ResourceSlot(
+            id=m.id,
+            name=m.name,
+            type="machine",
+            shift_start=_DEFAULT_SHIFT_START,
+            shift_end=_DEFAULT_SHIFT_END,
+        ))
+
+    employees = db.scalars(
+        select(Employee).where(Employee.tenant_id == tenant_id)
+    ).all()
+    for e in employees:
+        slots.append(ResourceSlot(
+            id=e.id,
+            name=e.full_name,
+            type="helper",
+            shift_start=_DEFAULT_SHIFT_START,
+            shift_end=_DEFAULT_SHIFT_END,
+        ))
+
+    return slots
 
 
 def _load_jobs(db: Session, tenant_id: int) -> List[JobInput]:
+    """
+    Build JobInput list from the Job table.
+    Skips Completed and Cancelled jobs — no point scheduling them.
+    """
     rows = db.scalars(
-        select(SchedJob).where(SchedJob.tenant_id == tenant_id)
+        select(Job).where(
+            Job.tenant_id == tenant_id,
+            Job.status.notin_(["Completed", "Cancelled"]),
+        )
     ).all()
     return [
         JobInput(
-            id=j.id, name=j.name,
-            priority=j.priority.value,
-            expected_profit=j.expected_profit,
-            deadline=j.deadline,
-            shift=j.shift.value,
-            lock_status=j.lock_status,
+            id=j.id,
+            name=j.name,
+            priority=_norm_priority(j.priority),
+            expected_profit=j.tentative_profit,
+            # Engine needs a datetime deadline — use end_date at shift close
+            deadline=datetime(
+                j.end_date.year, j.end_date.month, j.end_date.day,
+                _DEFAULT_SHIFT_END.hour, _DEFAULT_SHIFT_END.minute,
+            ),
+            shift="morning",       # Job has no shift field — default morning
+            lock_status=j.is_locked,
         )
         for j in rows
     ]
 
 
 def _load_steps(db: Session, tenant_id: int) -> List[StepInput]:
-    job_ids = db.scalars(
-        select(SchedJob.id).where(SchedJob.tenant_id == tenant_id)
+    """
+    Build StepInput list from JobStep + StepResource tables.
+
+    Resource resolution per step (Option B fallback):
+      1. If the step has explicit StepResource rows -> use those.
+      2. If use_job_resources=True (default) and no step-level resources exist
+         -> fall back to the job's JobAssignment rows (machines + employees).
+
+    This means jobs with resources assigned at the job level will schedule
+    correctly even before per-step resource assignment UI is built.
+    """
+    from app.models.job import JobAssignment
+
+    # Only load steps for active jobs
+    active_job_ids = db.scalars(
+        select(Job.id).where(
+            Job.tenant_id == tenant_id,
+            Job.status.notin_(["Completed", "Cancelled"]),
+        )
     ).all()
-    if not job_ids:
+    if not active_job_ids:
         return []
 
     steps = db.scalars(
-        select(SchedStep).where(SchedStep.job_id.in_(job_ids))
+        select(JobStep).where(JobStep.job_id.in_(active_job_ids))
+    ).all()
+    if not steps:
+        return []
+
+    step_ids = [s.id for s in steps]
+
+    # Step-level resources
+    step_resources = db.scalars(
+        select(StepResource).where(StepResource.step_id.in_(step_ids))
     ).all()
 
-    machine_links = db.execute(
-        select(SchedStepMachine.step_id, SchedStepMachine.resource_id)
-        .where(SchedStepMachine.step_id.in_([s.id for s in steps]))
+    step_machine_map: dict[int, list[int]] = {}
+    step_helper_map:  dict[int, list[int]] = {}
+    for r in step_resources:
+        if r.resource_type == "machine" and r.resource_id:
+            step_machine_map.setdefault(r.step_id, []).append(r.resource_id)
+        elif r.resource_type == "employee" and r.resource_id:
+            step_helper_map.setdefault(r.step_id, []).append(r.resource_id)
+
+    # Job-level assignments (fallback when step has no specific resources)
+    job_assignments = db.scalars(
+        select(JobAssignment).where(JobAssignment.job_id.in_(active_job_ids))
     ).all()
-    helper_links = db.execute(
-        select(SchedStepHelper.step_id, SchedStepHelper.resource_id)
-        .where(SchedStepHelper.step_id.in_([s.id for s in steps]))
-    ).all()
 
-    machine_map: dict = {}
-    for step_id, res_id in machine_links:
-        machine_map.setdefault(step_id, []).append(res_id)
+    job_machine_map: dict[int, list[int]] = {}
+    job_helper_map:  dict[int, list[int]] = {}
+    for a in job_assignments:
+        if a.machine_id:
+            job_machine_map.setdefault(a.job_id, []).append(a.machine_id)
+        if a.employee_id:
+            job_helper_map.setdefault(a.job_id, []).append(a.employee_id)
 
-    helper_map: dict = {}
-    for step_id, res_id in helper_links:
-        helper_map.setdefault(step_id, []).append(res_id)
+    result = []
+    for s in steps:
+        has_step_resources = s.id in step_machine_map or s.id in step_helper_map
+        if has_step_resources or not s.use_job_resources:
+            machine_ids = step_machine_map.get(s.id, [])
+            helper_ids  = step_helper_map.get(s.id, [])
+        else:
+            # Fallback: inherit machines and employees from job-level assignments
+            machine_ids = job_machine_map.get(s.job_id, [])
+            helper_ids  = job_helper_map.get(s.job_id, [])
 
-    return [
-        StepInput(
+        result.append(StepInput(
             id=s.id,
             job_id=s.job_id,
-            sequence_order=s.sequence_order,
-            step_type=s.step_type.value,
+            sequence_order=s.sequence_no,
+            step_type="setup" if s.step_type == "setup" else "regular",
             duration_minutes=s.duration_minutes,
-            required_machine_ids=machine_map.get(s.id, []),
-            required_helper_ids=helper_map.get(s.id, []),
-            reserve_machine_id=s.reserve_machine_id,
-        )
-        for s in steps
-    ]
+            required_machine_ids=machine_ids,
+            required_helper_ids=helper_ids,
+            reserve_machine_id=None,
+        ))
+
+    return result
 
 
 def _load_locked_entries(db: Session, tenant_id: int) -> List[LockedEntry]:
     """
     Build LockedEntry list from existing schedule_entries for locked jobs.
-    These represent committed windows that the scheduler must not overwrite.
+    These represent committed windows the scheduler must not overwrite.
     """
     locked_job_ids = db.scalars(
-        select(SchedJob.id).where(
-            SchedJob.tenant_id == tenant_id,
-            SchedJob.lock_status == True,
+        select(Job.id).where(
+            Job.tenant_id == tenant_id,
+            Job.is_locked == True,
         )
     ).all()
     if not locked_job_ids:
@@ -206,20 +298,6 @@ def _load_locked_entries(db: Session, tenant_id: int) -> List[LockedEntry]:
                 resource_id=hid, resource_type="helper",
                 start=e.scheduled_start, end=e.scheduled_end,
             ))
-
-    all_steps = db.scalars(
-        select(SchedStep).where(SchedStep.job_id.in_(locked_job_ids))
-    ).all()
-    step_entries = {e.step_id: e for e in entries}
-    for step in all_steps:
-        if step.reserve_machine_id and step.id in step_entries:
-            e = step_entries[step.id]
-            locked.append(LockedEntry(
-                job_id=step.job_id, step_id=step.id,
-                resource_id=step.reserve_machine_id, resource_type="reserve",
-                start=e.scheduled_start, end=e.scheduled_end,
-            ))
-
     return locked
 
 
@@ -231,7 +309,7 @@ def run_scheduler_endpoint(
     db: Session = Depends(get_db),
     tenant_id: int = Depends(_tenant),
 ):
-    # V3.7 — feature flag guard
+    # Feature flag guard
     guard = require_feature("scheduler")
     if guard:
         return guard
@@ -252,11 +330,8 @@ def run_scheduler_endpoint(
     )
 
     locked_job_ids = {j.id for j in jobs if j.lock_status}
-    unlocked_step_ids = {
-        e.step_id for e in result.resolved
-        if e.job_id not in locked_job_ids
-    }
 
+    # Delete stale entries for unlocked jobs
     stale = db.scalars(
         select(ScheduleEntryModel).where(
             ScheduleEntryModel.tenant_id == tenant_id,
@@ -269,6 +344,7 @@ def run_scheduler_endpoint(
             db.delete(row)
     db.flush()
 
+    # Persist resolved entries for unlocked jobs
     for entry in result.resolved:
         if entry.job_id in locked_job_ids:
             continue
@@ -284,6 +360,7 @@ def run_scheduler_endpoint(
 
     db.commit()
 
+    # Reload saved rows to get DB-assigned IDs
     saved = db.scalars(
         select(ScheduleEntryModel).where(
             ScheduleEntryModel.tenant_id == tenant_id,
@@ -325,7 +402,6 @@ def get_schedule_entries(
     db: Session = Depends(get_db),
     tenant_id: int = Depends(_tenant),
 ):
-    # V3.7 — feature flag guard
     guard = require_feature("scheduler")
     if guard:
         return guard
