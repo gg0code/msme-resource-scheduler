@@ -32,7 +32,7 @@ import {
 } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner, RawMaterialLimitHint } from '../components/PlanLimitGuard'
 import { useSchedulerContext } from '../scheduler/SchedulerContext'
-import SchedulerToolbar from '../scheduler/SchedulerToolbar'
+import { useLabels } from '../context/IndustryContext'
 
 // ── Types ──────────────────────────────────────────────
 interface Skill    { id: number; name: string; is_premium: boolean }
@@ -542,6 +542,7 @@ function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string 
 export default function Jobs() {
   const qc = useQueryClient()
   const { markDirty, checkAllLocked } = useSchedulerContext()
+  const labels = useLabels()
   const flags = useFeatureFlags() 
   const navigate = useNavigate()
   const today = new Date().toISOString().split('T')[0]
@@ -1191,7 +1192,7 @@ export default function Jobs() {
                 {/* Raw Materials */}
                 <div>
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                    <Package size={11} className="text-orange-500"/> Raw Materials
+                    <Package size={11} className="text-orange-500"/> {labels.materials}
                   </p>
                   {(job.raw_materials||[]).length === 0
                     ? <p className="text-xs text-gray-400 italic">None specified</p>
@@ -1520,14 +1521,13 @@ export default function Jobs() {
       <div className="bg-white border-b border-gray-200 px-1 py-4 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Jobs</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Production job board</p>
+            <h2 className="text-xl font-bold text-gray-900">{labels.jobsPageTitle}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{labels.jobsPageSubtitle}</p>
           </div>
           <div className="flex items-center gap-2">
-            <SchedulerToolbar />
             <CoachMark id="jobs-new" title="Create your first job" description="Pick a machine — skills are auto-suggested. Set dates and assign your team." position="bottom" step={1} totalSteps={3}>
               <LimitedButton resource="jobs" planLimits={planLimits} onClick={openWizard}>
-                <Plus size={16}/> New Job
+                <Plus size={16}/> {labels.newJobButton}
               </LimitedButton>
             </CoachMark>
           </div>
@@ -1543,11 +1543,11 @@ export default function Jobs() {
             <div className="flex gap-3 flex-wrap">
               <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5">
                 <span className="text-2xl font-bold text-blue-700">{jobs.length}</span>
-                <span className="text-xs text-blue-500 font-medium leading-tight">Active<br/>Jobs</span>
+                <span className="text-xs text-blue-500 font-medium leading-tight">{labels.kpiJobs}</span>
               </div>
               <div className="flex items-center gap-2.5 bg-slate-50 border border-slate-100 rounded-xl px-4 py-2.5">
                 <span className="text-lg font-bold text-slate-700 flex items-center gap-0.5"><IndianRupee size={16}/>{totalOV.toLocaleString('en-IN')}</span>
-                <span className="text-xs text-slate-400 font-medium leading-tight">Order<br/>Book</span>
+                <span className="text-xs text-slate-400 font-medium leading-tight">{labels.kpiOrderBook}</span>
               </div>
               <div className="flex items-center gap-2.5 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5">
                 <span className={`text-lg font-bold flex items-center gap-0.5 ${totalProfit>=0?'text-emerald-700':'text-red-600'}`}>
@@ -1708,9 +1708,9 @@ export default function Jobs() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <div>
-                <h3 className="font-bold text-gray-800">New Job</h3>
+                <h3 className="font-bold text-gray-800">{labels.newJobButton}</h3>
                 <div className="flex items-center gap-2 mt-1">
-                  {['Job Details','Machines & People','Materials & Confirm'].map((label,i)=>(
+                  {[`${labels.job} Details`,`${labels.machines} & People`,`${labels.materials} & Confirm`].map((label,i)=>(
                     <div key={i} className="flex items-center gap-1.5">
                       <span className={`w-5 h-5 rounded-full text-xs flex items-center justify-center font-bold ${wizardStep>i+1?'bg-green-500 text-white':wizardStep===i+1?'bg-blue-600 text-white':'bg-gray-200 text-gray-400'}`}>
                         {wizardStep>i+1?'✓':i+1}
@@ -1816,7 +1816,7 @@ export default function Jobs() {
                     onClick={()=>{ if(details.name&&details.end_date&&(details.start_mode==='flexible'?details.earliest_date:details.start_date)) setWizardStep(2) }}
                     disabled={!details.name || !details.end_date || (details.start_mode==='flexible' ? !details.earliest_date : !details.start_date)}
                     className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm py-2.5 rounded-xl font-medium">
-                    Next — Skills & People <ChevronRight size={15}/>
+                    Next — {labels.skills} & People <ChevronRight size={15}/>
                   </button>
                   <button onClick={closeWizard} className="px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm py-2.5 rounded-xl">Cancel</button>
                 </div>
@@ -1828,7 +1828,7 @@ export default function Jobs() {
               <div className="p-6 space-y-5">
                 <div>
                   <h4 className="font-semibold text-gray-700 flex items-center gap-2 mb-1">
-                    <Factory size={15} className="text-green-600"/> Step 1 — Select Machines
+                    <Factory size={15} className="text-green-600"/> Step 1 — Select {labels.machines}
                   </h4>
                   <p className="text-xs text-gray-400 mb-3">Selecting a machine auto-adds its skill requirements below.</p>
                   {machines.filter(m=>m.status==='Operational').length === 0
@@ -1936,7 +1936,7 @@ export default function Jobs() {
                 <div className="flex gap-2">
                   <button onClick={()=>setWizardStep(1)} className="flex items-center gap-1.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm py-2.5 rounded-xl"><ChevronLeft size={15}/>Back</button>
                   <button onClick={()=>setWizardStep(3)} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2.5 rounded-xl font-medium">
-                    Next — Materials & Confirm <ChevronRight size={15}/>
+                    Next — {labels.materials} & Confirm <ChevronRight size={15}/>
                   </button>
                 </div>
               </div>
@@ -1948,7 +1948,7 @@ export default function Jobs() {
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <h4 className="font-semibold text-gray-700 flex items-center gap-1.5"><Package size={15} className="text-orange-500"/>Raw Materials</h4>
+                      <h4 className="font-semibold text-gray-700 flex items-center gap-1.5"><Package size={15} className="text-orange-500"/>{labels.materials}</h4>
                       <p className="text-xs text-gray-400">Add materials needed for this job.</p>
                     </div>
                     <button onClick={()=>setRawMats(m=>[...m,emptyMat()])}
@@ -2018,7 +2018,7 @@ export default function Jobs() {
               {(['machines','people','extras'] as const).map(tab => (
                 <button key={tab} onClick={()=>setAssignTab(tab)}
                   className={`flex-1 py-3 text-xs font-semibold border-b-2 transition-colors ${assignTab===tab?'border-blue-600 text-blue-600 bg-white':'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                  {tab === 'machines' ? '🔧 Machines' : tab === 'people' ? '👷 Skilled People' : '➕ Extra People'}
+                  {tab === 'machines' ? `🔧 ${labels.machines}` : tab === 'people' ? '👷 Skilled People' : '➕ Extra People'}
                 </button>
               ))}
             </div>
@@ -2277,7 +2277,7 @@ export default function Jobs() {
               </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-600 flex items-center gap-1"><Package size={12} className="text-orange-500"/>Raw Materials</label>
+                  <label className="text-xs font-medium text-gray-600 flex items-center gap-1"><Package size={12} className="text-orange-500"/>{labels.materials}</label>
                   <div className="flex items-center gap-2">
                     <RawMaterialLimitHint current={editRawMats.length} planLimits={planLimits} />
                     <button onClick={()=>setEditRawMats(m=>[...m,emptyMat()])} disabled={rawMatLimitReached(editRawMats.length)}
@@ -2392,7 +2392,7 @@ export default function Jobs() {
                   <div className="overflow-hidden rounded-xl border border-gray-200 divide-y divide-gray-100">
                     {[
                       ['Order Value', job.order_value != null ? `₹${job.order_value.toLocaleString('en-IN')}` : '—', ''],
-                      ['Raw Materials', `₹${rawTotal.toLocaleString('en-IN')}`, 'text-red-500'],
+                      [labels.materials, `₹${rawTotal.toLocaleString('en-IN')}`, 'text-red-500'],
                       ['Misc / Overhead', `₹${(job.misc_cost??0).toLocaleString('en-IN')}`, 'text-red-400'],
                       ['Total Cost', `₹${totalCost.toLocaleString('en-IN')}`, 'text-red-600 font-black'],
                       ['Profit', profit != null ? `${profit>=0?'+':''}₹${Math.abs(profit).toLocaleString('en-IN')}` : '—', profit != null ? (profit>=0 ? 'text-green-600 font-black' : 'text-red-600 font-black') : ''],
@@ -2442,7 +2442,7 @@ export default function Jobs() {
                 {/* Raw materials table */}
                 {(job.raw_materials||[]).length > 0 && (
                   <div>
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Raw Materials</p>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">{labels.materials}</p>
                     <table className="w-full text-xs border border-gray-200 rounded-xl overflow-hidden">
                       <thead className="bg-gray-50">
                         <tr>
