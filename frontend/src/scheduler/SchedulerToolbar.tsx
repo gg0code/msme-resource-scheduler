@@ -121,16 +121,135 @@ function ConflictPanel({
   )
 }
 
+// ─── Result summary panel ────────────────────────────────────────────────────
+
+function ResultSummaryPanel({
+  summary,
+  jobMap,
+  onClose,
+}: {
+  summary: import('./useScheduler').SchedulerRunSummary
+  jobMap:  Record<number, { name: string; priority: string }>
+  onClose: () => void
+}) {
+  const fmt = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
+      <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-50 flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-blue-50">
+          <div className="flex items-center gap-2">
+            <CheckCircle size={18} className="text-blue-600" />
+            <span className="font-semibold text-gray-900">Auto-Schedule Complete</span>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Stats bar */}
+        <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-200 bg-gray-50 shrink-0">
+          <div className="text-center px-3 py-3">
+            <div className="text-xl font-bold text-blue-600">{summary.total_jobs_attempted}</div>
+            <div className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">Attempted</div>
+          </div>
+          <div className="text-center px-3 py-3">
+            <div className="text-xl font-bold text-green-600">{summary.jobs_fully_scheduled}</div>
+            <div className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">Scheduled</div>
+          </div>
+          <div className="text-center px-3 py-3">
+            <div className={`text-xl font-bold ${summary.jobs_with_conflicts > 0 ? 'text-amber-600' : 'text-gray-300'}`}>
+              {summary.jobs_with_conflicts}
+            </div>
+            <div className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">Conflicts</div>
+          </div>
+        </div>
+
+        {/* Scheduled jobs list */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          {summary.scheduled.length === 0 && summary.jobs_with_conflicts === 0 && (
+            <p className="text-sm text-gray-400 italic text-center py-8">No jobs were processed.</p>
+          )}
+
+          {summary.scheduled.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <CheckCircle size={11} className="text-green-500"/> Scheduled
+              </p>
+              <div className="space-y-2">
+                {summary.scheduled.map(job => (
+                  <div key={job.job_id} className="border border-green-200 bg-green-50 rounded-xl px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 truncate">{job.job_name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {job.step_count} step{job.step_count !== 1 ? 's' : ''} scheduled
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full shrink-0">
+                        Done
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-1.5 text-xs text-green-700">
+                      <Clock size={11}/>
+                      {fmt(job.earliest_start)} → {fmt(job.latest_end)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {summary.jobs_with_conflicts > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <AlertTriangle size={11} className="text-amber-500"/> Could not schedule
+              </p>
+              <div className="space-y-2">
+                {summary.conflicted_job_ids.map(jobId => (
+                  <div key={jobId} className="border border-amber-200 bg-amber-50 rounded-xl px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-gray-800">
+                        {jobMap[jobId]?.name ?? `Job #${jobId}`}
+                      </p>
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                        Conflict
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-700 mt-1">
+                      Review the conflict details to resolve.
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-gray-100 text-xs text-gray-400">
+          Jobs page has been refreshed with the latest schedule.
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── Main toolbar component ───────────────────────────────────────────────────
 
 export default function SchedulerToolbar() {
   const {
     status, conflicts, lastRun, running, error,
-    runScheduler,
+    runScheduler, summary,
   } = useSchedulerContext()
 
   const qc = useQueryClient()
   const [panelOpen, setPanelOpen] = useState(false)
+  const [summaryOpen, setSummaryOpen] = useState(false)
 
   // Build a job name/priority map from cached query data
   const cachedJobs = (qc.getQueryData<{ id: number; name: string; priority: string; lock_status: boolean }[]>(['sched-jobs'])) ?? []
@@ -163,22 +282,40 @@ export default function SchedulerToolbar() {
 
   if (status === 'greyed-clean') {
     return (
-      <div className="flex items-center gap-2">
-        <div title="Schedule is up to date.">
-          <button
-            disabled
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-400 text-sm cursor-not-allowed select-none"
-          >
-            <CheckCircle size={14} />
-            Auto-Schedule
-          </button>
+      <>
+        <div className="flex items-center gap-2">
+          <div title="Schedule is up to date.">
+            <button
+              disabled
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-400 text-sm cursor-not-allowed select-none"
+            >
+              <CheckCircle size={14} />
+              Auto-Schedule
+            </button>
+          </div>
+          {lastRun && (
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <Clock size={12} /> {fmtTime(lastRun)}
+            </span>
+          )}
+          {/* Show results link if summary available */}
+          {summary && (
+            <button
+              onClick={() => setSummaryOpen(true)}
+              className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 underline underline-offset-2"
+            >
+              View results
+            </button>
+          )}
         </div>
-        {lastRun && (
-          <span className="text-xs text-gray-400 flex items-center gap-1">
-            <Clock size={12} /> {fmtTime(lastRun)}
-          </span>
+        {summaryOpen && summary && (
+          <ResultSummaryPanel
+            summary={summary}
+            jobMap={jobMap}
+            onClose={() => setSummaryOpen(false)}
+          />
         )}
-      </div>
+      </>
     )
   }
 
@@ -214,33 +351,48 @@ export default function SchedulerToolbar() {
 
   // Default: 'active' state
   return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => runScheduler()}
-        disabled={running}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white shadow-sm transition-all
-          ${running
-            ? 'bg-blue-400 cursor-not-allowed'
-            : 'bg-blue-600 hover:bg-blue-700 animate-pulse'
-          }`}
-      >
-        {running
-          ? <Loader2 size={14} className="animate-spin" />
-          : <Zap size={14} />
-        }
-        {running ? 'Scheduling…' : 'Auto-Schedule'}
-      </button>
+    <>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={async () => {
+            await runScheduler()
+            // Auto-open summary panel after run completes
+            setSummaryOpen(true)
+          }}
+          disabled={running}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white shadow-sm transition-all
+            ${running
+              ? 'bg-blue-400 cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-700 animate-pulse'
+            }`}
+        >
+          {running
+            ? <Loader2 size={14} className="animate-spin" />
+            : <Zap size={14} />
+          }
+          {running ? 'Scheduling...' : 'Auto-Schedule'}
+        </button>
 
-      {/* Reschedule needed indicator */}
-      {!running && (
-        <span className="text-xs text-amber-600 flex items-center gap-1 whitespace-nowrap font-medium">
-          <RotateCcw size={11}/> Reschedule Needed
-        </span>
-      )}
+        {/* Reschedule needed indicator */}
+        {!running && (
+          <span className="text-xs text-amber-600 flex items-center gap-1 whitespace-nowrap font-medium">
+            <RotateCcw size={11}/> Reschedule Needed
+          </span>
+        )}
 
-      {error && (
-        <span className="text-xs text-red-600 whitespace-nowrap">{error}</span>
+        {error && (
+          <span className="text-xs text-red-600 whitespace-nowrap">{error}</span>
+        )}
+      </div>
+
+      {/* Result summary panel — opens automatically after run */}
+      {summaryOpen && summary && (
+        <ResultSummaryPanel
+          summary={summary}
+          jobMap={jobMap}
+          onClose={() => setSummaryOpen(false)}
+        />
       )}
-    </div>
+    </>
   )
 }

@@ -164,11 +164,15 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
         content: res.data.message,
         timestamp: new Date(),
       }])
-    } catch {
-      // Fallback to static greeting if fetch fails
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail ?? ''
+      const isGroqLimit = detail.toLowerCase().includes('groq') || detail.toLowerCase().includes('capacity')
+      // Fallback to static greeting — never show a raw error on open
       setMessages([{
         role: 'assistant' as const,
-        content: `Namaste! 👋 I'm your AI Copilot.\n\nUse suggestions below or switch to **Tools** for 50 pre-built queries.`,
+        content: isGroqLimit
+          ? `Namaste! 👋 I'm your AI Copilot.\n\nThe AI service is momentarily busy — you can still use **Tools** for pre-built queries, or try chatting again in a moment.`
+          : `Namaste! 👋 I'm your AI Copilot.\n\nUse suggestions below or switch to **Tools** for 50 pre-built queries.`,
         timestamp: new Date(),
       }])
     }
@@ -208,13 +212,52 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
       } : prev)
 
     } catch (err: any) {
-      if (err?.response?.status === 429) {
-        const detail = err.response?.data?.detail || 'Daily query limit reached.'
-        setMessages(prev => [...prev, { role: 'assistant', content: detail, timestamp: new Date() }])
-        fetchUsage()
+      const status  = err?.response?.status
+      const detail  = err?.response?.data?.detail ?? ''
+
+      if (status === 429) {
+        // Two types of 429 — our own plan limit, or Groq upstream rate limit
+        const isGroqLimit = detail.toLowerCase().includes('groq') || detail.toLowerCase().includes('token limit') || detail.toLowerCase().includes('capacity')
+        const isOurLimit  = detail.toLowerCase().includes('daily') || detail.toLowerCase().includes('queries')
+
+        if (isGroqLimit) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '⏳ The AI service is momentarily busy — it will be back in a few minutes.\n\nThis happens occasionally when usage is high. Please try again shortly.',
+            timestamp: new Date(),
+          }])
+        } else if (isOurLimit) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `🚫 You've reached your daily AI query limit.\n\nUpgrade your plan to get more queries.`,
+            timestamp: new Date(),
+          }])
+          fetchUsage()
+        } else {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '⏳ The AI service is temporarily unavailable. Please try again in a moment.',
+            timestamp: new Date(),
+          }])
+        }
         return
       }
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I ran into an issue. Please try again.', timestamp: new Date() }])
+
+      if (status === 503 || status === 502) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '⚠️ The AI service is temporarily unavailable. Please try again in a few minutes.',
+          timestamp: new Date(),
+        }])
+        return
+      }
+
+      // Generic fallback for any other error
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Something went wrong on my end. Please try again.',
+        timestamp: new Date(),
+      }])
     } finally {
       setLoading(false)
     }
@@ -235,8 +278,8 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
           <div className="flex-1 min-w-0">
             <div className="text-white font-bold text-sm">AI Copilot</div>
             <div className="text-blue-100 text-xs flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-              Online · Llama 3.3 via Groq
+              <span className={`w-1.5 h-1.5 rounded-full inline-block ${loading ? 'bg-amber-400 animate-pulse' : 'bg-green-400'}`} />
+              {loading ? 'Thinking...' : 'Online · Llama 3.3 via Groq'}
             </div>
           </div>
           <button onClick={() => setMessages([{ role: 'assistant', content: 'Chat cleared!', timestamp: new Date() }])} className="text-blue-100 hover:text-white text-xs px-2 py-1 rounded hover:bg-white/10 transition-colors">Clear</button>

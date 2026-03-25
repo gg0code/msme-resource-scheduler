@@ -27,11 +27,11 @@ export default function Skills() {
 
   const { data: skills = [], isLoading, isError } = useQuery<Skill[]>({
     queryKey: ['skills'],
-    queryFn: () => apiClient.get('/skills/').then(r => r.data),
+    queryFn: () => apiClient.get('/api/skills/').then(r => r.data),
   })
 
   const createSkill = useMutation({
-    mutationFn: (payload: typeof form) => apiClient.post('/skills/', payload),
+    mutationFn: (payload: typeof form) => apiClient.post('/api/skills/', payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['skills'] })
       setForm({ name: '', category: 'generic', is_premium: false, description: '' })

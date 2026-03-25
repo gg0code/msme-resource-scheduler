@@ -39,13 +39,13 @@ export default function Availability() {
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
   const { data: overrides = [], isLoading, isError } = useQuery<Override[]>({
-    queryKey:['availability'], queryFn:() => apiClient.get('/availability/').then(r => r.data),
+    queryKey:['availability'], queryFn:() => apiClient.get('/api/availability/').then(r => r.data),
   })
   const { data: employees = [] } = useQuery<Employee[]>({
-    queryKey:['employees'], queryFn:() => apiClient.get('/employees/').then(r => r.data),
+    queryKey:['employees'], queryFn:() => apiClient.get('/api/employees/').then(r => r.data),
   })
   const { data: machines = [] } = useQuery<Machine[]>({
-    queryKey:['machines'], queryFn:() => apiClient.get('/machines/').then(r => r.data),
+    queryKey:['machines'], queryFn:() => apiClient.get('/api/machines/').then(r => r.data),
   })
 
   const getEmpName = (id: number) => employees.find(e => e.id === id)?.full_name ?? `Employee #${id}`
@@ -66,7 +66,7 @@ export default function Availability() {
 
   // --- Mutations ---
   const createOverride = useMutation({
-    mutationFn: (p: object) => apiClient.post('/availability/', p),
+    mutationFn: (p: object) => apiClient.post('/api/availability/', p),
     onSuccess: () => { qc.invalidateQueries({queryKey:['availability']}); closeForm(); showToast('Override saved!') },
   })
   const updateOverride = useMutation({

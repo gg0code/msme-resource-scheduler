@@ -5,8 +5,8 @@
 import { createContext, useContext } from 'react'
 import type { ReactNode } from 'react'
 import { useScheduler } from './useScheduler'
-import type { SchedulerStatus, ConflictEntry } from './useScheduler'
-export type { ConflictEntry }
+import type { SchedulerStatus, ConflictEntry, SchedulerRunSummary } from './useScheduler'
+export type { ConflictEntry, SchedulerRunSummary }
 
 interface SchedulerContextValue {
   status:         SchedulerStatus
@@ -14,6 +14,7 @@ interface SchedulerContextValue {
   lastRun:        Date | null
   running:        boolean
   error:          string | null
+  summary:        SchedulerRunSummary | null
   markDirty:      () => void
   checkAllLocked: (jobs: { lock_status: boolean }[]) => void
   runScheduler:   (scheduleDate?: string) => Promise<void>

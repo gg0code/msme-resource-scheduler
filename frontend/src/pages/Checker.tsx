@@ -59,13 +59,13 @@ export default function Checker() {
   const [error, setError]                 = useState('')
 
   const { data: jobs = [] } = useQuery<Job[]>({
-    queryKey:['jobs'], queryFn:() => apiClient.get('/jobs/').then(r => r.data),
+    queryKey:['jobs'], queryFn:() => apiClient.get('/api/jobs/').then(r => r.data),
   })
   const { data: skills = [] } = useQuery<Skill[]>({
-    queryKey:['skills'], queryFn:() => apiClient.get('/skills/').then(r => r.data),
+    queryKey:['skills'], queryFn:() => apiClient.get('/api/skills/').then(r => r.data),
   })
   const { data: employees = [] } = useQuery<Employee[]>({
-    queryKey:['employees'], queryFn:() => apiClient.get('/employees/').then(r => r.data),
+    queryKey:['employees'], queryFn:() => apiClient.get('/api/employees/').then(r => r.data),
   })
 
   const getSkillName = (id: number) => skills.find(s => s.id === id)?.name ?? `Skill#${id}`

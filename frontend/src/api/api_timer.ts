@@ -62,22 +62,22 @@ export interface EndJobPayload {
 
 const timerApi = {
   start:   (jobId: number) =>
-    apiClient.post<TimerJobState>(`/timer/${jobId}/start`, {}).then(r => r.data),
+    apiClient.post<TimerJobState>(`/api/timer/${jobId}/start`, {}).then(r => r.data),
 
   pause:   (jobId: number) =>
-    apiClient.post<TimerJobState>(`/timer/${jobId}/pause`, {}).then(r => r.data),
+    apiClient.post<TimerJobState>(`/api/timer/${jobId}/pause`, {}).then(r => r.data),
 
   resume:  (jobId: number) =>
-    apiClient.post<TimerJobState>(`/timer/${jobId}/resume`, {}).then(r => r.data),
+    apiClient.post<TimerJobState>(`/api/timer/${jobId}/resume`, {}).then(r => r.data),
 
   stop:    (jobId: number) =>
-    apiClient.post<TimerJobState>(`/timer/${jobId}/stop`, {}).then(r => r.data),
+    apiClient.post<TimerJobState>(`/api/timer/${jobId}/stop`, {}).then(r => r.data),
 
   summary: (jobId: number) =>
-    apiClient.get<JobSummaryResponse>(`/timer/${jobId}/summary`).then(r => r.data),
+    apiClient.get<JobSummaryResponse>(`/api/timer/${jobId}/summary`).then(r => r.data),
 
   end:     (jobId: number, payload: EndJobPayload) =>
-    apiClient.post<TimerJobState>(`/timer/${jobId}/end`, payload).then(r => r.data),
+    apiClient.post<TimerJobState>(`/api/timer/${jobId}/end`, payload).then(r => r.data),
 }
 
 export default timerApi
