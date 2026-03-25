@@ -8,6 +8,7 @@ from app.core.security import (
 )
 from app.models.auth import RefreshToken, Tenant, User
 from app.schemas.auth import LoginRequest, RegisterRequest
+from app.services.demo_seeder import seed_demo_data
 
 
 def register_tenant_and_user(payload: RegisterRequest, db: Session) -> dict:
@@ -25,6 +26,13 @@ def register_tenant_and_user(payload: RegisterRequest, db: Session) -> dict:
     raw_refresh = _create_refresh_token(db, user)
     db.commit()
     db.refresh(user)
+
+    # v4.0.6 — seed industry-specific demo data for new tenant
+    try:
+        seed_demo_data(db, tenant.id, payload.industry_type)
+    except Exception:
+        pass  # seeding failure must never break registration
+
     access_token = create_access_token(user.id, tenant.id, user.role)
     return {"access_token": access_token, "refresh_token": raw_refresh, "user": user}
 
