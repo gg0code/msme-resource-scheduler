@@ -46,6 +46,10 @@ class Job(Base):
     earliest_date = Column(Date, nullable=True)
     latest_date   = Column(Date, nullable=True)
 
+    # ── v3.9.6 Material Estimation prerequisites ────────────────────────────
+    job_type  = Column(String(100), nullable=True)   # e.g. "Corrugated Box", "Label"
+    quantity  = Column(Float, nullable=True)         # units to produce
+
     # ── J1.2 Delivery, Invoice & Actuals ────────────────────────────────────
     delivery_date  = Column(Date, nullable=True)         # customer delivery deadline
     invoice_number = Column(String(50), nullable=True)

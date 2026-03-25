@@ -4,7 +4,7 @@
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import apiClient from '../api/client'
-import { Factory, CheckCircle2, XCircle, ChevronRight, ChevronLeft } from 'lucide-react'
+import { CheckCircle2, XCircle, ChevronRight, ChevronLeft } from 'lucide-react'
 
 // ── Industry options ──────────────────────────────────────────────────────────
 
@@ -148,10 +148,10 @@ export default function RegisterPage() {
 
         {/* Logo */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-blue-600 rounded-2xl shadow-lg mb-3">
-            <Factory size={28} className="text-white" />
+          <div className="flex justify-center mb-3">
+            <img src="/logo.png" alt="ZeroZeta" className="h-8" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">MSME Scheduler</h1>
+          <h1 className="text-xl font-bold text-gray-900">ZetaOps Copilot</h1>
           <p className="text-sm text-gray-500 mt-1">
             {step === 1 ? 'Choose your industry to get started' : `Setting up ${selectedConfig.product}`}
           </p>
