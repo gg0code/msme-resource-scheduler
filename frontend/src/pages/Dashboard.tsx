@@ -16,6 +16,7 @@ import {
   TrendingUp, TrendingDown,
 } from 'lucide-react'
 import apiClient from '../api/client'
+import { useLabels } from '../context/IndustryContext'
 import { CoachMark } from '../components/onboarding'
 import timerApi from '../api/api_timer'
 import EndJobModal from '../components/EndJobModal'
@@ -283,11 +284,11 @@ function JobCard({ job, onAction, actionLoading }: JobCardProps) {
       {expanded && (
         <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 text-xs text-gray-600 space-y-1.5">
           <div className="flex gap-2">
-            <span className="text-gray-400 w-24">Employees</span>
+            <span className="text-gray-400 w-24">{labels.employees}</span>
             <span>{job.assigned_employees.map(e => e.full_name).join(', ') || 'None'}</span>
           </div>
           <div className="flex gap-2">
-            <span className="text-gray-400 w-24">Machines</span>
+            <span className="text-gray-400 w-24">{labels.machines}</span>
             <span>{job.assigned_machines.map(m => m.name).join(', ') || 'None'}</span>
           </div>
           {job.actual_start_at && (
@@ -362,6 +363,7 @@ function CollapsibleSection({ title, count, colorClass, icon, defaultOpen = true
 }
 export default function Dashboard() {
   const navigate = useNavigate()
+  const labels = useLabels()
   const [now, setNow] = useState(new Date())
   const [data, setData] = useState<DashboardData | null>(null)
   const [loadingData, setLoadingData] = useState(true)
@@ -454,9 +456,9 @@ export default function Dashboard() {
   const endModalJob = endModalJobId ? jobs.find(j => j.id === endModalJobId) : null
 
   const cards = [
-    { label: 'Active Jobs', value: data!.total_active_jobs, icon: BriefcaseBusiness, colour: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Available Machines', value: data!.available_machines, icon: Factory, colour: 'text-green-600', bg: 'bg-green-50' },
-    { label: 'Available Employees', value: data!.available_employees, icon: Users, colour: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: labels.kpiJobs, value: data!.total_active_jobs, icon: BriefcaseBusiness, colour: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: `Available ${labels.machines}`, value: data!.available_machines, icon: Factory, colour: 'text-green-600', bg: 'bg-green-50' },
+    { label: `Available ${labels.employees}`, value: data!.available_employees, icon: Users, colour: 'text-purple-600', bg: 'bg-purple-50' },
   ]
 
   return (
@@ -641,7 +643,7 @@ export default function Dashboard() {
       {/* Running jobs */}
       {activeJobs.length > 0 && (
         <CollapsibleSection
-          title="Running"
+          title={`Running ${labels.jobs}`}
           count={activeJobs.length}
           colorClass="text-green-700"
           defaultOpen={true}
@@ -664,7 +666,7 @@ export default function Dashboard() {
           <>
             {skillGapSection.length > 0 && (
               <CollapsibleSection
-                title="Needs Attention — Skill Gaps"
+                title={`Needs Attention — Skill Gaps`}
                 count={skillGapSection.length}
                 colorClass="text-amber-600"
                 defaultOpen={true}
@@ -695,7 +697,7 @@ export default function Dashboard() {
       {/* Paused jobs */}
       {pausedJobs.length > 0 && (
         <CollapsibleSection
-          title="Paused"
+          title={`Paused ${labels.jobs}`}
           count={pausedJobs.length}
           colorClass="text-yellow-700"
           defaultOpen={true}
@@ -710,7 +712,7 @@ export default function Dashboard() {
       {/* Pending (idle, no conflict) */}
       {readyJobs.length > 0 && (
         <CollapsibleSection
-          title="Ready to Start"
+          title={`Ready to Start`}
           count={readyJobs.length}
           colorClass="text-gray-700"
           defaultOpen={true}
@@ -725,7 +727,7 @@ export default function Dashboard() {
       {/* Completed / Stopped */}
       {doneJobs.length > 0 && (
         <CollapsibleSection
-          title="Completed / Stopped"
+          title={`Completed / Stopped`}
           count={doneJobs.length}
           colorClass="text-gray-500"
           defaultOpen={false}
@@ -739,7 +741,7 @@ export default function Dashboard() {
       {jobs.length === 0 && (
         <EmptyState
           icon={<BriefcaseBusiness size={32} />}
-          title="No jobs yet"
+          title={`No ${labels.jobs.toLowerCase()} yet`}
           description="Create your first job to start tracking production. Assign employees and machines to get a full picture of your shop floor."
           actionLabel="Create First Job"
           onAction={() => navigate('/jobs')}

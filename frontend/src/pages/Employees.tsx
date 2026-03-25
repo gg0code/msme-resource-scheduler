@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
+import { useLabels } from '../context/IndustryContext'
 import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
 import { useFeatureFlags } from '../context/FeatureFlags'
@@ -192,6 +193,7 @@ export default function Employees() {
     queryKey:['skills'], queryFn:() => apiClient.get('/api/skills/').then(r => r.data),
   })
   const { planLimits } = usePlanLimits()
+  const labels = useLabels()
 
   const departments = useMemo(() => {
     const d = new Set(employees.map(e => e.department).filter(Boolean) as string[])
@@ -225,15 +227,15 @@ export default function Employees() {
 
   const createEmp = useMutation({
     mutationFn: (p: object) => apiClient.post('/api/employees/', p),
-    onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); closeForm(); showToast('Employee added!') },
+    onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); closeForm(); showToast(`${labels.employee} added!`) },
   })
   const updateEmp = useMutation({
     mutationFn: ({id,payload}:{id:number;payload:object}) => apiClient.patch(`/api/employees/${id}`, payload),
-    onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); closeForm(); showToast('Employee updated!') },
+    onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); closeForm(); showToast(`${labels.employee} updated!`) },
   })
   const deleteEmp = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/api/employees/${id}`),
-    onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); setDeleteId(null); showToast('Employee deleted!') },
+    onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); setDeleteId(null); showToast(`${labels.employee} deleted!`) },
   })
 
   function openCreate() { setEditingEmp(null); setForm(emptyForm()); setShowForm(true) }
@@ -285,14 +287,14 @@ export default function Employees() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-800">Employees</h2>
-          <p className="text-sm text-gray-500 mt-0.5">{filtered.length} of {employees.length} employees · click a row to see assigned jobs</p>
+          <h2 className="text-xl font-bold text-gray-800">{labels.employeesPageTitle}</h2>
+          <p className="text-sm text-gray-500 mt-0.5">{filtered.length} of {employees.length} {labels.employees.toLowerCase()} · click a row to see assigned jobs</p>
         </div>
         <div className="flex items-center gap-2">
           {flags.csv_import && <CsvImport resource="employees" onSuccess={() => qc.invalidateQueries({queryKey:['employees']})}/>}
           <CoachMark id="employees-add" title="Add your team" description="Add each worker with their role, hourly rate, and skills. Skills are matched to job requirements." position="bottom" step={1} totalSteps={3}>
             <LimitedButton resource="employees" planLimits={planLimits} onClick={openCreate}>
-              <Plus size={16}/> Add Employee
+              <Plus size={16}/> Add {labels.employee}
             </LimitedButton>
           </CoachMark>
         </div>
@@ -334,7 +336,7 @@ export default function Employees() {
       </div>
 
       {isLoading && <div className="flex items-center gap-2 text-gray-500 justify-center py-10"><Loader2 className="animate-spin" size={18}/>Loading...</div>}
-      {isError   && <div className="flex items-center gap-2 text-red-500 justify-center py-10"><AlertCircle size={18}/>Failed to load employees.</div>}
+      {isError   && <div className="flex items-center gap-2 text-red-500 justify-center py-10"><AlertCircle size={18}/>Failed to load {labels.employees.toLowerCase()}.</div>}
 
       {/* Table */}
       {!isLoading && !isError && (
@@ -517,7 +519,7 @@ export default function Employees() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h3 className="font-bold text-gray-800">{editingEmp ? 'Edit Employee' : 'New Employee'}</h3>
+              <h3 className="font-bold text-gray-800">{editingEmp ? `Edit ${labels.employee}` : `New ${labels.employee}`}</h3>
               <button onClick={closeForm}><X size={18} className="text-gray-400 hover:text-gray-600"/></button>
             </div>
             <div className="p-6 space-y-4">
@@ -599,7 +601,7 @@ export default function Employees() {
             <div className="flex gap-2 px-6 pb-6">
               <button onClick={submitForm} disabled={!form.full_name || isSaving}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm py-2.5 rounded-lg font-medium">
-                {isSaving ? 'Saving...' : editingEmp ? 'Update Employee' : 'Add Employee'}
+                {isSaving ? 'Saving...' : editingEmp ? `Update ${labels.employee}` : `Add ${labels.employee}`}
               </button>
               <button onClick={closeForm} className="px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm py-2.5 rounded-lg">Cancel</button>
             </div>
