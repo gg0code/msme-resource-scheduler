@@ -105,7 +105,7 @@ export function useScheduler() {
 
       // Build per-job summary from resolved entries
       // Group resolved steps by job_id to find earliest start and latest end
-      const cachedJobs = qc.getQueryData<{ id: number; name: string }[]>(['sched-jobs']) ?? []
+      const cachedJobs = qc.getQueryData<{ id: number; name: string }[]>(['jobs']) ?? []
       const jobNameMap: Record<number, string> = Object.fromEntries(cachedJobs.map(j => [j.id, j.name]))
       const conflictedIds = new Set(conflicts.map(c => c.job_id))
 

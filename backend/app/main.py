@@ -17,6 +17,7 @@ from app.routers import (
     features,            # V3.7 feature flags
     ai_chat,             # V3.9 AI Copilot
     resource_availability,              # V3.9.4 real-time resource availability
+    steps,               # V3.9.5 job step CRUD
 )
 
 app = FastAPI(
@@ -60,3 +61,4 @@ app.include_router(unavailability.router,       prefix="/api/unavailability",   
 app.include_router(features.router,             prefix="/api",                      tags=["features"])
 app.include_router(ai_chat.router,              prefix="/api/ai",                   tags=["ai"])
 app.include_router(resource_availability.router, prefix="/api/jobs",               tags=["resource-availability"])  # V3.9.4
+app.include_router(steps.router,                prefix="/api",                      tags=["steps"])               # V3.9.5

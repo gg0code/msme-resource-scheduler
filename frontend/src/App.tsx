@@ -23,10 +23,8 @@ import Machines from './pages/Machines'
 import Jobs from './pages/Jobs'
 import GanttPage from './pages/GanttPage'
 
-// Scheduling engine pages
-import SchedJobsPage from './pages/SchedJobsPage'
-import SchedStepsPage from './pages/SchedStepsPage'
-import JobPrintPage from './pages/JobPrintPage'
+// Scheduling engine pages — removed in v3.9.5 (merged into /jobs)
+import JobPrintPage from './pages/JobPrintPage' // kept for backwards compat — remove in v4
 
 // Block 2 — QR Execution
 import ScanPage from './pages/ScanPage'
@@ -46,8 +44,7 @@ export default function App() {
 
         {/* Print pages — auth required, no sidebar */}
         <Route element={<ProtectedRoute />}>
-          <Route path="/sched-jobs/:jobId/print" element={<JobPrintPage />} />
-          <Route path="/jobs/:jobId/print"        element={<PrintJobCard />} />
+          <Route path="/jobs/:jobId/print" element={<PrintJobCard />} />
         </Route>
 
         {/* Protected routes with layout */}
@@ -67,10 +64,6 @@ export default function App() {
             <Route path="employees"    element={<Employees />} />
             <Route path="machines"     element={<Machines />} />
             <Route path="gantt"        element={<GanttPage />} />
-
-            {/* Scheduling engine */}
-            <Route path="sched-jobs"              element={<SchedJobsPage />} />
-            <Route path="sched-jobs/:jobId/steps" element={<SchedStepsPage />} />
 
             {/* Skills — proprietor only */}
             <Route element={<ProtectedRoute roles={['proprietor']} />}>

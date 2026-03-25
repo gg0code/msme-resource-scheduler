@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { useSchedulerContext } from './SchedulerContext'
 import type { ConflictEntry } from './useScheduler'
-import { schedJobsApi } from '../api/scheduling'
+import apiClient from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 
 // ─── Priority badge ───────────────────────────────────────────────────────────
@@ -252,12 +252,12 @@ export default function SchedulerToolbar() {
   const [summaryOpen, setSummaryOpen] = useState(false)
 
   // Build a job name/priority map from cached query data
-  const cachedJobs = (qc.getQueryData<{ id: number; name: string; priority: string; lock_status: boolean }[]>(['sched-jobs'])) ?? []
+  const cachedJobs = (qc.getQueryData<{ id: number; name: string; priority: string; is_locked: boolean }[]>(['jobs'])) ?? []
   const jobMap = Object.fromEntries(cachedJobs.map(j => [j.id, { name: j.name, priority: j.priority }]))
 
   async function handleLockJob(jobId: number) {
-    await schedJobsApi.update(jobId, { lock_status: true })
-    qc.invalidateQueries({ queryKey: ['sched-jobs'] })
+    await apiClient.patch(`/api/jobs/${jobId}`, { is_locked: true })
+    qc.invalidateQueries({ queryKey: ['jobs'] })
     setPanelOpen(false)
   }
 
