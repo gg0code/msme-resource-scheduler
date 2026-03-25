@@ -1,5 +1,5 @@
-"""app/models/auth.py — V1.2
-Added: job_id_prefix to Tenant
+"""app/models/auth.py — V1.3
+Added: industry_type to Tenant (v4.0.1)
 """
 from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, text, Date
@@ -23,8 +23,12 @@ class Tenant(Base):
     ai_queries_limit = Column(Integer, default=50, nullable=False, server_default='50')
     ai_tokens_today  = Column(Integer, default=0, nullable=False, server_default='0')
 
-    # Job ID prefix (migration 008) — e.g. "ABC" → jobs show as ABC-106
+    # Job ID prefix (migration 008)
     job_id_prefix = Column(String(10), nullable=True)
+
+    # v4.0.1 — industry profile selected during registration
+    # Values: printing | manufacturing | fabrication | chemical | field_service
+    industry_type = Column(String(50), nullable=True, server_default='printing')
 
     users          = relationship("User", back_populates="tenant", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="tenant", cascade="all, delete-orphan")
