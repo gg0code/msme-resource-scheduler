@@ -1,1 +1,166 @@
 @import "tailwindcss";
+
+/* ─── Industry theme variables ───────────────────────────────────────────────
+   Applied to <body> via IndustryContext.
+   Components use var(--brand-*) instead of hardcoded Tailwind colours.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Default (printing / blue) */
+:root {
+  --brand-sidebar-bg:     #111827;  /* gray-900 */
+  --brand-sidebar-border: #374151;  /* gray-700 */
+  --brand-active-bg:      #2563eb;  /* blue-600 */
+  --brand-active-hover:   #1d4ed8;  /* blue-700 */
+  --brand-primary:        #2563eb;  /* blue-600 */
+  --brand-primary-hover:  #1d4ed8;  /* blue-700 */
+  --brand-primary-light:  #eff6ff;  /* blue-50  */
+  --brand-primary-text:   #1d4ed8;  /* blue-700 */
+  --brand-accent:         #60a5fa;  /* blue-400 */
+}
+
+/* PrintFlow — blue (same as default) */
+body.theme-printing {
+  --brand-sidebar-bg:     #111827;
+  --brand-sidebar-border: #374151;
+  --brand-active-bg:      #2563eb;
+  --brand-active-hover:   #1d4ed8;
+  --brand-primary:        #2563eb;
+  --brand-primary-hover:  #1d4ed8;
+  --brand-primary-light:  #eff6ff;
+  --brand-primary-text:   #1d4ed8;
+  --brand-accent:         #60a5fa;
+}
+
+/* ShopFloor — slate */
+body.theme-manufacturing {
+  --brand-sidebar-bg:     #0f172a;  /* slate-900 */
+  --brand-sidebar-border: #334155;  /* slate-700 */
+  --brand-active-bg:      #475569;  /* slate-600 */
+  --brand-active-hover:   #334155;  /* slate-700 */
+  --brand-primary:        #475569;  /* slate-600 */
+  --brand-primary-hover:  #334155;  /* slate-700 */
+  --brand-primary-light:  #f8fafc;  /* slate-50  */
+  --brand-primary-text:   #334155;  /* slate-700 */
+  --brand-accent:         #94a3b8;  /* slate-400 */
+}
+
+/* FabFlow — orange */
+body.theme-fabrication {
+  --brand-sidebar-bg:     #1c1917;  /* stone-900 */
+  --brand-sidebar-border: #44403c;  /* stone-700 */
+  --brand-active-bg:      #ea580c;  /* orange-600 */
+  --brand-active-hover:   #c2410c;  /* orange-700 */
+  --brand-primary:        #ea580c;  /* orange-600 */
+  --brand-primary-hover:  #c2410c;  /* orange-700 */
+  --brand-primary-light:  #fff7ed;  /* orange-50  */
+  --brand-primary-text:   #c2410c;  /* orange-700 */
+  --brand-accent:         #fb923c;  /* orange-400 */
+}
+
+/* BatchFlow — green */
+body.theme-chemical {
+  --brand-sidebar-bg:     #052e16;  /* green-950 */
+  --brand-sidebar-border: #166534;  /* green-800 */
+  --brand-active-bg:      #16a34a;  /* green-600 */
+  --brand-active-hover:   #15803d;  /* green-700 */
+  --brand-primary:        #16a34a;  /* green-600 */
+  --brand-primary-hover:  #15803d;  /* green-700 */
+  --brand-primary-light:  #f0fdf4;  /* green-50  */
+  --brand-primary-text:   #15803d;  /* green-700 */
+  --brand-accent:         #4ade80;  /* green-400 */
+}
+
+/* ServiceFlow — purple */
+body.theme-field_service {
+  --brand-sidebar-bg:     #1e1b4b; /* indigo-950 */
+  --brand-sidebar-border: #4338ca; /* indigo-700 */
+  --brand-active-bg:      #7c3aed; /* violet-600 */
+  --brand-active-hover:   #6d28d9; /* violet-700 */
+  --brand-primary:        #7c3aed; /* violet-600 */
+  --brand-primary-hover:  #6d28d9; /* violet-700 */
+  --brand-primary-light:  #f5f3ff; /* violet-50  */
+  --brand-primary-text:   #6d28d9; /* violet-700 */
+  --brand-accent:         #a78bfa; /* violet-400 */
+}
+
+/* ─── Utility classes using CSS variables ────────────────────────────────────
+   Use these in components instead of hardcoded Tailwind colour classes.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.brand-sidebar-bg     { background-color: var(--brand-sidebar-bg) !important; }
+.brand-sidebar-border { border-color: var(--brand-sidebar-border) !important; }
+.brand-active-bg      { background-color: var(--brand-active-bg) !important; }
+.brand-primary-bg     { background-color: var(--brand-primary) !important; }
+.brand-primary-bg:hover { background-color: var(--brand-primary-hover) !important; }
+.brand-primary-text   { color: var(--brand-primary-text) !important; }
+.brand-primary-light  { background-color: var(--brand-primary-light) !important; }
+.brand-accent-text    { color: var(--brand-accent) !important; }
+.brand-ring:focus     { --tw-ring-color: var(--brand-primary) !important; }
+
+/* ─── --ind-* aliases for Layout.tsx compatibility ──────────────────────────
+   Layout uses --ind-sidebar-* variables. These map to --brand-* values.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root,
+body.theme-printing,
+body.theme-manufacturing,
+body.theme-fabrication,
+body.theme-chemical,
+body.theme-field_service {
+  --ind-sidebar-bg:         var(--brand-sidebar-bg);
+  --ind-sidebar-border:     var(--brand-sidebar-border);
+  --ind-sidebar-text:       #9ca3af;   /* gray-400 */
+  --ind-sidebar-hover:      rgba(255,255,255,0.08);
+  --ind-sidebar-active:     var(--brand-active-bg);
+  --ind-sidebar-active-txt: #ffffff;
+  --ind-primary:            var(--brand-primary);
+  --ind-primary-hover:      var(--brand-primary-hover);
+  --ind-primary-light:      var(--brand-primary-light);
+  --ind-primary-text:       var(--brand-primary-text);
+  --ind-header-bg:          #ffffff;
+  --ind-header-border:      #e5e7eb;
+}
+
+/* ─── Global primary button theming ─────────────────────────────────────────
+   Overrides bg-blue-600 buttons to use brand primary colour.
+   Only applies inside themed body — printing stays blue by default.
+   ─────────────────────────────────────────────────────────────────────────── */
+body.theme-manufacturing button.bg-blue-600,
+body.theme-manufacturing a.bg-blue-600 {
+  background-color: var(--brand-primary) !important;
+}
+body.theme-manufacturing button.bg-blue-600:hover,
+body.theme-manufacturing a.bg-blue-600:hover {
+  background-color: var(--brand-primary-hover) !important;
+}
+body.theme-manufacturing button.hover\:bg-blue-700:hover { background-color: var(--brand-primary-hover) !important; }
+body.theme-manufacturing .text-blue-600 { color: var(--brand-primary-text) !important; }
+body.theme-manufacturing .border-blue-600 { border-color: var(--brand-primary) !important; }
+body.theme-manufacturing .bg-blue-50 { background-color: var(--brand-primary-light) !important; }
+body.theme-manufacturing .ring-blue-500 { --tw-ring-color: var(--brand-primary) !important; }
+
+body.theme-fabrication button.bg-blue-600,
+body.theme-fabrication a.bg-blue-600 { background-color: var(--brand-primary) !important; }
+body.theme-fabrication button.bg-blue-600:hover,
+body.theme-fabrication a.bg-blue-600:hover { background-color: var(--brand-primary-hover) !important; }
+body.theme-fabrication button.hover\:bg-blue-700:hover { background-color: var(--brand-primary-hover) !important; }
+body.theme-fabrication .text-blue-600 { color: var(--brand-primary-text) !important; }
+body.theme-fabrication .border-blue-600 { border-color: var(--brand-primary) !important; }
+body.theme-fabrication .bg-blue-50 { background-color: var(--brand-primary-light) !important; }
+
+body.theme-chemical button.bg-blue-600,
+body.theme-chemical a.bg-blue-600 { background-color: var(--brand-primary) !important; }
+body.theme-chemical button.bg-blue-600:hover,
+body.theme-chemical a.bg-blue-600:hover { background-color: var(--brand-primary-hover) !important; }
+body.theme-chemical button.hover\:bg-blue-700:hover { background-color: var(--brand-primary-hover) !important; }
+body.theme-chemical .text-blue-600 { color: var(--brand-primary-text) !important; }
+body.theme-chemical .border-blue-600 { border-color: var(--brand-primary) !important; }
+body.theme-chemical .bg-blue-50 { background-color: var(--brand-primary-light) !important; }
+
+body.theme-field_service button.bg-blue-600,
+body.theme-field_service a.bg-blue-600 { background-color: var(--brand-primary) !important; }
+body.theme-field_service button.bg-blue-600:hover,
+body.theme-field_service a.bg-blue-600:hover { background-color: var(--brand-primary-hover) !important; }
+body.theme-field_service button.hover\:bg-blue-700:hover { background-color: var(--brand-primary-hover) !important; }
+body.theme-field_service .text-blue-600 { color: var(--brand-primary-text) !important; }
+body.theme-field_service .border-blue-600 { border-color: var(--brand-primary) !important; }
+body.theme-field_service .bg-blue-50 { background-color: var(--brand-primary-light) !important; }
