@@ -5,7 +5,6 @@
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { Factory } from 'lucide-react'
 
 const ROLE_OPTIONS = [
   { value: 'proprietor', label: 'Owner / Proprietor', desc: 'Full access — jobs, team, reports', icon: '🏭' },
@@ -42,11 +41,11 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-blue-600 rounded-2xl shadow-lg mb-3">
-            <Factory size={28} className="text-white" />
+          <div className="flex justify-center mb-3">
+            <img src="/logo.png" alt="ZeroZeta" className="h-8" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">MSME Scheduler</h1>
-          <p className="text-sm text-gray-500 mt-1">Production resource management</p>
+          <h1 className="text-xl font-bold text-gray-900">ZetaOps Copilot</h1>
+          <p className="text-sm text-gray-500 mt-1">AI-powered production scheduling</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">

@@ -12,10 +12,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 FEATURE_FLAGS: dict[str, bool] = {
-    "scheduler":          False,
-    "gantt":              False,
-    "qr_scan":            False,
-    "step_intelligence":  False,
-    "csv_import":         False,
+    "scheduler":          True,
+    "gantt":              True,
+    "qr_scan":            True,
+    "step_intelligence":  True,
+    "csv_import":         True,
     "ai_copilot":         True,
 }

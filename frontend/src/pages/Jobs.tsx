@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner, RawMaterialLimitHint } from '../components/PlanLimitGuard'
 import { useSchedulerContext } from '../scheduler/SchedulerContext'
+import SchedulerToolbar from '../scheduler/SchedulerToolbar'
 
 // ── Types ──────────────────────────────────────────────
 interface Skill    { id: number; name: string; is_premium: boolean }
@@ -70,6 +71,9 @@ interface Job {
   payment_date: string | null
   actual_hours: number | null
   cost_overrun: { overrun_pct: number; actual_hours: number; estimated_hours: number } | null
+  // v3.9.6
+  job_type: string | null
+  quantity: number | null
 }
 interface AvailResult {
   feasible: boolean; feasibility_score: number
@@ -142,6 +146,7 @@ const emptyDetails = () => ({
   earliest_date:'', latest_date:'',
   delivery_date:'',
   invoice_number:'', invoice_date:'', payment_status:'Unpaid', payment_amount:'', payment_date:'',
+  job_type:'', quantity:'',
 })
 const emptyMat = (): RawMat => ({ name:'', quantity:1, unit:'pcs', unit_cost:0 })
 
@@ -810,6 +815,8 @@ export default function Jobs() {
       earliest_date: details.start_mode === 'flexible' ? (details.earliest_date || null) : null,
       latest_date:   details.start_mode === 'flexible' ? (details.latest_date || null) : null,
       delivery_date: details.delivery_date || null,
+      job_type: details.job_type || null,
+      quantity: details.quantity !== '' ? Number(details.quantity) : null,
     })
   }
 
@@ -833,6 +840,8 @@ export default function Jobs() {
       payment_status: job.payment_status ?? 'Unpaid',
       payment_amount: job.payment_amount != null ? String(job.payment_amount) : '',
       payment_date: job.payment_date ?? '',
+      job_type: job.job_type ?? '',
+      quantity: job.quantity != null ? String(job.quantity) : '',
     })
     setEditSkillReqs(job.skill_requirements.map(r=>({skill_id:r.skill_id,min_skill_level:r.min_skill_level,employees_required:r.employees_required})))
     setEditRawMats(job.raw_materials || [])
@@ -857,6 +866,8 @@ export default function Jobs() {
       payment_status: editForm.payment_status || 'Unpaid',
       payment_amount: editForm.payment_amount !== '' ? Number(editForm.payment_amount) : null,
       payment_date: editForm.payment_date || null,
+      job_type: editForm.job_type || null,
+      quantity: editForm.quantity !== '' ? Number(editForm.quantity) : null,
     }})
   }
 
@@ -1513,6 +1524,7 @@ export default function Jobs() {
             <p className="text-xs text-gray-400 mt-0.5">Production job board</p>
           </div>
           <div className="flex items-center gap-2">
+            <SchedulerToolbar />
             <CoachMark id="jobs-new" title="Create your first job" description="Pick a machine — skills are auto-suggested. Set dates and assign your team." position="bottom" step={1} totalSteps={3}>
               <LimitedButton resource="jobs" planLimits={planLimits} onClick={openWizard}>
                 <Plus size={16}/> New Job
@@ -1783,6 +1795,19 @@ export default function Jobs() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
                     <textarea className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                       rows={2} value={details.notes} onChange={e=>setDetails({...details,notes:e.target.value})}/>
+                  </div>
+                  {/* v3.9.6 — Job Type + Quantity */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Job Type</label>
+                    <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g. Corrugated Box, Label…"
+                      value={details.job_type} onChange={e=>setDetails({...details,job_type:e.target.value})}/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Quantity</label>
+                    <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Units to produce"
+                      value={details.quantity} onChange={e=>setDetails({...details,quantity:e.target.value})}/>
                   </div>
                 </div>
 
@@ -2212,6 +2237,19 @@ export default function Jobs() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">Payment Date</label>
                     <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       value={editForm.payment_date} onChange={e=>setEditForm({...editForm,payment_date:e.target.value})}/>
+                  </div>
+                  {/* v3.9.6 */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Job Type</label>
+                    <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g. Corrugated Box, Label…"
+                      value={editForm.job_type} onChange={e=>setEditForm({...editForm,job_type:e.target.value})}/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Quantity</label>
+                    <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Units to produce"
+                      value={editForm.quantity} onChange={e=>setEditForm({...editForm,quantity:e.target.value})}/>
                   </div>
                 </div>
               </div>

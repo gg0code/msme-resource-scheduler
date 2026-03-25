@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers
-revision = "013"
+revision = "013_scheduling_tables"
 down_revision = "012"
 branch_labels = None
 depends_on = None

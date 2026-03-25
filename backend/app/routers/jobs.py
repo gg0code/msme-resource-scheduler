@@ -61,6 +61,8 @@ class JobCreate(BaseModel):
     payment_status: Optional[str] = None
     payment_amount: Optional[float] = None
     payment_date: Optional[str] = None
+    job_type: Optional[str] = None
+    quantity: Optional[float] = None
 
 class JobUpdate(BaseModel):
     name: Optional[str] = None
@@ -88,6 +90,8 @@ class JobUpdate(BaseModel):
     payment_status: Optional[str] = None
     payment_amount: Optional[float] = None
     payment_date: Optional[str] = None
+    job_type: Optional[str] = None
+    quantity: Optional[float] = None
 
 class TimerAction(BaseModel):
     action: str  # start | pause | resume | end
@@ -160,6 +164,9 @@ def job_to_dict(job: Job) -> dict:
         "payment_amount": job.payment_amount,
         "payment_date":   str(job.payment_date)   if job.payment_date   else None,
         "actual_hours":   job.actual_hours,
+        # v3.9.6
+        "job_type": job.job_type,
+        "quantity":  job.quantity,
         # Cost overrun flag: actual > estimated by >10%
         "cost_overrun": _cost_overrun(job),
         "created_at": job.created_at.isoformat() if job.created_at else None,
@@ -255,6 +262,8 @@ def create_job(
         payment_status=payload.payment_status or "Unpaid",
         payment_amount=payload.payment_amount,
         payment_date=payload.payment_date,
+        job_type=payload.job_type,
+        quantity=payload.quantity,
         has_conflict=False,
         timer_status="idle", paused_seconds=0, timer_log=[],
     )
