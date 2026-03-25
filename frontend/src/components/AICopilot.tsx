@@ -6,8 +6,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { X, Send, Bot, Sparkles, ChevronRight, Zap, MessageSquare } from 'lucide-react'
-import { AI_TOOLS, AI_TOOL_CATEGORIES } from '../data/aiTools'
+import { getAITools, AI_TOOL_CATEGORIES } from '../data/aiTools'
 import apiClient from '../api/client'
+import { useLabels } from '../context/IndustryContext'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -28,24 +29,34 @@ interface AICopilotProps {
   onClose: () => void
 }
 
-const PAGE_SUGGESTIONS: Record<string, { icon: string; text: string }[]> = {
-  dashboard:    [{ icon: '📊', text: "Today's shop floor summary" }, { icon: '⚠️', text: 'Any alerts or delays?' }, { icon: '💰', text: 'Revenue this month?' }],
-  jobs:         [{ icon: '📦', text: 'How much material do I need for Box Run Gamma?' }, { icon: '📅', text: 'When should I schedule Box Run Gamma?' }, { icon: '📈', text: 'Any jobs running late?' }],
-  machines:     [{ icon: '✅', text: 'Which machines are free today?' }, { icon: '📊', text: 'Machine utilisation this week?' }, { icon: '🔧', text: 'Any maintenance due?' }],
-  employees:    [{ icon: '🙋', text: 'Who is available tomorrow?' }, { icon: '🏆', text: 'Top performer this week?' }, { icon: '⏰', text: 'Overtime hours this month?' }],
-  gantt:        [{ icon: '⚠️', text: 'Any scheduling conflicts?' }, { icon: '📅', text: 'Busiest day this month?' }, { icon: '🔄', text: 'Suggest reschedule for delays?' }],
-  availability: [{ icon: '👷', text: 'Who is free this week?' }, { icon: '⚙️', text: 'Any machine conflicts?' }, { icon: '📆', text: 'Availability summary today?' }],
+function getPageSuggestions(pageContext: string, labels: ReturnType<typeof useLabels>) {
+  const map: Record<string, { icon: string; text: string }[]> = {
+    dashboard:    [{ icon: '📊', text: `Today's ${labels.jobs.toLowerCase()} summary` }, { icon: '⚠️', text: 'Any alerts or delays?' }, { icon: '💰', text: 'Revenue this month?' }],
+    jobs:         [{ icon: '📦', text: `How much material do I need for this ${labels.job.toLowerCase()}?` }, { icon: '📅', text: `When should I schedule this ${labels.job.toLowerCase()}?` }, { icon: '📈', text: `Any ${labels.jobs.toLowerCase()} running late?` }],
+    machines:     [{ icon: '✅', text: `Which ${labels.machines.toLowerCase()} are free today?` }, { icon: '📊', text: `${labels.machine} utilisation this week?` }, { icon: '🔧', text: 'Any maintenance due?' }],
+    employees:    [{ icon: '🙋', text: `Which ${labels.employee.toLowerCase()} is available tomorrow?` }, { icon: '🏆', text: 'Top performer this week?' }, { icon: '⏰', text: 'Overtime hours this month?' }],
+    gantt:        [{ icon: '⚠️', text: 'Any scheduling conflicts?' }, { icon: '📅', text: 'Busiest day this month?' }, { icon: '🔄', text: 'Suggest reschedule for delays?' }],
+    availability: [{ icon: '👷', text: `Who is free this week?` }, { icon: '⚙️', text: `Any ${labels.machine.toLowerCase()} conflicts?` }, { icon: '📆', text: 'Availability summary today?' }],
+  }
+  return map[pageContext] ?? [
+    { icon: '📊', text: `Today's ${labels.jobs.toLowerCase()} summary` },
+    { icon: '⚠️', text: 'Any alerts or delays?' },
+    { icon: '💰', text: 'Revenue this month?' },
+  ]
 }
 
-const DEFAULT_SUGGESTIONS = [
-  { icon: '📊', text: "Today's shop floor summary" },
-  { icon: '⚠️', text: 'Any alerts or delays?' },
-  { icon: '💰', text: 'Revenue this month?' },
-]
-
 function getPageContext(p: string) { return p.split('/').filter(Boolean)[0] || 'dashboard' }
-function getPageLabel(c: string) {
-  return ({ dashboard: 'Dashboard', jobs: 'Jobs', machines: 'Machines', employees: 'Employees', gantt: 'Production Timeline', availability: 'Availability', skills: 'Skills', checker: 'Checker' })[c] || 'Dashboard'
+function getPageLabel(c: string, labels: ReturnType<typeof useLabels>) {
+  return ({
+    dashboard: 'Dashboard',
+    jobs: labels.jobs,
+    machines: labels.machines,
+    employees: labels.employees,
+    gantt: 'Production Timeline',
+    availability: 'Availability',
+    skills: labels.skills,
+    checker: 'Checker'
+  })[c] || 'Dashboard'
 }
 function fmt(text: string) {
   return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>').replace(/₹([\d,]+)/g, '<span style="font-family:monospace;font-weight:600">₹$1</span>')
@@ -174,9 +185,10 @@ function TypingIndicator() {
 
 export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
   const location    = useLocation()
+  const labels      = useLabels()
   const pageContext = getPageContext(location.pathname)
-  const pageLabel   = getPageLabel(pageContext)
-  const suggestions = PAGE_SUGGESTIONS[pageContext] || DEFAULT_SUGGESTIONS
+  const pageLabel   = getPageLabel(pageContext, labels)
+  const suggestions = getPageSuggestions(pageContext, labels)
 
   const [tab, setTab]           = useState<'chat' | 'tools'>('chat')
   const [toolCat, setToolCat]   = useState('reporting')
@@ -351,7 +363,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
   }
 
   const isLimitReached = usage && usage.queries_remaining <= 0
-  const filteredTools  = AI_TOOLS.filter(t => t.category === toolCat)
+  const filteredTools  = getAITools(labels).filter(t => t.category === toolCat)
 
   return (
     <>

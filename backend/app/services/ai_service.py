@@ -1188,13 +1188,48 @@ TOOL ROUTING — always pick the most specific tool:
 You understand Hinglish — if the user writes in Hindi or Hinglish, respond in English but be warm and friendly."""
 
 
-def _build_system_prompt() -> str:
+# Industry terminology defaults (printing)
+_INDUSTRY_DEFAULTS = {
+    "jobs":      "jobs",
+    "job":       "job",
+    "employees": "employees",
+    "employee":  "employee",
+    "machines":  "machines",
+    "machine":   "machine",
+    "materials": "raw materials",
+    "product":   "ZetaOps Copilot",
+}
+
+# Per-industry terminology overrides
+_INDUSTRY_TERMS: dict[str, dict] = {
+    "printing":      {"jobs": "jobs",             "job": "job",             "employees": "operators",   "employee": "operator",   "machines": "machines",       "machine": "machine",       "materials": "raw materials",      "product": "PrintFlow Scheduler"},
+    "manufacturing": {"jobs": "production orders","job": "production order","employees": "operators",   "employee": "operator",   "machines": "work centers",   "machine": "work center",   "materials": "BOM items",          "product": "ShopFloor Resource Planner"},
+    "fabrication":   {"jobs": "work orders",      "job": "work order",      "employees": "fabricators", "employee": "fabricator", "machines": "work centers",   "machine": "work center",   "materials": "materials",          "product": "Fabrication Capacity Planner"},
+    "chemical":      {"jobs": "batch orders",     "job": "batch order",     "employees": "operators",   "employee": "operator",   "machines": "reactors",       "machine": "reactor",       "materials": "batch inputs",       "product": "Process Batch Scheduler"},
+    "field_service": {"jobs": "service jobs",     "job": "service job",     "employees": "technicians", "employee": "technician", "machines": "vehicles/tools", "machine": "vehicle/tool",  "materials": "parts & consumables","product": "Field Service Planner"},
+}
+
+
+def _build_system_prompt(industry_type: str = "printing") -> str:
     today = date.today()
-    return _SYSTEM_PROMPT_BASE.format(
+    terms = _INDUSTRY_TERMS.get(industry_type, _INDUSTRY_DEFAULTS)
+    base = _SYSTEM_PROMPT_BASE.format(
         today=str(today),
         tomorrow=str(today + timedelta(days=1)),
         yesterday=str(today - timedelta(days=1)),
     )
+    # Inject industry terminology as an addendum to the system prompt
+    industry_block = (
+        f"\n\nINDUSTRY CONTEXT: This tenant uses {terms['product']}. "
+        f"Use these terms in ALL responses:\n"
+        f"- Instead of 'jobs' say '{terms['jobs']}' (singular: '{terms['job']}')"
+        f"\n- Instead of 'employees' say '{terms['employees']}' (singular: '{terms['employee']}')"
+        f"\n- Instead of 'machines' say '{terms['machines']}' (singular: '{terms['machine']}')"
+        f"\n- Instead of 'raw materials' say '{terms['materials']}'"
+        f"\n- Refer to the product as '{terms['product']}'"
+        f"\nAlways use these industry-specific terms — never revert to generic ones."
+    )
+    return base + industry_block
 
 
 # ── Main chat function ────────────────────────────────────────────────────────
@@ -1203,6 +1238,7 @@ def run_ai_chat(
     db: Session,
     tenant_id: int,
     structured_data: dict | None = None,
+    industry_type: str = "printing",
 ) -> str:
     """
     Run a full Groq tool-calling conversation cycle.
@@ -1223,7 +1259,7 @@ def run_ai_chat(
         data_type = structured_data.get("_type", "data")
         data_json = json.dumps(structured_data, indent=2, default=str)
         structured_system = (
-            _build_system_prompt() +
+            _build_system_prompt(industry_type) +
             f"\n\n--- PRE-COMPUTED {data_type.upper().replace('_',' ')} DATA ---\n"
             f"The scheduling engine has already computed the following data. "
             f"Do NOT call any tools. Do NOT re-compute. "
@@ -1244,7 +1280,7 @@ def run_ai_chat(
         return direct_response.choices[0].message.content or "Here is the data."
 
     # Add dynamic system prompt (includes today's date)
-    full_messages = [{"role": "system", "content": _build_system_prompt()}] + trimmed
+    full_messages = [{"role": "system", "content": _build_system_prompt(industry_type)}] + trimmed
 
     # First call — let Llama decide which tool to call
     response = client.chat.completions.create(

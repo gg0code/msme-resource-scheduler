@@ -114,12 +114,16 @@ def ai_chat(
 
     try:
         # v3.9.9 — pass structured_data to run_ai_chat so it injects into system prompt
-        # Engine computed the data; AI only narrates. Never re-compute.
+        # v4.0.8 — pass industry_type so AI uses correct terminology
+        from app.models.auth import Tenant as TenantModel
+        tenant_obj = db.query(TenantModel).filter(TenantModel.id == current_user.tenant_id).first()
+        industry_type = (tenant_obj.industry_type or "printing") if tenant_obj else "printing"
         reply = run_ai_chat(
             messages=messages,
             db=db,
             tenant_id=current_user.tenant_id,
             structured_data=request.structured_data,
+            industry_type=industry_type,
         )
 
         tenant.ai_queries_today = (tenant.ai_queries_today or 0) + 1
