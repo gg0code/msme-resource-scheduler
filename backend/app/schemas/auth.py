@@ -49,11 +49,12 @@ class TokenResponse(BaseModel):
 
 
 class UserResponse(BaseModel):
-    id: int
-    email: str
-    role: str
-    tenant_id: int
-    is_active: bool
+    id:            int
+    email:         str
+    role:          str
+    tenant_id:     int
+    is_active:     bool
+    industry_type: str = "printing"   # v4.0.2 — from tenant
     model_config = {"from_attributes": True}
 
 

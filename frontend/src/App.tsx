@@ -8,6 +8,7 @@ import { ProtectedRoute } from './auth/ProtectedRoute'
 import { OnboardingProvider } from './components/onboarding'
 import { SchedulerProvider } from './scheduler/SchedulerContext'
 import { FeatureFlagProvider } from './context/FeatureFlags'
+import { IndustryProvider } from './context/IndustryContext'
 import Layout from './components/Layout'
 
 // Auth pages
@@ -50,11 +51,13 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={
             <FeatureFlagProvider>
+              <IndustryProvider>
               <SchedulerProvider>
                 <OnboardingProvider>
                   <Layout />
                 </OnboardingProvider>
               </SchedulerProvider>
+              </IndustryProvider>
             </FeatureFlagProvider>
           }>
             <Route index element={<Navigate to="/dashboard" replace />} />
