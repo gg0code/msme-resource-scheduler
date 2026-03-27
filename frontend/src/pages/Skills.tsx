@@ -6,6 +6,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
+import { useLabels } from '../context/IndustryContext'
 import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
 import { Plus, Loader2, AlertCircle, CheckCircle } from 'lucide-react'
@@ -24,6 +25,7 @@ export default function Skills() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', category: 'generic', is_premium: false, description: '' })
   const [successMsg, setSuccessMsg] = useState('')
+  const labels = useLabels()
 
   const { data: skills = [], isLoading, isError } = useQuery<Skill[]>({
     queryKey: ['skills'],
@@ -47,8 +49,8 @@ export default function Skills() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-800">Skills Catalogue</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Master list of skills used by employees, machines and jobs.</p>
+          <h2 className="text-xl font-bold text-gray-800">{labels.skills} Catalogue</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Master list of {labels.skills.toLowerCase()} used by {labels.employees.toLowerCase()}, {labels.machines.toLowerCase()} and {labels.jobs.toLowerCase()}.</p>
         </div>
         <div className="flex items-center gap-2">
           <CsvImport resource="skills" onSuccess={() => qc.invalidateQueries({queryKey:['skills']})}/>
@@ -126,12 +128,12 @@ export default function Skills() {
       {/* Skills table */}
       {isLoading && (
         <div className="flex items-center gap-2 text-gray-500 justify-center py-10">
-          <Loader2 className="animate-spin" size={18} /> Loading skills...
+          <Loader2 className="animate-spin" size={18} /> Loading {labels.skills.toLowerCase()}...
         </div>
       )}
       {isError && (
         <div className="flex items-center gap-2 text-red-500 justify-center py-10">
-          <AlertCircle size={18} /> Failed to load skills.
+          <AlertCircle size={18} /> Failed to load {labels.skills.toLowerCase()}.
         </div>
       )}
       {!isLoading && !isError && (
@@ -165,7 +167,7 @@ export default function Skills() {
             </tbody>
           </table>
           {skills.length === 0 && (
-            <p className="text-center text-gray-400 py-8 text-sm">No skills found. Add one above.</p>
+            <p className="text-center text-gray-400 py-8 text-sm">No {labels.skills.toLowerCase()} found. Add one above.</p>
           )}
         </div>
       )}

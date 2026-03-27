@@ -136,7 +136,20 @@ interface JobCardProps {
 
 function JobCard({ job, onAction, actionLoading }: JobCardProps) {
   const [expanded, setExpanded] = useState(false)
+  const labels = useLabels()
+  const [jobDetail, setJobDetail] = useState<any>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const loading = actionLoading[job.id] ?? false
+
+  // Fetch full job detail when expanded (to get assigned_employees/machines)
+  useEffect(() => {
+    if (!expanded || jobDetail) return
+    setDetailLoading(true)
+    apiClient.get(`/api/jobs/${job.id}`)
+      .then(r => setJobDetail(r.data))
+      .catch(() => {})
+      .finally(() => setDetailLoading(false))
+  }, [expanded, job.id, jobDetail])
   const t = job.timer_status
 
   const canStart = t === 'idle' && !job.has_conflict && job.status !== 'Completed' && job.status !== 'Stopped'
@@ -283,13 +296,18 @@ function JobCard({ job, onAction, actionLoading }: JobCardProps) {
       {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 text-xs text-gray-600 space-y-1.5">
+          {detailLoading && (
+            <div className="flex items-center gap-2 text-gray-400 py-1">
+              <Loader2 size={12} className="animate-spin" /> Loading details...
+            </div>
+          )}
           <div className="flex gap-2">
             <span className="text-gray-400 w-24">{labels.employees}</span>
-            <span>{job.assigned_employees.map(e => e.full_name).join(', ') || 'None'}</span>
+            <span>{(jobDetail?.assigned_employees ?? job.assigned_employees ?? []).map((e: any) => e.full_name).join(', ') || 'None'}</span>
           </div>
           <div className="flex gap-2">
             <span className="text-gray-400 w-24">{labels.machines}</span>
-            <span>{job.assigned_machines.map(m => m.name).join(', ') || 'None'}</span>
+            <span>{(jobDetail?.assigned_machines ?? job.assigned_machines ?? []).map((m: any) => m.name).join(', ') || 'None'}</span>
           </div>
           {job.actual_start_at && (
             <div className="flex gap-2">
@@ -467,7 +485,7 @@ export default function Dashboard() {
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-xl font-bold text-gray-800">Dashboard</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Live job board — auto-refreshes every 30s</p>
+          <p className="text-sm text-gray-500 mt-0.5">Live {labels.jobs.toLowerCase()} board — auto-refreshes every 30s</p>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl px-5 py-3 flex items-center gap-5 text-sm shadow-sm">
           <div className="flex items-center gap-2 text-gray-700">
@@ -507,7 +525,7 @@ export default function Dashboard() {
         machineCount={machCount}
         jobCount={jobs.length}
         assignedJobCount={jobs.filter(j =>
-          j.assigned_employees.length > 0 && j.assigned_machines.length > 0
+          (j.assigned_employees?.length ?? 0) > 0 && (j.assigned_machines?.length ?? 0) > 0
         ).length}
         activeJobCount={jobs.filter(j =>
           j.status === 'In Progress' || j.status === 'Completed'
@@ -580,7 +598,7 @@ export default function Dashboard() {
           const running = jobs.filter(j => j.timer_status === 'running')
           if (running.length === 0 && jobs.length > 0) allAlerts.push({
             type: 'warning', emoji: '😴',
-            msg: 'No jobs currently running — shop floor is idle'
+            msg: `No ${labels.jobs.toLowerCase()} currently running — floor is idle`
           })
 
           // ✅ All clear
@@ -742,7 +760,7 @@ export default function Dashboard() {
         <EmptyState
           icon={<BriefcaseBusiness size={32} />}
           title={`No ${labels.jobs.toLowerCase()} yet`}
-          description="Create your first job to start tracking production. Assign employees and machines to get a full picture of your shop floor."
+          description={`Create your first ${labels.job.toLowerCase()} to start tracking production. Assign ${labels.employees.toLowerCase()} and ${labels.machines.toLowerCase()} to get a full picture.`}
           actionLabel="Create First Job"
           onAction={() => navigate('/jobs')}
         />

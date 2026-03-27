@@ -9,6 +9,7 @@ import { fetchGanttData } from '../api/api_gantt'
 import type { GanttJob } from '../api/api_gantt'
 import { CoachMark } from '../components/onboarding'
 import { ChevronRight, ChevronDown } from 'lucide-react'
+import { useLabels } from '../context/IndustryContext'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const ROW_H    = 52
@@ -123,6 +124,7 @@ type ZoomLevel = 'day' | 'week' | 'month'
 type FilterPriority = 'all' | 'high' | 'medium' | 'low'
 
 export default function GanttPage() {
+  const labels = useLabels()
   const [jobs, setJobs]               = useState<GanttJob[]>([])
   const [loading, setLoading]         = useState(true)
   const [error, setError]             = useState<string | null>(null)
@@ -356,9 +358,9 @@ export default function GanttPage() {
       {/* ── Header ── */}
       <div className="px-6 pt-5 pb-3 border-b border-gray-100">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <CoachMark id="gantt-timeline" title="Production Timeline" description="See all jobs on a visual calendar. Each bar is one job. Hover for details." position="bottom" step={1} totalSteps={2}>
+          <CoachMark id="gantt-timeline" title="Production Timeline" description={`See all ${labels.jobs.toLowerCase()} on a visual calendar. Each bar is one ${labels.job.toLowerCase()}. Hover for details.`} position="bottom" step={1} totalSteps={2}>
             <div>
-              <h1 className="text-xl font-semibold text-gray-900">Production Schedule</h1>
+              <h1 className="text-xl font-semibold text-gray-900">{labels.jobs} Schedule</h1>
               <p className="text-xs text-gray-400 mt-0.5">{monthLabel(rangeStart)} — {monthLabel(rangeEnd)}</p>
             </div>
           </CoachMark>
@@ -391,7 +393,7 @@ export default function GanttPage() {
                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors capitalize ${
                   activeTab === tab ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
                 }`}>
-                {tab === 'jobs' ? 'Jobs' : 'Machines'}
+                {tab === 'jobs' ? labels.jobs : labels.machines}
               </button>
             ))}
           </div>
@@ -536,7 +538,7 @@ export default function GanttPage() {
         <div className="flex-shrink-0 flex flex-col relative" style={{ width: labelWidth }}>
           <div className="border-b border-gray-200 bg-gray-50 flex items-end px-3 pb-2 flex-shrink-0" style={{ height: HEADER_H, width: labelWidth }}>
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-              {activeTab === 'jobs' ? 'Job' : 'Machine'}
+              {activeTab === 'jobs' ? labels.job : labels.machine}
             </span>
           </div>
           <div className="overflow-y-auto flex-1" id="gantt-label-scroll" onScroll={e => {

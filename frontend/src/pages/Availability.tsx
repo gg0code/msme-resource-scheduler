@@ -8,6 +8,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import { Plus, Pencil, Trash2, Loader2, AlertCircle, X, Check, Search, Users, Factory, CalendarOff } from 'lucide-react'
+import { useLabels } from '../context/IndustryContext'
 
 interface Employee { id: number; full_name: string; department: string | null }
 interface Machine  { id: number; name: string }
@@ -27,6 +28,7 @@ const emptyForm = () => ({
 })
 
 export default function Availability() {
+  const labels = useLabels()
   const qc = useQueryClient()
   const [search, setSearch]             = useState('')
   const [filterType, setFilterType]     = useState('All')   // All / Employee / Machine
@@ -175,8 +177,8 @@ export default function Availability() {
         <select className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           value={filterType} onChange={e=>setFilterType(e.target.value)}>
           <option value="All">All Types</option>
-          <option value="Employee">Employees Only</option>
-          <option value="Machine">Machines Only</option>
+          <option value="Employee">{labels.employees} Only</option>
+          <option value="Machine">{labels.machines} Only</option>
         </select>
       </div>
 
@@ -261,8 +263,8 @@ export default function Availability() {
                   <label className="block text-xs font-medium text-gray-600 mb-2">Override Type</label>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { key:'employee', label:'Individual Employee', icon:Users },
-                      { key:'machine',  label:'Machine',             icon:Factory },
+                      { key:'employee', label:`Individual ${labels.employee}`, icon:Users },
+                      { key:'machine',  label:labels.machine,        icon:Factory },
                       { key:'bulk',     label:'Bulk / Holiday',      icon:CalendarOff },
                     ].map(({key,label,icon:Icon})=>(
                       <button key={key} type="button" onClick={()=>setForm({...form,resource_type:key as 'employee'|'machine'|'bulk'})}
@@ -280,7 +282,7 @@ export default function Availability() {
                   <label className="block text-xs font-medium text-gray-600 mb-1">Employee *</label>
                   <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={form.employee_id} onChange={e=>setForm({...form,employee_id:e.target.value})}>
-                    <option value="">— Select employee —</option>
+                    <option value="">— Select {labels.employee.toLowerCase()} —</option>
                     {employees.map(e=><option key={e.id} value={e.id}>{e.full_name} {e.department?`(${e.department})`:''}</option>)}
                   </select>
                 </div>
@@ -292,7 +294,7 @@ export default function Availability() {
                   <label className="block text-xs font-medium text-gray-600 mb-1">Machine *</label>
                   <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={form.machine_id} onChange={e=>setForm({...form,machine_id:e.target.value})}>
-                    <option value="">— Select machine —</option>
+                    <option value="">— Select {labels.machine.toLowerCase()} —</option>
                     {machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
                 </div>

@@ -14,6 +14,21 @@ const chemical: IndustryConfig = {
     tagline:      'Batch scheduling for chemical & process industries',
   },
 
+  colours: {
+    sidebarBg:        '#052e16',
+    sidebarBorder:    '#14532d',
+    sidebarText:      '#86efac',
+    sidebarHover:     '#14532d',
+    sidebarActive:    '#16a34a',
+    sidebarActiveTxt: '#ffffff',
+    primary:          '#16a34a',
+    primaryHover:     '#15803d',
+    primaryLight:     '#f0fdf4',
+    primaryText:      '#15803d',
+    headerBg:         '#ffffff',
+    headerBorder:     '#bbf7d0',
+  },
+
   labels: {
     job:        'Batch Order',
     jobs:       'Batch Orders',

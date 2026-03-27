@@ -57,6 +57,7 @@ const availText = (p: number) => p >= 100 ? 'text-green-600' : p >= 50 ? 'text-y
 
 // ── Assignment sub-rows ───────────────────────────────
 function AssignmentRows({ machineId }: { machineId: number }) {
+  const labels = useLabels()
   const qc = useQueryClient()
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
@@ -100,7 +101,7 @@ function AssignmentRows({ machineId }: { machineId: number }) {
         </div>
 
         {assignments.length === 0
-          ? <p className="text-xs text-gray-400 italic pl-5">This machine has no job assignments yet.</p>
+          ? <p className="text-xs text-gray-400 italic pl-5">{`This ${labels.machine.toLowerCase()} has no ${labels.jobs.toLowerCase()} assignments yet.`}</p>
           : <table className="w-full text-xs">
               <thead>
                 <tr className="text-gray-400 font-semibold uppercase tracking-wide text-left border-b border-green-100">
@@ -214,15 +215,15 @@ export default function Machines() {
 
   const createMachine = useMutation({
     mutationFn: (p: object) => apiClient.post('/api/machines/', p),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); qc.invalidateQueries({ queryKey: ['plan-limits'] }); closeForm(); showToast('Machine added!') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); qc.invalidateQueries({ queryKey: ['plan-limits'] }); closeForm(); showToast(`${labels.machine} added!`) },
   })
   const updateMachine = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: object }) => apiClient.patch(`/api/machines/${id}`, payload),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); closeForm(); showToast('Machine updated!') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); closeForm(); showToast(`${labels.machine} updated!`) },
   })
   const deleteMachine = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/api/machines/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); qc.invalidateQueries({ queryKey: ['plan-limits'] }); setDeleteId(null); showToast('Machine deleted!') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); qc.invalidateQueries({ queryKey: ['plan-limits'] }); setDeleteId(null); showToast(`${labels.machine} deleted!`) },
   })
 
   function openCreate() { setEditingMachine(null); setForm(emptyForm()); setShowForm(true) }
@@ -270,7 +271,7 @@ export default function Machines() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-800">{labels.machinesPageTitle}</h2>
-          <p className="text-sm text-gray-500 mt-0.5">{filtered.length} of {machines.length} machines · click a row to see assigned jobs</p>
+          <p className="text-sm text-gray-500 mt-0.5">{filtered.length} of {machines.length} {labels.machines.toLowerCase()} · click a row to see assigned jobs</p>
         </div>
         <div className="flex items-center gap-2">
           {flags.csv_import && <CsvImport resource="machines" onSuccess={() => qc.invalidateQueries({ queryKey: ['machines'] })}/>}
@@ -321,8 +322,8 @@ export default function Machines() {
         )}
       </div>
 
-      {isLoading && <div className="flex items-center gap-2 text-gray-500 justify-center py-10"><Loader2 className="animate-spin" size={18}/>Loading machines...</div>}
-      {isError   && <div className="flex items-center gap-2 text-red-500 justify-center py-10"><AlertCircle size={18}/>Failed to load machines.</div>}
+      {isLoading && <div className="flex items-center gap-2 text-gray-500 justify-center py-10"><Loader2 className="animate-spin" size={18}/>Loading {labels.machines.toLowerCase()}...</div>}
+      {isError   && <div className="flex items-center gap-2 text-red-500 justify-center py-10"><AlertCircle size={18}/>Failed to load {labels.machines.toLowerCase()}.</div>}
 
       {/* Table */}
       {!isLoading && !isError && (
@@ -332,7 +333,7 @@ export default function Machines() {
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 text-xs text-gray-500 font-semibold uppercase tracking-wide">
                   <th className="w-8 px-3 py-3"/>
-                  <th className="px-4 py-3 text-left">Machine</th>
+                  <th className="px-4 py-3 text-left">{labels.machine}</th>
                   <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-left">Availability</th>
                   <th className="px-4 py-3 text-left">Bay</th>

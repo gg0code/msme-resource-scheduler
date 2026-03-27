@@ -4,6 +4,7 @@
 import { useRef, useState } from 'react'
 import { Upload, Download, CheckCircle2, XCircle, AlertTriangle, X, Loader2, FileText, ChevronDown } from 'lucide-react'
 import apiClient from '../../api/client'
+import { useLabels } from '../../context/IndustryContext'
 import type { ImportResult } from '../../types'
 
 interface Props {
@@ -11,29 +12,36 @@ interface Props {
   onSuccess: () => void
 }
 
-const LABELS: Record<string, string> = {
-  employees: 'Employees',
-  machines:  'Machines',
-  skills:    'Skills',
-}
-
 export default function CsvImport({ resource, onSuccess }: Props) {
+  const labels = useLabels()
+
+  const LABELS: Record<string, string> = {
+    employees: labels.employees,
+    machines:  labels.machines,
+    skills:    labels.skills,
+  }
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading]   = useState(false)
   const [result, setResult]         = useState<ImportResult | null>(null)
   const [error, setError]           = useState('')
   const [showTemplates, setShowTemplates] = useState(false)
 
-  function downloadTemplate(format: 'csv' | 'xlsx') {
-    const a = document.createElement('a')
-    if (format === 'xlsx' && resource !== 'skills') {
-      a.href = `http://localhost:8000/api/import/template-xlsx/${resource}`
-      a.download = `${resource}_template.xlsx`
-    } else {
-      a.href = `http://localhost:8000/api/import/template/${resource}`
-      a.download = `${resource}_template.csv`
+  async function downloadTemplate(format: 'csv' | 'xlsx') {
+    try {
+      const isXlsx = format === 'xlsx' && resource !== 'skills'
+      const url = isXlsx
+        ? `/api/import/template-xlsx/${resource}`
+        : `/api/import/template/${resource}`
+      const res = await apiClient.get(url, { responseType: 'blob' })
+      const blob = new Blob([res.data])
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = isXlsx ? `${resource}_template.xlsx` : `${resource}_template.csv`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch {
+      setError('Failed to download template. Please try again.')
     }
-    a.click()
     setShowTemplates(false)
   }
 

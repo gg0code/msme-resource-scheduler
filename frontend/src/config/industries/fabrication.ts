@@ -14,6 +14,21 @@ const fabrication: IndustryConfig = {
     tagline:      'Capacity planning for metal fabrication shops',
   },
 
+  colours: {
+    sidebarBg:        '#1c0a00',
+    sidebarBorder:    '#431407',
+    sidebarText:      '#fdba74',
+    sidebarHover:     '#431407',
+    sidebarActive:    '#ea580c',
+    sidebarActiveTxt: '#ffffff',
+    primary:          '#ea580c',
+    primaryHover:     '#c2410c',
+    primaryLight:     '#fff7ed',
+    primaryText:      '#c2410c',
+    headerBg:         '#ffffff',
+    headerBorder:     '#fed7aa',
+  },
+
   labels: {
     job:        'Work Order',
     jobs:       'Work Orders',

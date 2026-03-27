@@ -14,6 +14,21 @@ const manufacturing: IndustryConfig = {
     tagline:      'Production order scheduling for manufacturers',
   },
 
+  colours: {
+    sidebarBg:        '#0f172a',
+    sidebarBorder:    '#1e293b',
+    sidebarText:      '#94a3b8',
+    sidebarHover:     '#1e293b',
+    sidebarActive:    '#475569',
+    sidebarActiveTxt: '#ffffff',
+    primary:          '#475569',
+    primaryHover:     '#334155',
+    primaryLight:     '#f8fafc',
+    primaryText:      '#334155',
+    headerBg:         '#ffffff',
+    headerBorder:     '#e2e8f0',
+  },
+
   labels: {
     job:        'Production Order',
     jobs:       'Production Orders',

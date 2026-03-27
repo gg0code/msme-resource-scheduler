@@ -14,6 +14,21 @@ const printing: IndustryConfig = {
     tagline:      'Production scheduling for printing & packaging',
   },
 
+  colours: {
+    sidebarBg:        '#0f172a',
+    sidebarBorder:    '#1e293b',
+    sidebarText:      '#94a3b8',
+    sidebarHover:     '#1e293b',
+    sidebarActive:    '#2563eb',
+    sidebarActiveTxt: '#ffffff',
+    primary:          '#2563eb',
+    primaryHover:     '#1d4ed8',
+    primaryLight:     '#eff6ff',
+    primaryText:      '#1d4ed8',
+    headerBg:         '#ffffff',
+    headerBorder:     '#e2e8f0',
+  },
+
   labels: {
     job:        'Job',
     jobs:       'Jobs',

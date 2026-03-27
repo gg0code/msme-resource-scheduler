@@ -1,51 +1,56 @@
-// src/config/industries/types.ts — v4.0.2
-//
-// TypeScript interfaces for the industry configuration layer.
-// Every industry config file must conform to IndustryConfig.
-// UI components read labels from here via useLabels() hook.
+// src/config/industries/types.ts — v4.0.7
+
+export interface IndustryColours {
+  sidebarBg:        string
+  sidebarBorder:    string
+  sidebarText:      string
+  sidebarHover:     string
+  sidebarActive:    string
+  sidebarActiveTxt: string
+  primary:          string
+  primaryHover:     string
+  primaryLight:     string
+  primaryText:      string
+  headerBg:         string
+  headerBorder:     string
+}
 
 export interface IndustryLabels {
-  // Core entity names (singular)
-  job:        string   // Job | Production Order | Work Order | Batch Order | Service Job
-  jobs:       string   // Jobs | Production Orders | Work Orders | Batch Orders | Service Jobs
-  employee:   string   // Employee | Operator | Fabricator | Operator | Technician
+  job:        string
+  jobs:       string
+  employee:   string
   employees:  string
-  machine:    string   // Machine | Work Center | Work Center | Reactor | Vehicle/Tool
+  machine:    string
   machines:   string
-  material:   string   // Raw Material | BOM Item | Material | Batch Input | Part/Consumable
+  material:   string
   materials:  string
-  skill:      string   // Skill | Skill | Skill | Qualification | Certification
+  skill:      string
   skills:     string
-  step:       string   // Step | Operation | Operation | Phase | Task
+  step:       string
   steps:      string
-
-  // Page titles
-  jobsPageTitle:       string  // "Jobs" | "Production Orders" | etc
-  jobsPageSubtitle:    string  // "Production job board" | "Shop floor orders" | etc
+  jobsPageTitle:       string
+  jobsPageSubtitle:    string
   employeesPageTitle:  string
   machinesPageTitle:   string
-
-  // Form field labels
-  jobNamePlaceholder:  string  // "e.g. Corrugated Box Run" | "e.g. Shaft Machining" | etc
-  jobTypePlaceholder:  string  // "e.g. Corrugated Box" | "e.g. CNC Part" | etc
-  newJobButton:        string  // "New Job" | "New Order" | "New Work Order" | etc
-
-  // KPI labels
-  kpiJobs:       string  // "Active Jobs" | "Open Orders" | etc
-  kpiOrderBook:  string  // "Order Book" | "Order Value" | etc
-  kpiProfit:     string  // "Est. Profit" | "Est. Margin" | etc
+  jobNamePlaceholder:  string
+  jobTypePlaceholder:  string
+  newJobButton:        string
+  kpiJobs:       string
+  kpiOrderBook:  string
+  kpiProfit:     string
 }
 
 export interface IndustryBranding {
-  productName:   string   // PrintFlow Scheduler | ShopFloor Resource Planner | etc
-  shortName:     string   // PrintFlow | ShopFloor | FabFlow | BatchFlow | ServiceFlow
-  primaryColor:  string   // Tailwind color name: blue | slate | orange | green | purple
-  icon:          string   // emoji icon
-  tagline:       string   // one-line description
+  productName:   string
+  shortName:     string
+  primaryColor:  string
+  icon:          string
+  tagline:       string
 }
 
 export interface IndustryConfig {
-  id:       string          // printing | manufacturing | fabrication | chemical | field_service
+  id:       string
   branding: IndustryBranding
+  colours:  IndustryColours
   labels:   IndustryLabels
 }

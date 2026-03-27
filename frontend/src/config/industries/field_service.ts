@@ -14,6 +14,21 @@ const field_service: IndustryConfig = {
     tagline:      'Job scheduling for field service & maintenance teams',
   },
 
+  colours: {
+    sidebarBg:        '#1e1b4b',
+    sidebarBorder:    '#312e81',
+    sidebarText:      '#c4b5fd',
+    sidebarHover:     '#312e81',
+    sidebarActive:    '#7c3aed',
+    sidebarActiveTxt: '#ffffff',
+    primary:          '#7c3aed',
+    primaryHover:     '#6d28d9',
+    primaryLight:     '#f5f3ff',
+    primaryText:      '#6d28d9',
+    headerBg:         '#ffffff',
+    headerBorder:     '#ddd6fe',
+  },
+
   labels: {
     job:        'Service Job',
     jobs:       'Service Jobs',

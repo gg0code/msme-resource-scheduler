@@ -15,9 +15,10 @@ import { useAuth } from '../../auth/AuthContext'
 
 interface OnboardingContextValue {
   seenStops: Set<string>
-  markSeen: (stopId: string) => void
-  resetTour: () => void
-  isSeen: (stopId: string) => boolean
+  markSeen:    (stopId: string) => void
+  resetTour:   () => void
+  isSeen:      (stopId: string) => boolean
+  isNewUser:   boolean   // true if user has never completed onboarding
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -91,8 +92,11 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     [seenStops],
   )
 
+  // isNewUser — true if the user has seen fewer than 2 stops (hasn't really started)
+  const isNewUser = seenStops.size < 2
+
   return (
-    <OnboardingContext.Provider value={{ seenStops, markSeen, resetTour, isSeen }}>
+    <OnboardingContext.Provider value={{ seenStops, markSeen, resetTour, isSeen, isNewUser }}>
       {children}
     </OnboardingContext.Provider>
   )

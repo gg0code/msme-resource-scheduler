@@ -6,15 +6,16 @@
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Users, Settings,
+  LayoutDashboard, Wrench, Users, Settings,
   BriefcaseBusiness, Factory,
   LogOut, BarChart2, Bot,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import SchedulerToolbar from '../scheduler/SchedulerToolbar'
+import GettingStarted from './onboarding/GettingStarted'
+import TourButton from './onboarding/TourButton'
 import AICopilot from './AICopilot'
 import { useFeatureFlags } from '../context/FeatureFlags'
-import { useIndustry } from '../context/IndustryContext'
 
 const ROLE_BADGE: Record<string, { label: string; color: string }> = {
   proprietor: { label: 'Proprietor', color: 'bg-blue-600' },
@@ -27,7 +28,6 @@ export default function Layout() {
   const navigate = useNavigate()
   const [aiOpen, setAiOpen] = useState(false)
   const flags = useFeatureFlags()
-  const { config, labels } = useIndustry()
 
   async function handleLogout() {
     await logout()
@@ -39,21 +39,23 @@ export default function Layout() {
   // ── Nav items — always visible ──────────────────────────────────────────
   const coreNavItems = [
     { to: '/dashboard', label: 'Dashboard',  icon: LayoutDashboard   },
-    { to: '/jobs',      label: labels.jobs,      icon: BriefcaseBusiness },
-    { to: '/employees', label: labels.employees, icon: Users             },
-    { to: '/machines',  label: labels.machines,  icon: Factory           },
-    { to: '/skills',    label: labels.skills,    icon: Settings          },
+    { to: '/jobs',      label: 'Jobs',        icon: BriefcaseBusiness },
+    { to: '/employees', label: 'Employees',   icon: Users             },
+    { to: '/machines',  label: 'Machines',    icon: Factory           },
+    { to: '/skills',    label: 'Skills',      icon: Settings          },
   ]
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
       {/* Sidebar */}
       <aside className="w-56 bg-gray-900 text-white flex flex-col shrink-0">
-        <div className="px-5 py-4 border-b border-gray-700">
-          <img src="/logo.png" alt="ZeroZeta" className="h-5 brightness-0 invert" />
-          <div className="mt-2">
-            <div className="text-white text-xs font-bold leading-tight">ZetaOps Copilot</div>
-            <div className="text-gray-500 text-[10px] mt-0.5">{config.branding.productName}</div>
+        <div className="px-5 py-5 border-b border-gray-700">
+          <div className="flex items-center gap-2">
+            <Wrench className="text-blue-400" size={20} />
+            <span className="font-bold text-sm leading-tight">
+              MSME<br />
+              <span className="text-blue-400 font-semibold">Resource Scheduler</span>
+            </span>
           </div>
         </div>
 
@@ -115,6 +117,7 @@ export default function Layout() {
 
         {/* Top header bar */}
         <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-end px-6 gap-4 shrink-0">
+          <TourButton />
           <SchedulerToolbar />
         </header>
 
@@ -123,6 +126,9 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Getting Started checklist */}
+      <GettingStarted />
 
       {/* AI Copilot floating button — V3.7 gated */}
       {flags.ai_copilot && (

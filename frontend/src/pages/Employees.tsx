@@ -68,6 +68,7 @@ type SortKey = 'full_name' | 'base_availability_pct' | 'department' | 'hourly_ra
 
 // ── Expandable assignment sub-row ──────────────────────
 function AssignmentRows({ employeeId }: { employeeId: number }) {
+  const labels = useLabels()
   const qc = useQueryClient()
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
@@ -105,7 +106,7 @@ function AssignmentRows({ employeeId }: { employeeId: number }) {
         </div>
 
         {assignments.length === 0
-          ? <p className="text-xs text-gray-400 italic pl-5">This employee has no job assignments yet.</p>
+          ? <p className="text-xs text-gray-400 italic pl-5">{`This ${labels.employee.toLowerCase()} has no ${labels.jobs.toLowerCase()} assignments yet.`}</p>
           : <table className="w-full text-xs">
               <thead>
                 <tr className="text-gray-400 font-semibold uppercase tracking-wide text-left border-b border-blue-100">
@@ -347,7 +348,7 @@ export default function Employees() {
                 <tr className="border-b border-gray-200 bg-gray-50 text-xs text-gray-500 font-semibold uppercase tracking-wide">
                   <th className="w-8 px-3 py-3"/>
                   {([
-                    ['full_name',             'Employee'    ],
+                    ['full_name', labels.employee],
                     ['status',                'Status'      ],
                     ['base_availability_pct', 'Availability'],
                     ['department',            'Department'  ],
@@ -475,7 +476,7 @@ export default function Employees() {
                   )
                 })}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={8} className="text-center text-gray-400 py-10 text-sm">No employees match your filters.</td></tr>
+                  <tr><td colSpan={8} className="text-center text-gray-400 py-10 text-sm">No {labels.employees.toLowerCase()} match your filters.</td></tr>
                 )}
               </tbody>
             </table>
@@ -502,8 +503,8 @@ export default function Employees() {
       {deleteId && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 shadow-xl w-80 space-y-4">
-            <h3 className="font-bold text-gray-800">Delete Employee?</h3>
-            <p className="text-sm text-gray-600">This permanently removes the employee and all their assignments.</p>
+            <h3 className="font-bold text-gray-800">Delete {labels.employee}?</h3>
+            <p className="text-sm text-gray-600">This permanently removes the {labels.employee.toLowerCase()} and all their assignments.</p>
             <div className="flex gap-2">
               <button onClick={() => deleteEmp.mutate(deleteId)} className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm py-2 rounded-lg">
                 {deleteEmp.isPending ? 'Deleting...' : 'Yes, Delete'}
