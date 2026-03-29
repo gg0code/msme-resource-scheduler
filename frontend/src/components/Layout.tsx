@@ -8,7 +8,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Wrench, Users, Settings,
   BriefcaseBusiness, Factory,
-  LogOut, BarChart2, Bot,
+  LogOut, BarChart2, Bot,MessageCircle, 
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import SchedulerToolbar from '../scheduler/SchedulerToolbar'
@@ -43,6 +43,8 @@ export default function Layout() {
     { to: '/employees', label: 'Employees',   icon: Users             },
     { to: '/machines',  label: 'Machines',    icon: Factory           },
     { to: '/skills',    label: 'Skills',      icon: Settings          },
+    { to: '/whatsapp',  label: 'WhatsApp',    icon: MessageCircle     },
+
   ]
 
   return (

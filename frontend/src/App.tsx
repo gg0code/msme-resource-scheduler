@@ -23,6 +23,7 @@ import Employees from './pages/Employees'
 import Machines from './pages/Machines'
 import Jobs from './pages/Jobs'
 import GanttPage from './pages/GanttPage'
+import LinkWhatsApp from './pages/LinkWhatsApp'
 
 // Scheduling engine pages — removed in v3.9.5 (merged into /jobs)
 
@@ -66,6 +67,8 @@ export default function App() {
             <Route path="employees"    element={<Employees />} />
             <Route path="machines"     element={<Machines />} />
             <Route path="gantt"        element={<GanttPage />} />
+            <Route path="whatsapp" element={<LinkWhatsApp />} />
+
 
             {/* Skills — proprietor only */}
             <Route element={<ProtectedRoute roles={['proprietor']} />}>
