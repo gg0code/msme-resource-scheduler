@@ -7,6 +7,9 @@ CREATED: 2026-03
 FILES:
   017_phone_tenant_map.py  — Creates phone_tenant_map table (phone → tenant/user mapping)
                              and whatsapp_conversations table (Factory GPT training data).
+  018_phone_tenant_map_roles.py  — Adds display_name and phone_role to phone_tenant_map.
+                                  Supports multiple named owners per factory.
+                                  phone_role reserved for v5.7 RBAC — not enforced yet.
 
 IMPORTANT — COLLISION WARNING:
   The Factory GPT branch (future) also plans to use migration numbers 017-022

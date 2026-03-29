@@ -1,6 +1,7 @@
 """
 app/main.py — V3.9.4
 Added: resource_availability router (/api/jobs/{job_id}/resource-availability)
+v5-whatsapp: Added WhatsApp Copilot router + APScheduler startup/shutdown
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,9 @@ from app.routers import (
     schedule_suggestions,# V3.9.7 schedule suggestions
     material_estimate,   # V3.9.8 material estimate
 )
+# v5-whatsapp — WhatsApp Copilot router and alert scheduler
+from app.routers.whatsapp import router as whatsapp_router
+from app.services.whatsapp_alerts import start_scheduler, stop_scheduler
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -37,6 +41,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Called when FastAPI app starts.
+    Starts the WhatsApp alert scheduler (APScheduler).
+    Scheduler sends proactive alerts to factory owners:
+    morning briefing at 7am IST, job delay checks, conflict checks.
+    """
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    Called when FastAPI app shuts down.
+    Stops the WhatsApp alert scheduler gracefully —
+    waits for any running jobs to finish before stopping.
+    """
+    stop_scheduler()
 
 # Returns a simple status response used by load balancers and monitoring tools.
 # If this endpoint responds, the app is running and the process is healthy.
@@ -66,3 +90,4 @@ app.include_router(resource_availability.router, prefix="/api/jobs",            
 app.include_router(steps.router,                prefix="/api",                      tags=["steps"])               # V3.9.5
 app.include_router(schedule_suggestions.router, prefix="/api",                      tags=["schedule-suggestions"])  # V3.9.7
 app.include_router(material_estimate.router,    prefix="/api",                      tags=["material-estimate"])      # V3.9.8
+app.include_router(whatsapp_router,             tags=["whatsapp"])                                                    # v5-whatsapp

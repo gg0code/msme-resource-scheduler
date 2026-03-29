@@ -43,7 +43,7 @@ USAGE:
 """
 
 import logging
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from sqlalchemy import select, update
 from sqlalchemy.sql import func
 
@@ -88,13 +88,17 @@ class IdentityResult:
         user_id: int,
         industry_type: str,
         phone_number: str,
-        consent_given: bool
+        consent_given: bool,
+        display_name: str | None = None,   # NEW — who is this person
+        phone_role: str = "owner"          # NEW — their role (not enforced yet)
     ):
         self.tenant_id = tenant_id
         self.user_id = user_id
         self.industry_type = industry_type
         self.phone_number = phone_number
         self.consent_given = consent_given
+        self.display_name = display_name   # NEW
+        self.phone_role = phone_role       # NEW
 
     def __repr__(self) -> str:
         """
@@ -102,12 +106,16 @@ class IdentityResult:
 
         We intentionally show only the last 4 digits of the phone number.
         Enough to identify in logs, not enough to constitute a data leak.
+        Shows display_name if set so logs show 'Amit' not just a phone number.
         """
         masked_phone = f"****{self.phone_number[-4:]}"
+        # Show display_name if set — makes logs much more readable
+        name_part = f", name={self.display_name}" if self.display_name else ""
         return (
             f"IdentityResult(phone={masked_phone}, "
             f"tenant_id={self.tenant_id}, "
-            f"industry={self.industry_type})"
+            f"industry={self.industry_type}"
+            f"{name_part})"
         )
 
 
@@ -117,7 +125,7 @@ class IdentityResult:
 
 async def resolve_identity(
     phone_number: str,
-    db: AsyncSession
+    db: Session
 ) -> IdentityResult | None:
     """
     Look up a WhatsApp phone number and return the matching tenant identity.
@@ -169,7 +177,7 @@ async def resolve_identity(
         )
     )
 
-    query_result = await db.execute(lookup_query)
+    query_result =  db.execute(lookup_query)
 
     # scalars().first() returns the first matching row as a Python object,
     # or None if no rows matched the WHERE conditions.
@@ -188,12 +196,12 @@ async def resolve_identity(
     # Update last_seen_at to track when this owner last sent a message.
     # We use a direct UPDATE query instead of modifying the loaded object
     # because it avoids a second DB round-trip (load → modify → save).
-    await db.execute(
+    db.execute(
         update(PhoneTenantMap)
         .where(PhoneTenantMap.id == phone_mapping.id)
         .values(last_seen_at=func.now())
     )
-    await db.commit()
+    db.commit()
 
     logger.info(
         f"Identity resolved: ****{phone_number[-4:]} → "
@@ -212,7 +220,8 @@ async def resolve_identity(
         # reaching the AI system prompt builder.
         industry_type=phone_mapping.industry_type or "manufacturing",
         phone_number=phone_number,
-        consent_given=phone_mapping.consent_given
+        consent_given=phone_mapping.consent_given,
+        phone_role=phone_mapping.phone_role or "owner"  # NEW
     )
 
 
@@ -222,7 +231,7 @@ async def resolve_identity(
 
 async def check_consent(
     phone_number: str,
-    db: AsyncSession
+    db: Session
 ) -> bool:
     """
     Check if a phone number has given consent for conversation logging.
@@ -275,7 +284,7 @@ async def check_consent(
 
 async def record_consent(
     phone_number: str,
-    db: AsyncSession
+    db: Session
 ) -> bool:
     """
     Record that a factory owner has given consent for conversation logging.

@@ -31,7 +31,7 @@ NOTES:
     must remain intact for Factory GPT training purposes.
 """
 
-from datetime import datetime
+
 from sqlalchemy import (
     Boolean, Column, DateTime, ForeignKey,
     Integer, String, Text, text
@@ -127,6 +127,27 @@ class PhoneTenantMap(Base):
 
     # Timestamp of when consent was given — for compliance audit trail
     consent_at = Column(DateTime(timezone=True), nullable=True)
+        # Who is this phone number — human readable label.
+    # Set by the owner when linking via LinkWhatsApp.tsx page.
+    # Shows in logs so we know "Amit marked Ravi absent" not just a phone number.
+    # Examples: "Rajesh (Owner)", "Amit (Son)", "Priya (Partner)", "Suresh (Manager)"
+    display_name = Column(
+        String(100),
+        nullable=True,
+        comment="Human label for this phone — who is messaging"
+    )
+
+    # Role for future RBAC — not enforced during pilot.
+    # All roles currently have identical access (owner-level).
+    # Will be enforced in v5.7.
+    # Values: 'owner' | 'manager' | 'viewer'
+    phone_role = Column(
+        String(20),
+        nullable=False,
+        default="owner",
+        server_default="owner",
+        comment="owner|manager|viewer — reserved, not enforced until v5.7"
+    )
 
     # Per-tenant alert preferences stored as JSON.
     # Controls which proactive alerts the owner receives.
@@ -142,18 +163,7 @@ class PhoneTenantMap(Base):
         )
     )
 
-    # Standard audit timestamps — matches pattern in auth.py
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=text("now()"),
-        nullable=False
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=text("now()"),
-        onupdate=datetime.utcnow,
-        nullable=False
-    )
+
 
     # Relationships — lets us do phone_mapping.tenant.name etc.
     # These are read-only references, not cascade-delete owners.
