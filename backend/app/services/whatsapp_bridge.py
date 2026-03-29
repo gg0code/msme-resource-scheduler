@@ -2,10 +2,10 @@
 FILE:    whatsapp_bridge.py
 PATH:    backend/app/services/whatsapp_bridge.py
 PURPOSE: The single connection point between the WhatsApp channel and the AI backend.
-         Today this calls run_ai_chat() with Groq + 16 DB tools directly.
+         Today this calls run_ai_chat() in ai_service.py directly.
          When Factory GPT is ready, only this file changes — a new class is written
-         and one line is updated. Nothing in the webhook, session, formatter, or
-         Interakt integration needs to change.
+         and one line is updated at the bottom. Nothing else in the WhatsApp
+         codebase needs to change.
 
          Think of this file as a power socket. The WhatsApp code plugs into the socket.
          What generates the power (Groq today, Factory GPT tomorrow) is behind the wall.
@@ -15,38 +15,100 @@ VERSION: v5.0
 CREATED: 2026-03
 
 DEPENDENCIES:
-  app/services/ai_chat.py   — run_ai_chat() is the current AI backend being wrapped
-  app/agents/supervisor.py  — SupervisorAgent will be the future swap-in (Factory GPT)
-                              This file does not exist yet — it is a placeholder reference.
+  app/services/ai_service.py  — run_ai_chat() is the current AI backend being wrapped.
+                                NOTE: run_ai_chat() is a SYNC function that takes a
+                                sync SQLAlchemy Session. We run it in a thread pool
+                                executor to avoid blocking the async FastAPI event loop.
+  app/agents/supervisor.py    — SupervisorAgent will be the future swap-in (Factory GPT).
+                                This file does not exist yet — placeholder reference only.
+
+IMPORTANT — SYNC vs ASYNC:
+  run_ai_chat() in ai_service.py is a synchronous function (uses sync Session).
+  Our WhatsApp router is async (uses AsyncSession).
+  We bridge this gap using asyncio.get_event_loop().run_in_executor() which runs
+  the sync function in a thread pool without blocking the async event loop.
+  When Factory GPT arrives, its Supervisor Agent will be natively async —
+  the executor wrapper will be removed from SupervisorAgentBridge.
 
 SWAP POINT (Factory GPT):
   When Factory GPT Supervisor Agent is ready:
-    1. Write SupervisorAgentBridge class below (template provided at bottom of file)
+    1. Write SupervisorAgentBridge class below (template at bottom of file)
     2. Change the last line: active_bridge = SupervisorAgentBridge()
     3. Done. No other file in the WhatsApp codebase needs to change.
 
 USAGE:
   from app.services.whatsapp_bridge import active_bridge
   response = await active_bridge.process_message(
+      messages=[{"role": "user", "content": "aaj ka schedule kya hai"}],
+      db=db,
       tenant_id=1,
-      user_id=42,
-      message="aaj ka schedule kya hai",
       industry_type="printing",
-      conversation_history=[{"role": "user", "content": "hello"}]
+      language="hinglish"
   )
 """
 
+import asyncio
+import logging
 from typing import Protocol, runtime_checkable
-from app.services.ai_chat import run_ai_chat
+
+from sqlalchemy.orm import Session
+
+from app.services.ai_service import run_ai_chat
+
+# ---------------------------------------------------------------------------
+# Module logger
+# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# PROTOCOL — the contract that every AI bridge must follow
+# LANGUAGE PROMPT BUILDER
 # ---------------------------------------------------------------------------
-# A Protocol in Python is like an interface in Java or C#.
-# It defines what methods a class MUST have, without forcing inheritance.
-# Any class that has a process_message() method with this exact signature
-# automatically qualifies as an AIChannelBridge — no need to inherit from it.
+
+def _build_whatsapp_system_message(language: str, industry_type: str) -> dict:
+    """
+    Build a WhatsApp-specific system message to prepend to the conversation.
+
+    This message tells the AI how to behave on WhatsApp — short responses,
+    no markdown, and the correct language style.
+
+    This is where ALL WhatsApp conversation behaviour is controlled.
+    To change language behaviour, edit the language_instruction dict below.
+
+    Args:
+        language:      Detected language — 'hindi', 'hinglish', or 'english'.
+                       Detected by detect_language() in whatsapp_formatter.py.
+        industry_type: Tenant's industry vertical — passed through for context.
+
+    Returns:
+        A dict in Groq message format: {"role": "system", "content": "..."}
+        This is prepended to the messages list before calling run_ai_chat().
+    """
+
+    # Language instruction — edit this dict to change language behaviour.
+    # To always respond in English: change the default to "Respond in English."
+    # To always respond in Hindi: change the default to "Hamesha Hindi mein jawab do."
+    language_instruction = {
+        "hindi":    "Hamesha Hindi mein jawab do. Devanagari script use karo.",
+        "hinglish": "User ki Hinglish style match karo. Hindi aur English naturally mix karo.",
+        "english":  "Respond in clear simple English."
+    }.get(language, "Match the user's language exactly.")
+    # .get() with a default handles any unexpected language value safely
+
+    whatsapp_instructions = f"""You are ZetaOps Copilot responding via WhatsApp.
+{language_instruction}
+Keep responses SHORT — maximum 5 lines. Factory owners read on mobile screens.
+Never use markdown — no **, no ###, no -, no ``` code blocks. Plain text only.
+Be direct and practical. Factory owners want quick answers, not long explanations.
+If a voice note is prefixed with [Voice]: treat it as normal text after transcription."""
+
+    # Return as a system message in Groq's expected format
+    return {"role": "system", "content": whatsapp_instructions}
+
+
+# ---------------------------------------------------------------------------
+# PROTOCOL — the contract every AI bridge must follow
+# ---------------------------------------------------------------------------
 
 @runtime_checkable
 class AIChannelBridge(Protocol):
@@ -55,116 +117,122 @@ class AIChannelBridge(Protocol):
 
     This Protocol is the stable interface between the WhatsApp channel
     and whatever AI system is behind it. The WhatsApp code only ever
-    calls process_message() — it never knows or cares whether Groq,
-    Factory GPT, or any other system is doing the actual work.
+    calls process_message() — it never knows what AI is doing the work.
     """
 
     async def process_message(
         self,
+        messages: list[dict],
+        db: Session,
         tenant_id: int,
-        user_id: int,
-        message: str,
         industry_type: str,
-        conversation_history: list[dict]
+        language: str
     ) -> str:
         """
-        Send a user message to the AI backend and return the response.
-
-        This is the single method the WhatsApp channel calls. All AI
-        backends must implement this exact signature.
+        Send conversation messages to the AI backend and return the response.
 
         Args:
-            tenant_id:            The tenant making the request.
-                                  Used for row-level DB isolation — every
-                                  DB query in the AI tools filters by this.
-            user_id:              The specific user within that tenant.
-            message:              Plain text message from the factory owner.
-                                  If this was a voice note, it has already
-                                  been transcribed by whatsapp_session.py
-                                  before reaching here.
-            industry_type:        The tenant's industry vertical, e.g.
-                                  'printing', 'manufacturing', 'fabrication',
-                                  'chemical', 'field_service'.
-                                  Controls which AI tools are shown to the LLM.
-            conversation_history: The last N messages from Redis session.
-                                  Format: [{"role": "user"|"assistant",
-                                            "content": "..."}]
-                                  Gives the AI memory of the conversation.
+            messages:      Full conversation history including the new user message.
+                           Format: [{"role": "user"|"assistant", "content": "..."}]
+                           The WhatsApp system message is added inside this method —
+                           callers do not need to add it.
+            db:            SQLAlchemy Session — sync Session from ai_service.py.
+            tenant_id:     The tenant making the request — for DB row isolation.
+            industry_type: Tenant's industry e.g. 'printing', 'manufacturing'.
+            language:      Detected language of latest message — 'hindi',
+                           'hinglish', or 'english'. Controls AI response style.
 
         Returns:
-            AI response as a plain string. This is NOT yet formatted for
-            WhatsApp — markdown may still be present. The caller
-            (routers/whatsapp.py) passes this to whatsapp_formatter.py next.
+            AI response as plain string. May contain markdown —
+            pass through whatsapp_formatter.format_for_whatsapp() before sending.
 
         Side effects:
-            None. This method is read-only at the bridge level.
-            Any DB writes happen only inside whatsapp_actions.py,
-            never inside the AI bridge.
+            None at bridge level. DB writes only via whatsapp_actions.py.
         """
-        ...  # Protocol methods have no body — the implementing class provides it
+        ...
 
 
 # ---------------------------------------------------------------------------
 # CURRENT IMPLEMENTATION — GroqDirectBridge
 # ---------------------------------------------------------------------------
-# This is the MVP bridge. It calls run_ai_chat() which uses:
-#   - Groq API (Llama model)
-#   - 16 DB tool functions defined in ai_chat.py
-#   - Industry-aware system prompt
-#
-# This class will be REPLACED (not modified) when Factory GPT is ready.
-# The replacement class is templated at the bottom of this file.
 
 class GroqDirectBridge:
     """
-    MVP AI bridge. Calls the existing run_ai_chat() function directly.
+    MVP bridge. Calls run_ai_chat() in ai_service.py directly.
 
-    This is the simplest possible implementation — it just passes the
-    message straight through to the existing AI Copilot that already
-    powers the ZetaOps web UI. The WhatsApp channel gets the same AI
-    intelligence as the web dashboard, with no extra setup.
+    Handles the sync/async mismatch — run_ai_chat() is synchronous but
+    our FastAPI app is async. We use run_in_executor() to run the sync
+    function in a thread pool without blocking the event loop.
 
-    When Factory GPT agents are ready, this entire class is replaced
-    by SupervisorAgentBridge. Nothing else in the codebase changes.
+    This class will be REPLACED (not modified) when Factory GPT is ready.
     """
 
     async def process_message(
         self,
+        messages: list[dict],
+        db: Session,
         tenant_id: int,
-        user_id: int,
-        message: str,
         industry_type: str,
-        conversation_history: list[dict]
+        language: str
     ) -> str:
         """
-        Pass the message to run_ai_chat() and return its response.
-
-        Translates the bridge interface into the exact parameter format
-        that run_ai_chat() expects. If run_ai_chat()'s signature ever
-        changes, this is the only place that needs updating.
+        Prepend WhatsApp system message and call run_ai_chat() in a thread pool.
 
         Args:
             See AIChannelBridge.process_message() for full arg descriptions.
 
         Returns:
             Raw AI response string from Groq. May contain markdown.
-            Will be cleaned up by whatsapp_formatter.py after this call.
+            Pass through whatsapp_formatter.format_for_whatsapp() next.
 
         Raises:
-            Exception: Any exception from run_ai_chat() is allowed to
-                       bubble up. The caller (routers/whatsapp.py) handles
-                       it and sends a friendly error message to the owner.
+            Exception: Any exception from run_ai_chat() bubbles up.
+                       The caller (routers/whatsapp.py) catches this and
+                       sends a friendly error message to the owner.
         """
-        # Delegate directly to the existing AI function.
-        # run_ai_chat() is defined in app/services/ai_chat.py and is
-        # the same function that powers the ZetaOps web UI copilot.
-        return await run_ai_chat(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            message=message,
-            industry_type=industry_type,
-            conversation_history=conversation_history
+
+        # Step 1: Build the WhatsApp-specific system message.
+        # This controls language, response length, and no-markdown rules.
+        whatsapp_system_msg = _build_whatsapp_system_message(
+            language=language,
+            industry_type=industry_type
         )
+
+        # Step 2: Prepend the system message to the conversation history.
+        # System message goes FIRST — before any user/assistant messages.
+        # run_ai_chat() already adds its own industry system prompt internally,
+        # so our WhatsApp message adds on top of that.
+        messages_with_system = [whatsapp_system_msg] + messages
+
+        logger.debug(
+            f"Calling run_ai_chat for tenant_id={tenant_id}, "
+            f"industry={industry_type}, language={language}, "
+            f"messages={len(messages_with_system)}"
+        )
+
+        # Step 3: Run the synchronous run_ai_chat() in a thread pool executor.
+        # Why: run_ai_chat() uses a sync SQLAlchemy Session and makes blocking
+        # HTTP calls to Groq API. Running it directly in async code would block
+        # the entire FastAPI event loop, freezing ALL requests.
+        # run_in_executor() offloads it to a separate thread — safe for async.
+        loop = asyncio.get_event_loop()
+
+        response = await loop.run_in_executor(
+            None,  # None = use the default thread pool executor
+            lambda: run_ai_chat(
+                messages=messages_with_system,
+                db=db,
+                tenant_id=tenant_id,
+                industry_type=industry_type
+            )
+        )
+
+        logger.debug(
+            f"run_ai_chat completed for tenant_id={tenant_id}, "
+            f"response length={len(response)} chars"
+        )
+
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -182,31 +250,30 @@ active_bridge: AIChannelBridge = GroqDirectBridge()
 # ---------------------------------------------------------------------------
 # FUTURE SWAP TEMPLATE — SupervisorAgentBridge
 # ---------------------------------------------------------------------------
-# This template shows exactly what to write when Factory GPT is ready.
-# Do not uncomment this until app/agents/supervisor.py exists.
+# Uncomment and complete this when Factory GPT Supervisor Agent is ready.
+# Do not uncomment until app/agents/supervisor.py exists.
 #
 # from app.agents.supervisor import SupervisorAgent
 #
 # class SupervisorAgentBridge:
 #     """
 #     Factory GPT bridge. Routes messages through the 7-agent Supervisor.
-#     Replaces GroqDirectBridge when Factory GPT agents are ready.
-#     Change the active_bridge line below to use this class.
+#     Natively async — no run_in_executor() needed unlike GroqDirectBridge.
 #     """
 #
 #     async def process_message(
 #         self,
+#         messages: list[dict],
+#         db: Session,
 #         tenant_id: int,
-#         user_id: int,
-#         message: str,
 #         industry_type: str,
-#         conversation_history: list[dict]
+#         language: str
 #     ) -> str:
 #         """Route message through Factory GPT Supervisor Agent."""
 #         return await SupervisorAgent.handle(
 #             tenant_id=tenant_id,
-#             message=message,
-#             history=conversation_history
+#             messages=messages,
+#             industry_type=industry_type
 #         )
 #
-# active_bridge: AIChannelBridge = SupervisorAgentBridge()
+# active_bridge: AIChannelBridge = SupervisorAgentBridge()  # ← one line change
