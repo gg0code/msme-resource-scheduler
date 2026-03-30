@@ -1015,3 +1015,41 @@ async def _log_conversation(
             f"Failed to log conversation for ****{phone_number[-4:]}: {e}. "
             f"Message was still processed and sent. Only logging failed."
         )
+# ---------------------------------------------------------------------------
+# ENDPOINT 7 — POST /trigger-dev-alerts (dev only)
+# ---------------------------------------------------------------------------
+
+@router.post("/trigger-dev-alerts")
+async def trigger_dev_alerts(alert_type: str = "all"):
+    """
+    Manually trigger alert jobs for development testing.
+    Only works when WHATSAPP_MOCK_MODE=True.
+
+    Args:
+        alert_type: 'briefing', 'delays', 'conflicts', or 'all'
+
+    Returns:
+        {"status": "fired", "alert_type": alert_type}
+    """
+    if not settings.WHATSAPP_MOCK_MODE:
+        raise HTTPException(
+            status_code=403,
+            detail="Dev trigger only available in mock mode."
+        )
+
+    from app.services.whatsapp_alerts import (
+        send_morning_briefings,
+        check_delayed_jobs,
+        check_scheduling_conflicts,
+    )
+
+    if alert_type == "briefing" or alert_type == "all":
+        await send_morning_briefings()
+
+    if alert_type == "delays" or alert_type == "all":
+        await check_delayed_jobs()
+
+    if alert_type == "conflicts" or alert_type == "all":
+        await check_scheduling_conflicts()
+
+    return {"status": "fired", "alert_type": alert_type}

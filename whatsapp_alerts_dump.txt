@@ -26,22 +26,16 @@ PURPOSE: Proactive alert scheduler for WhatsApp Copilot.
          alert_preferences JSON in phone_tenant_map table.
 
 BRANCH:  v5-whatsapp
-VERSION: v5.4.1
+VERSION: v5.4
 CREATED: 2026-03
-UPDATED: 2026-03-30 — v5.4.1: Replaced execute_tool() calls with direct DB
-                      queries for briefing and conflicts. execute_tool() depends
-                      on tool names that may not exist (get_dashboard_summary,
-                      get_schedule_alerts). Direct queries are more reliable
-                      and have no dependency on ai_service tool names.
 
 DEPENDENCIES:
   apscheduler==3.11.2          — pip install apscheduler
   app/models/whatsapp.py       — PhoneTenantMap for active phone numbers
-  app/models/job.py            — Job model for delay and conflict queries
-  app/models/employee.py       — Employee model for briefing headcount
   app/services/whatsapp_formatter.py — format_for_whatsapp() for clean text
-  app/database.py              — SessionLocal for DB queries
+  app/database.py              — database session for DB queries
   app/config.py                — settings (WHATSAPP_MOCK_MODE, timezone)
+  app/services/ai_service.py   — run_ai_chat() / execute_tool() for data
 
 USAGE:
   # In app/main.py — start scheduler when app starts, stop on shutdown
@@ -57,7 +51,7 @@ USAGE:
 """
 
 import logging
-from datetime import datetime, date
+from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -68,8 +62,6 @@ from app.config import settings
 # Module logger
 # ---------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-logging.getLogger(__name__).setLevel(logging.INFO)
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +83,7 @@ JOB_DELAY_CHECK_EVERY = 2        # Every 2 hours
 # Conflict check — runs every 4 hours
 CONFLICT_CHECK_EVERY = 4
 
-# Alert type identifiers — must match keys in alert_preferences JSON column
+# Alert type identifiers — used in alert_preferences JSON
 ALERT_TYPE_BRIEFING     = "morning_briefing"
 ALERT_TYPE_JOB_DELAY    = "job_delay"
 ALERT_TYPE_MACHINE_DOWN = "machine_down"
@@ -143,7 +135,7 @@ def start_scheduler() -> None:
         ),
         id="morning_briefing",
         name="Daily morning briefing to all active factory owners",
-        replace_existing=True
+        replace_existing=True   # Replace if job already registered (safe for restarts)
     )
     logger.info(
         f"Scheduled: morning briefing at "
@@ -154,8 +146,8 @@ def start_scheduler() -> None:
     scheduler.add_job(
         func=check_delayed_jobs,
         trigger=CronTrigger(
-            hour=JOB_DELAY_CHECK_HOURS,
-            minute=0,
+            hour=JOB_DELAY_CHECK_HOURS,       # 8am to 8pm only
+            minute=0,                          # At the top of each hour
             timezone=SCHEDULER_TIMEZONE
         ),
         id="job_delay_check",
@@ -168,8 +160,8 @@ def start_scheduler() -> None:
     scheduler.add_job(
         func=check_scheduling_conflicts,
         trigger=CronTrigger(
-            hour="*/4",
-            minute=30,
+            hour="*/4",                        # Every 4 hours (0, 4, 8, 12, 16, 20)
+            minute=30,                         # At :30 to avoid clash with other jobs
             timezone=SCHEDULER_TIMEZONE
         ),
         id="conflict_check",
@@ -199,6 +191,8 @@ def stop_scheduler() -> None:
         Any jobs currently running are allowed to finish.
     """
     if scheduler.running:
+        # wait=True means we wait for running jobs to finish
+        # before shutting down — prevents data corruption
         scheduler.shutdown(wait=True)
         logger.info("WhatsApp alert scheduler stopped.")
     else:
@@ -227,13 +221,15 @@ def set_dev_schedule() -> None:
         "Do NOT use this in production."
     )
 
+    # Remove existing jobs if scheduler is running
     if scheduler.running:
         scheduler.remove_all_jobs()
 
+    # Re-register all jobs with 2-minute interval for testing
     for job_func, job_id in [
-        (send_morning_briefings,     "morning_briefing"),
-        (check_delayed_jobs,          "job_delay_check"),
-        (check_scheduling_conflicts,  "conflict_check"),
+        (send_morning_briefings,    "morning_briefing"),
+        (check_delayed_jobs,         "job_delay_check"),
+        (check_scheduling_conflicts, "conflict_check"),
     ]:
         scheduler.add_job(
             func=job_func,
@@ -257,8 +253,11 @@ async def send_morning_briefings() -> None:
     """
     Send daily morning briefing to all active factory owners.
 
-    Runs at 7am IST every day. Fetches job and employee counts directly
-    from PostgreSQL for each active tenant and sends a WhatsApp briefing.
+    Runs at 7am IST every day. Fetches the day's schedule summary
+    for each active tenant and sends it to their WhatsApp.
+
+    The briefing content comes from the existing generate_daily_briefing()
+    tool in ai_service.py — same data that powers the web dashboard.
 
     Side effects:
         Reads from PostgreSQL for each active tenant.
@@ -267,15 +266,18 @@ async def send_morning_briefings() -> None:
     """
     logger.info(f"Morning briefing job started at {datetime.now().isoformat()}")
 
+    # Get all active phone mappings — one per factory owner
     active_phones = await _get_active_phone_mappings(ALERT_TYPE_BRIEFING)
 
     if not active_phones:
         logger.info("No active phone mappings found — no briefings to send.")
         return
 
+    # Send briefing to each active factory owner
     sent_count = 0
     for phone_mapping in active_phones:
         try:
+            # Build the briefing message for this tenant
             briefing_text = await _build_morning_briefing(
                 tenant_id=phone_mapping["tenant_id"],
                 industry_type=phone_mapping["industry_type"]
@@ -290,6 +292,8 @@ async def send_morning_briefings() -> None:
                 sent_count += 1
 
         except Exception as e:
+            # Log error but continue to next factory — one failure
+            # should not stop briefings from going to other factories
             logger.error(
                 f"Failed to send morning briefing to "
                 f"****{phone_mapping['phone_number'][-4:]}: {e}"
@@ -308,7 +312,10 @@ async def check_delayed_jobs() -> None:
 
     Runs every 2 hours during working hours (8am-8pm IST).
     A job is considered delayed if its end_date has passed
-    and its status is not completed or cancelled.
+    and its status is not 'completed' or 'cancelled'.
+
+    Only sends an alert if new delays have been detected since
+    the last check — avoids spamming owners about the same delay.
 
     Side effects:
         Reads from PostgreSQL for each active tenant.
@@ -323,6 +330,7 @@ async def check_delayed_jobs() -> None:
             delayed_jobs = await _get_delayed_jobs(phone_mapping["tenant_id"])
 
             if delayed_jobs:
+                # Build alert message listing the delayed jobs
                 alert_text = _build_delay_alert(
                     delayed_jobs=delayed_jobs,
                     industry_type=phone_mapping["industry_type"]
@@ -350,7 +358,8 @@ async def check_scheduling_conflicts() -> None:
     """
     Check for scheduling conflicts and alert factory owners.
 
-    Runs every 4 hours. Detects jobs flagged with has_conflict=True.
+    Runs every 4 hours. Detects resource double-bookings —
+    same employee or machine assigned to two overlapping jobs.
 
     Side effects:
         Reads from PostgreSQL for each active tenant.
@@ -398,7 +407,7 @@ async def send_machine_down_alert(
 
     This is NOT a scheduled job — it is called directly from the machine
     update endpoint in the router when machine status changes to
-    maintenance or breakdown.
+    'maintenance' or 'breakdown'.
 
     Args:
         tenant_id:    The tenant whose machine went down.
@@ -414,9 +423,10 @@ async def send_machine_down_alert(
         f"(ID: {machine_id}), tenant {tenant_id}"
     )
 
+    # Find the active phone number for this tenant
     active_phones = await _get_active_phone_mappings(
         ALERT_TYPE_MACHINE_DOWN,
-        tenant_id_filter=tenant_id
+        tenant_id_filter=tenant_id  # Only for this specific tenant
     )
 
     if not active_phones:
@@ -426,6 +436,7 @@ async def send_machine_down_alert(
         )
         return
 
+    # Build the alert message
     alert_text = (
         f"ALERT: Machine down\n\n"
         f"'{machine_name}' abhi maintenance mode mein hai.\n"
@@ -470,6 +481,10 @@ async def _get_active_phone_mappings(
     from app.models.whatsapp import PhoneTenantMap
 
     results = []
+
+    # Use a sync session — APScheduler jobs run outside FastAPI request context
+    # so we cannot use the FastAPI dependency injection for DB sessions.
+    # We create a session directly here instead.
     db = SessionLocal()
 
     try:
@@ -477,6 +492,7 @@ async def _get_active_phone_mappings(
             PhoneTenantMap.is_active == True  # noqa: E712
         )
 
+        # Apply tenant filter if specified (for machine_down alerts)
         if tenant_id_filter is not None:
             query = query.where(
                 PhoneTenantMap.tenant_id == tenant_id_filter
@@ -485,21 +501,24 @@ async def _get_active_phone_mappings(
         phone_mappings = db.execute(query).scalars().all()
 
         for mapping in phone_mappings:
-            # alert_preferences is JSONB — default all ON if not set
+            # Check if this alert type is enabled in the owner's preferences.
+            # alert_preferences is a JSON dict — default all ON if not set.
             preferences = mapping.alert_preferences or {}
             alert_enabled = preferences.get(alert_type, True)
+            # Default True = alert ON if preference not explicitly set
 
             if alert_enabled:
                 results.append({
                     "phone_number":  mapping.phone_number,
                     "tenant_id":     mapping.tenant_id,
-                    "industry_type": mapping.industry_type or "printing"
+                    "industry_type": mapping.industry_type or "manufacturing"
                 })
 
     except Exception as e:
         logger.error(f"Failed to get active phone mappings: {e}")
 
     finally:
+        # Always close the session — even if an error occurred
         db.close()
 
     return results
@@ -512,73 +531,52 @@ async def _build_morning_briefing(
     """
     Build the morning briefing message for a specific tenant.
 
-    Uses direct DB queries for reliability — no dependency on ai_service
-    tool names which may not exist or may change.
+    Uses the existing execute_tool() function from ai_service.py to fetch
+    the same dashboard summary data that powers the web UI.
 
     Args:
         tenant_id:     The tenant to build briefing for.
-        industry_type: Reserved for future terminology customisation.
+        industry_type: For terminology in the message text.
 
     Returns:
         Formatted briefing text string, or None if data fetch failed.
 
     Side effects:
-        Reads from PostgreSQL jobs and employees tables.
+        Reads from PostgreSQL via execute_tool().
     """
-    from sqlalchemy import select, func
     from app.database import SessionLocal
-    from app.models.job import Job
-    from app.models.employee import Employee
+    from app.services.ai_service import execute_tool
     from app.services.whatsapp_formatter import format_for_whatsapp
 
     db = SessionLocal()
 
     try:
-        today = date.today()
+        # Use the existing get_dashboard_summary tool — same data as web UI
+        summary_data = execute_tool(
+            name="get_dashboard_summary",
+            args={},
+            db=db,
+            tenant_id=tenant_id
+        )
 
-        # Active jobs — in_progress or pending
-        active_jobs = db.execute(
-            select(func.count(Job.id)).where(
-                Job.tenant_id == tenant_id,
-                Job.status.in_([
-                    "in_progress", "pending", "In Progress", "Pending"
-                ])
-            )
-        ).scalar() or 0
+        if not summary_data:
+            return None
 
-        # Total jobs for this tenant
-        total_jobs = db.execute(
-            select(func.count(Job.id)).where(
-                Job.tenant_id == tenant_id
-            )
-        ).scalar() or 0
+        # Build a concise WhatsApp-friendly briefing from the summary data
+        today = datetime.now().strftime("%d %B %Y")
 
-        # Delayed jobs — end_date passed, not finished
-        delayed_jobs = db.execute(
-            select(func.count(Job.id)).where(
-                Job.tenant_id == tenant_id,
-                Job.end_date < today,
-                Job.status.notin_([
-                    "completed", "cancelled", "Completed", "Cancelled"
-                ])
-            )
-        ).scalar() or 0
-
-        # Active employees
-        total_employees = db.execute(
-            select(func.count(Employee.id)).where(
-                Employee.tenant_id == tenant_id,
-                Employee.status == "active"
-            )
-        ).scalar() or 0
-
-        today_str = datetime.now().strftime("%d %B %Y")
+        # Extract key metrics from the summary data
+        total_jobs     = summary_data.get("total_jobs", 0)
+        active_jobs    = summary_data.get("active_jobs", 0)
+        delayed_jobs   = summary_data.get("delayed_jobs", 0)
+        total_employees = summary_data.get("total_employees", 0)
 
         briefing = (
-            f"Good morning! ZetaOps daily briefing — {today_str}\n\n"
+            f"Good morning! ZetaOps daily briefing — {today}\n\n"
             f"Jobs: {active_jobs} active, {total_jobs} total\n"
         )
 
+        # Highlight delays prominently — most actionable information
         if delayed_jobs > 0:
             briefing += f"DELAYED: {delayed_jobs} jobs need attention\n"
 
@@ -587,12 +585,12 @@ async def _build_morning_briefing(
             f"Details ke liye poochein: 'aaj ka schedule dikhao'"
         )
 
+        # Pass through formatter to ensure no markdown
         return format_for_whatsapp(briefing)
 
     except Exception as e:
         logger.error(
-            f"Failed to build morning briefing for tenant {tenant_id}: {e}. "
-            f"Check jobs and employees tables in the database."
+            f"Failed to build morning briefing for tenant {tenant_id}: {e}"
         )
         return None
 
@@ -605,7 +603,7 @@ async def _get_delayed_jobs(tenant_id: int) -> list[dict]:
     Get all delayed jobs for a tenant.
 
     A job is delayed if end_date < today and status is not
-    completed or cancelled.
+    'completed' or 'cancelled'.
 
     Args:
         tenant_id: The tenant to check.
@@ -617,6 +615,7 @@ async def _get_delayed_jobs(tenant_id: int) -> list[dict]:
     Side effects:
         Reads from PostgreSQL jobs table.
     """
+    from datetime import date
     from sqlalchemy import select
     from app.database import SessionLocal
     from app.models.job import Job
@@ -630,9 +629,7 @@ async def _get_delayed_jobs(tenant_id: int) -> list[dict]:
         query = select(Job).where(
             Job.tenant_id == tenant_id,
             Job.end_date < today,
-            Job.status.notin_([
-                "completed", "cancelled", "Completed", "Cancelled"
-            ])
+            Job.status.notin_(["completed", "cancelled", "Completed", "Cancelled"])
         )
 
         jobs = db.execute(query).scalars().all()
@@ -640,7 +637,7 @@ async def _get_delayed_jobs(tenant_id: int) -> list[dict]:
         for job in jobs:
             delayed.append({
                 "job_id":   job.id,
-                "job_name": job.name or f"Job #{job.id}",
+                "job_name": job.title or f"Job #{job.id}",
                 "end_date": str(job.end_date),
                 "status":   job.status
             })
@@ -656,43 +653,33 @@ async def _get_delayed_jobs(tenant_id: int) -> list[dict]:
 
 async def _get_conflicts(tenant_id: int) -> list[dict]:
     """
-    Get scheduling conflicts for a tenant.
+    Get scheduling conflicts for a tenant using the existing execute_tool().
 
-    Checks jobs with has_conflict=True flag — this flag is set by the
-    scheduling engine when it detects a resource double-booking.
+    Reuses the get_schedule_alerts tool from ai_service.py which already
+    implements conflict detection logic.
 
     Args:
         tenant_id: The tenant to check.
 
     Returns:
-        List of dicts with job_id, job_name, status.
-        Empty list if no conflicts found.
+        List of conflict dicts, empty if no conflicts.
 
     Side effects:
-        Reads from PostgreSQL jobs table.
+        Reads from PostgreSQL via execute_tool().
     """
-    from sqlalchemy import select
     from app.database import SessionLocal
-    from app.models.job import Job
+    from app.services.ai_service import execute_tool
 
     db = SessionLocal()
 
     try:
-        conflict_jobs = db.execute(
-            select(Job).where(
-                Job.tenant_id == tenant_id,
-                Job.has_conflict == True  # noqa: E712
-            )
-        ).scalars().all()
-
-        return [
-            {
-                "job_id":   j.id,
-                "job_name": j.name or f"Job #{j.id}",
-                "status":   j.status
-            }
-            for j in conflict_jobs
-        ]
+        conflicts_data = execute_tool(
+            name="get_schedule_alerts",
+            args={"what": "conflicts"},
+            db=db,
+            tenant_id=tenant_id
+        )
+        return conflicts_data if isinstance(conflicts_data, list) else []
 
     except Exception as e:
         logger.error(f"Failed to get conflicts for tenant {tenant_id}: {e}")
@@ -708,7 +695,7 @@ def _build_delay_alert(delayed_jobs: list[dict], industry_type: str) -> str:
 
     Args:
         delayed_jobs:  List of delayed job dicts from _get_delayed_jobs().
-        industry_type: Reserved for future terminology customisation.
+        industry_type: For terminology context (not used yet, reserved).
 
     Returns:
         Plain text alert message ready to send via WhatsApp.
@@ -719,12 +706,14 @@ def _build_delay_alert(delayed_jobs: list[dict], industry_type: str) -> str:
     from app.services.whatsapp_formatter import format_for_whatsapp
 
     job_count = len(delayed_jobs)
+
     alert = f"ALERT: {job_count} delayed job{'s' if job_count > 1 else ''}\n\n"
 
-    # List first 3 delayed jobs — avoid very long messages on mobile
+    # List first 3 delayed jobs — avoid very long messages
     for job in delayed_jobs[:3]:
-        alert += f"- {job['job_name']} (due: {job['end_date']})\n"
+        alert += f"• {job['job_name']} (due: {job['end_date']})\n"
 
+    # If more than 3, mention the count
     if job_count > 3:
         alert += f"...aur {job_count - 3} aur jobs\n"
 
@@ -738,8 +727,8 @@ def _build_conflict_alert(conflicts: list, industry_type: str) -> str:
     Build a WhatsApp alert message for scheduling conflicts.
 
     Args:
-        conflicts:     List of conflict dicts from _get_conflicts().
-        industry_type: Reserved for future terminology customisation.
+        conflicts:     List of conflict data from _get_conflicts().
+        industry_type: For terminology context.
 
     Returns:
         Plain text alert message ready to send via WhatsApp.
@@ -750,20 +739,12 @@ def _build_conflict_alert(conflicts: list, industry_type: str) -> str:
     from app.services.whatsapp_formatter import format_for_whatsapp
 
     conflict_count = len(conflicts)
-
     alert = (
         f"ALERT: {conflict_count} scheduling conflict"
         f"{'s' if conflict_count > 1 else ''} detected\n\n"
+        f"Kuch resources double-booked hain.\n"
+        f"Details ke liye poochein: 'schedule conflicts dikhao'"
     )
-
-    # List up to 3 conflicting jobs by name
-    for conflict in conflicts[:3]:
-        alert += f"- {conflict['job_name']}\n"
-
-    if conflict_count > 3:
-        alert += f"...aur {conflict_count - 3} aur\n"
-
-    alert += "\nDetails ke liye poochein: 'schedule conflicts dikhao'"
 
     return format_for_whatsapp(alert)
 
@@ -790,25 +771,29 @@ async def _send_alert(
     """
 
     if settings.WHATSAPP_MOCK_MODE:
+        # Mock mode — log instead of sending real WhatsApp message.
+        # This is how we test alert content during development.
         logger.info(
             f"[MOCK ALERT] Type={alert_type} "
             f"To=****{phone_number[-4:]} "
-            f"Message='{message[:150]}...'"
+            f"Message='{message[:100]}...'"
         )
         return
 
+    # Production mode — send via Interakt API
     if not settings.INTERAKT_API_KEY:
         logger.error(
             "INTERAKT_API_KEY not set in .env but WHATSAPP_MOCK_MODE=False. "
-            "Cannot send alert. Set INTERAKT_API_KEY in .env or set "
-            "WHATSAPP_MOCK_MODE=True for development."
+            "Cannot send alert. Either set INTERAKT_API_KEY or set "
+            "WHATSAPP_MOCK_MODE=True in .env."
         )
         return
 
     try:
         import httpx
 
-        # Interakt expects number without + prefix
+        # Remove the + from E.164 format — Interakt expects without +
+        # e.g. +919876543210 becomes 919876543210
         phone_without_plus = phone_number.lstrip("+")
 
         async with httpx.AsyncClient() as client:
@@ -824,18 +809,20 @@ async def _send_alert(
                     "type": "Text",
                     "data": {"message": message}
                 },
-                timeout=10.0
+                timeout=10.0  # 10 second timeout — don't hang forever
             )
 
             if response.status_code == 200:
                 logger.info(
-                    f"Alert sent via Interakt. "
-                    f"Type={alert_type}, To=****{phone_number[-4:]}"
+                    f"Alert sent successfully via Interakt. "
+                    f"Type={alert_type}, "
+                    f"To=****{phone_number[-4:]}"
                 )
             else:
                 logger.error(
-                    f"Interakt API error {response.status_code} "
-                    f"for ****{phone_number[-4:]}: {response.text[:200]}"
+                    f"Interakt API returned status {response.status_code} "
+                    f"for alert to ****{phone_number[-4:]}. "
+                    f"Response: {response.text[:200]}"
                 )
 
     except Exception as e:
