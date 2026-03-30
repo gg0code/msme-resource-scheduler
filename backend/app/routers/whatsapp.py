@@ -3,21 +3,24 @@ FILE:    whatsapp.py
 PATH:    backend/app/routers/whatsapp.py
 PURPOSE: FastAPI router — the entry point for all WhatsApp messages.
 
-         Six endpoints:
+         Eight endpoints:
            GET  /api/v1/whatsapp/webhook              — Meta webhook verification handshake.
            POST /api/v1/whatsapp/webhook              — Receives inbound WhatsApp messages.
            POST /api/v1/whatsapp/simulate             — Dev only. Simulates full pipeline.
            POST /api/v1/whatsapp/link-phone           — Link a phone number to a tenant.
            GET  /api/v1/whatsapp/linked-phones        — List linked phones for a tenant.
            PATCH /api/v1/whatsapp/linked-phones/{id}/deactivate — Deactivate a linked phone.
+           POST /api/v1/whatsapp/trigger-dev-alerts   — Dev only. Fire alerts on demand.
+           POST /api/v1/whatsapp/simulate-voice       — Dev only. Test voice transcription.
 
          Message flow for POST /webhook:
            1.  Verify Meta signature (security)
            2.  Extract message from payload
+           2b. If audio message — transcribe via Groq Whisper (v5.2)
            3.  Resolve phone to tenant identity
            4.  Check for pending confirmation (write action state machine)
            5.  Handle reset commands
-           6.  Detect write intent in user message (v5.1 — whatsapp_intent.py)
+           6.  Detect write intent in user message
            6b. If intent found — store pending action, return confirmation prompt
            6c. If no intent — add user message to session, continue to AI
            7.  Get conversation history for AI
@@ -27,33 +30,30 @@ PURPOSE: FastAPI router — the entry point for all WhatsApp messages.
            11. Log conversation if consent given
 
 BRANCH:  v5-whatsapp
-VERSION: v5.1
+VERSION: v5.2
 CREATED: 2026-03
-UPDATED: 2026-03-29 — v5.1: Added intent detection layer (Step 6) between
-                      user message and AI call. Write intents (mark absent,
-                      maintenance, job status) now trigger confirmation flow
-                      instead of going straight to AI.
-                      Also added phone linking endpoints (v5.5).
+UPDATED: 2026-03-30 — v5.2: Voice note support via Groq Whisper.
+                      Audio messages are transcribed before entering pipeline.
+                      Mock mode returns placeholder text.
+                      Added /simulate-voice endpoint for dev testing.
 
 DEPENDENCIES:
   app/services/whatsapp_identity.py  — resolve_identity(), record_consent()
   app/services/whatsapp_session.py   — add_message_to_session(), get_ai_history()
   app/services/whatsapp_bridge.py    — active_bridge.process_message()
   app/services/whatsapp_formatter.py — format_for_whatsapp(), detect_language()
-  app/services/whatsapp_actions.py   — is_confirmation(), is_cancellation(),
-                                       get_pending_action(), execute_action(),
-                                       clear_pending_action(), build_confirmation_prompt()
-  app/services/whatsapp_intent.py    — detect_write_intent() (v5.1)
+  app/services/whatsapp_actions.py   — confirmation state machine
+  app/services/whatsapp_intent.py    — detect_write_intent()
+  app/services/whatsapp_whisper.py   — transcribe_voice_note() (v5.2)
   app/models/whatsapp.py             — WhatsAppConversation, PhoneTenantMap
   app/database.py                    — get_db() dependency, SessionLocal
-  app/config.py                      — settings (WHATSAPP_MOCK_MODE, APP_SECRET etc.)
-  app/core/dependencies.py           — get_current_user() for auth on linking endpoints
+  app/config.py                      — settings
+  app/core/dependencies.py           — get_current_user()
 
 NOTES:
-  - Always return 200 OK to Meta even on errors. Meta retries on non-200
-    responses which causes the owner to receive duplicate messages.
+  - Always return 200 OK to Meta even on errors. Meta retries on non-200.
   - Signature verification must happen before any business logic.
-  - /simulate is only available when WHATSAPP_MOCK_MODE=True.
+  - /simulate and /simulate-voice only available in WHATSAPP_MOCK_MODE.
 """
 
 import hashlib
@@ -62,7 +62,7 @@ import json
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -79,6 +79,7 @@ from app.services.whatsapp_actions import (
     ActionType, store_pending_action
 )
 from app.services.whatsapp_intent import detect_write_intent
+from app.services.whatsapp_whisper import transcribe_voice_note, transcribe_audio_bytes
 from app.models.whatsapp import WhatsAppConversation, PhoneTenantMap
 from app.core.dependencies import get_current_user
 
@@ -88,7 +89,7 @@ from app.core.dependencies import get_current_user
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Router — all endpoints prefixed with /api/v1/whatsapp
+# Router
 # ---------------------------------------------------------------------------
 router = APIRouter(
     prefix="/api/v1/whatsapp",
@@ -96,20 +97,17 @@ router = APIRouter(
 )
 
 # ---------------------------------------------------------------------------
-# CONSENT TRIGGER WORDS
+# CONSTANTS
 # ---------------------------------------------------------------------------
-# When owner sends one of these as their FIRST message, we send consent prompt.
-# When owner replies HAAN to consent prompt, we call record_consent().
-CONSENT_TRIGGER = "haan"   # Owner replies this to give consent
 
-# First message welcome text — sent to unregistered phones
+CONSENT_TRIGGER = "haan"
+
 WELCOME_UNREGISTERED = (
     "Namaste! Ye number ZetaOps mein registered nahi hai.\n"
     "Apna number link karne ke liye ZetaOps web app mein "
     "jaayein aur WhatsApp Link karein."
 )
 
-# Consent request — sent on first message from a registered phone
 CONSENT_REQUEST = (
     "ZetaOps Copilot mein aapka swagat hai!\n\n"
     "Behtar service ke liye, kya hum aapki conversations "
@@ -120,43 +118,41 @@ CONSENT_REQUEST = (
     "Aap bina consent ke bhi ZetaOps use kar sakte hain."
 )
 
-# Valid roles — must match phone_tenant_map.phone_role constraint
+# Sent when voice transcription fails — asks owner to type instead
+VOICE_TRANSCRIPTION_FAILED = (
+    "Voice note samajh nahi aaya. "
+    "Kripya type karke message bhejein."
+)
+
 VALID_PHONE_ROLES = {"owner", "manager", "operator"}
 
 
 # ---------------------------------------------------------------------------
-# PYDANTIC MODELS — request/response schemas
+# PYDANTIC MODELS
 # ---------------------------------------------------------------------------
 
 class SimulateRequest(BaseModel):
-    """
-    Request body for the /simulate endpoint.
-
-    Simulates an inbound WhatsApp message without real WhatsApp.
-    Used during development (v5.0-v5.4) to test the full pipeline.
-    """
-    phone: str       # E.164 format e.g. +919876543210
-    message: str     # The message text to simulate
-    type: str = "text"  # 'text' or 'voice' (voice not implemented until v5.2)
+    """Request body for the /simulate endpoint."""
+    phone: str
+    message: str
+    type: str = "text"
 
 
 class SimulateResponse(BaseModel):
     """Response from the /simulate endpoint."""
-    response: str             # The AI response formatted for WhatsApp
-    tenant_id: int | None = None  # Which tenant was resolved
-    language: str = "english"     # Detected language of the input
-    formatted: bool = True        # Always True — response is always formatted
+    response: str
+    tenant_id: int | None = None
+    language: str = "english"
+    formatted: bool = True
+    transcribed: bool = False   # v5.2 — True if message was voice-transcribed
 
 
 class LinkPhoneRequest(BaseModel):
-    """
-    Request body for POST /link-phone.
-    All fields map directly to phone_tenant_map columns.
-    """
-    phone_number:  str              # E.164 format e.g. +919876543210
-    display_name:  str              # Human name shown in AI responses
-    phone_role:    str = "owner"    # 'owner' | 'manager' | 'operator'
-    consent_given: bool = False     # Must be True to proceed
+    """Request body for POST /link-phone."""
+    phone_number:  str
+    display_name:  str
+    phone_role:    str = "owner"
+    consent_given: bool = False
 
 
 class LinkedPhoneResponse(BaseModel):
@@ -167,7 +163,6 @@ class LinkedPhoneResponse(BaseModel):
     phone_role:    str
     is_active:     bool
     consent_given: bool
-
     model_config = {"from_attributes": True}
 
 
@@ -177,7 +172,7 @@ class LinkedPhonesListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# ENDPOINT 1 — GET /webhook (Meta verification handshake)
+# ENDPOINT 1 — GET /webhook
 # ---------------------------------------------------------------------------
 
 @router.get("/webhook")
@@ -188,42 +183,30 @@ async def verify_webhook(
 ):
     """
     Handle Meta's webhook verification handshake.
-
-    When you register your webhook URL in the Meta developer dashboard,
-    Meta sends a GET request with these three query parameters to verify
-    you own the server. We must return hub.challenge if the verify token matches.
-
-    This endpoint is called ONCE during setup — not on every message.
+    Called once by Meta when registering the webhook URL.
 
     Args:
         hub_mode:         Always 'subscribe' from Meta.
-        hub_verify_token: The token you set in Meta dashboard.
-                          Must match WHATSAPP_VERIFY_TOKEN in .env.
-        hub_challenge:    A random string Meta wants us to echo back.
+        hub_verify_token: Must match WHATSAPP_VERIFY_TOKEN in .env.
+        hub_challenge:    Random string to echo back.
 
     Returns:
-        hub_challenge string if verification passes.
+        hub_challenge integer if verification passes.
         403 if token does not match.
     """
-
     if hub_mode == "subscribe" and hub_verify_token == settings.WHATSAPP_VERIFY_TOKEN:
-        logger.info(
-            "Meta webhook verification successful. "
-            "Webhook is now registered and active."
-        )
+        logger.info("Meta webhook verification successful.")
         return int(hub_challenge)
 
     logger.warning(
         f"Meta webhook verification failed. "
-        f"Received token: '{hub_verify_token}', "
-        f"Expected: '{settings.WHATSAPP_VERIFY_TOKEN}'. "
-        f"Check WHATSAPP_VERIFY_TOKEN in .env matches Meta dashboard setting."
+        f"Received: '{hub_verify_token}', Expected: '{settings.WHATSAPP_VERIFY_TOKEN}'."
     )
     raise HTTPException(status_code=403, detail="Webhook verification failed.")
 
 
 # ---------------------------------------------------------------------------
-# ENDPOINT 2 — POST /webhook (inbound messages from Meta/Interakt)
+# ENDPOINT 2 — POST /webhook
 # ---------------------------------------------------------------------------
 
 @router.post("/webhook")
@@ -231,41 +214,33 @@ async def receive_webhook(request: Request, db: Session = Depends(get_db)):
     """
     Receive and process inbound WhatsApp messages from Meta via Interakt.
 
-    IMPORTANT: Always returns 200 OK even on errors. If we return
-    non-200, Meta retries the webhook causing duplicate messages.
+    Always returns 200 OK — Meta retries on non-200 causing duplicates.
+    v5.2: Audio messages are transcribed via Groq Whisper before processing.
 
     Args:
-        request: The raw FastAPI request — needed for signature verification.
-        db:      Sync session from FastAPI dependency injection.
+        request: Raw FastAPI request for signature verification.
+        db:      Sync session from dependency injection.
 
     Returns:
-        {"status": "ok"} always — even if processing failed.
+        {"status": "ok"} always.
     """
-
-    # Step 1: Read raw body for signature verification BEFORE parsing JSON
     raw_body = await request.body()
 
-    # Step 2: Verify Meta signature — skip in mock mode
     if not settings.WHATSAPP_MOCK_MODE:
         signature_valid = await _verify_meta_signature(
             raw_body=raw_body,
             signature_header=request.headers.get("X-Hub-Signature-256", "")
         )
         if not signature_valid:
-            logger.warning(
-                "Webhook signature verification failed — request rejected. "
-                "This could be a spoofed request not from Meta/Interakt."
-            )
+            logger.warning("Webhook signature verification failed — rejected.")
             return {"status": "ok"}
 
-    # Step 3: Parse the payload
     try:
         payload = json.loads(raw_body)
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse webhook payload as JSON: {e}")
         return {"status": "ok"}
 
-    # Step 4: Extract message from Meta's nested payload format
     message_event = _extract_message_from_payload(payload)
 
     if message_event is None:
@@ -275,13 +250,32 @@ async def receive_webhook(request: Request, db: Session = Depends(get_db)):
     phone_number = message_event.get("phone_number")
     message_text = message_event.get("text", "")
     message_type = message_event.get("type", "text")
+    media_id     = message_event.get("media_id")
+
+    # v5.2 — Transcribe voice note if audio message
+    if message_type == "voice" and media_id:
+        access_token = getattr(settings, "WHATSAPP_ACCESS_TOKEN", "")
+        transcribed = await transcribe_voice_note(
+            media_id=media_id,
+            access_token=access_token
+        )
+        if transcribed:
+            message_text = transcribed
+            logger.info(
+                f"Voice transcribed for ****{phone_number[-4:]}: '{message_text[:50]}'"
+            )
+        else:
+            await _send_whatsapp_message(
+                phone_number=phone_number,
+                message=VOICE_TRANSCRIPTION_FAILED
+            )
+            return {"status": "ok"}
 
     logger.info(
-        f"Inbound message from ****{phone_number[-4:]} — "
+        f"Inbound from ****{phone_number[-4:]} — "
         f"type={message_type}, length={len(message_text)}"
     )
 
-    # Step 5: Process the message through the full pipeline
     response_text = await _process_inbound_message(
         phone_number=phone_number,
         message_text=message_text,
@@ -289,7 +283,6 @@ async def receive_webhook(request: Request, db: Session = Depends(get_db)):
         db=db
     )
 
-    # Step 6: Send response back to owner
     if response_text:
         await _send_whatsapp_message(
             phone_number=phone_number,
@@ -300,40 +293,31 @@ async def receive_webhook(request: Request, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# ENDPOINT 3 — POST /simulate (development only)
+# ENDPOINT 3 — POST /simulate
 # ---------------------------------------------------------------------------
 
 @router.post("/simulate", response_model=SimulateResponse)
 async def simulate_message(body: SimulateRequest):
     """
-    Simulate an inbound WhatsApp message without real WhatsApp.
-
-    Development only — disabled when WHATSAPP_MOCK_MODE=False.
-    Used to test the full pipeline without Interakt or a real phone.
+    Simulate an inbound WhatsApp text message without real WhatsApp.
+    Dev only. For voice simulation use /simulate-voice.
 
     Args:
-        body: SimulateRequest with phone, message, and type fields.
+        body: SimulateRequest with phone, message, type fields.
 
     Returns:
-        SimulateResponse with the formatted AI response and metadata.
+        SimulateResponse with formatted AI response.
 
     Raises:
-        403 if WHATSAPP_MOCK_MODE=False (disabled in production).
+        403 if WHATSAPP_MOCK_MODE=False.
     """
-
     if not settings.WHATSAPP_MOCK_MODE:
         raise HTTPException(
             status_code=403,
-            detail=(
-                "Simulate endpoint is disabled in production. "
-                "Set WHATSAPP_MOCK_MODE=True in .env to enable."
-            )
+            detail="Simulate endpoint is disabled in production."
         )
 
-    logger.info(
-        f"Simulate request: phone={body.phone}, "
-        f"message='{body.message[:50]}', type={body.type}"
-    )
+    logger.info(f"Simulate: phone={body.phone}, message='{body.message[:50]}'")
 
     language = detect_language(body.message)
 
@@ -345,25 +329,21 @@ async def simulate_message(body: SimulateRequest):
             message_type=body.type,
             db=db
         )
-
-        identity = await resolve_identity(
-            phone_number=body.phone,
-            db=db
-        )
+        identity = await resolve_identity(phone_number=body.phone, db=db)
 
         return SimulateResponse(
             response=response_text or "No response generated.",
             tenant_id=identity.tenant_id if identity else None,
             language=language,
-            formatted=True
+            formatted=True,
+            transcribed=False
         )
-
     finally:
         db.close()
 
 
 # ---------------------------------------------------------------------------
-# ENDPOINT 4 — POST /link-phone (v5.5 — called by LinkWhatsApp.tsx)
+# ENDPOINT 4 — POST /link-phone
 # ---------------------------------------------------------------------------
 
 @router.post("/link-phone", status_code=201)
@@ -374,14 +354,12 @@ def link_phone(
 ):
     """
     Link a WhatsApp phone number to the current user's tenant.
-
-    Called by LinkWhatsApp.tsx when the owner submits the link form.
-    Inserts a new row into phone_tenant_map. Returns 409 if already linked.
+    Called by LinkWhatsApp.tsx.
 
     Args:
         payload:      LinkPhoneRequest with phone_number, display_name,
                       phone_role, consent_given.
-        current_user: Injected from JWT — provides tenant_id and user_id.
+        current_user: From JWT — provides tenant_id and user_id.
         db:           Sync SQLAlchemy session.
 
     Returns:
@@ -392,20 +370,13 @@ def link_phone(
     Side effects:
         Inserts one row into phone_tenant_map.
     """
-
     if not payload.consent_given:
-        raise HTTPException(
-            status_code=400,
-            detail="consent_given must be True. User must agree before linking."
-        )
+        raise HTTPException(status_code=400, detail="consent_given must be True.")
 
     if payload.phone_role not in VALID_PHONE_ROLES:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Invalid phone_role '{payload.phone_role}'. "
-                f"Must be one of: {', '.join(VALID_PHONE_ROLES)}."
-            )
+            detail=f"Invalid phone_role. Must be one of: {', '.join(VALID_PHONE_ROLES)}."
         )
 
     existing = (
@@ -452,7 +423,7 @@ def link_phone(
 
 
 # ---------------------------------------------------------------------------
-# ENDPOINT 5 — GET /linked-phones (v5.5 — called by LinkWhatsApp.tsx)
+# ENDPOINT 5 — GET /linked-phones
 # ---------------------------------------------------------------------------
 
 @router.get("/linked-phones", response_model=LinkedPhonesListResponse)
@@ -462,21 +433,18 @@ def list_linked_phones(
 ):
     """
     List all WhatsApp numbers linked to the current user's tenant.
-
-    Called by LinkWhatsApp.tsx on page load. Returns all records
-    (active and inactive) so owners can see the full history.
+    Called by LinkWhatsApp.tsx on page load.
 
     Args:
-        current_user: Injected from JWT — provides tenant_id.
+        current_user: From JWT — provides tenant_id.
         db:           Sync SQLAlchemy session.
 
     Returns:
-        LinkedPhonesListResponse with all linked phones for this tenant.
+        LinkedPhonesListResponse with all linked phones.
 
     Side effects:
         None — read-only query.
     """
-
     phones = (
         db.query(PhoneTenantMap)
         .filter(PhoneTenantMap.tenant_id == current_user.tenant_id)
@@ -500,7 +468,7 @@ def list_linked_phones(
 
 
 # ---------------------------------------------------------------------------
-# ENDPOINT 6 — PATCH /linked-phones/{id}/deactivate (v5.5)
+# ENDPOINT 6 — PATCH /linked-phones/{id}/deactivate
 # ---------------------------------------------------------------------------
 
 @router.patch("/linked-phones/{phone_id}/deactivate", status_code=200)
@@ -510,27 +478,21 @@ def deactivate_linked_phone(
     db: Session = Depends(get_db),
 ):
     """
-    Deactivate a linked WhatsApp number without deleting it.
-
-    Sets is_active=False so the number stops receiving alerts and cannot
-    chat — but the row is preserved for audit/history.
-
-    Tenant isolation: owners can only deactivate their own tenant's numbers.
+    Deactivate a linked WhatsApp number. Row is preserved for audit history.
 
     Args:
         phone_id:     The phone_tenant_map.id to deactivate.
-        current_user: Injected from JWT — provides tenant_id for isolation.
+        current_user: From JWT — provides tenant_id for isolation.
         db:           Sync SQLAlchemy session.
 
     Returns:
         {"status": "deactivated", "id": phone_id} on success.
-        404 if phone_id not found or belongs to a different tenant.
+        404 if not found or belongs to different tenant.
         400 if already inactive.
 
     Side effects:
         Updates is_active=False on the phone_tenant_map row.
     """
-
     phone_record = (
         db.query(PhoneTenantMap)
         .filter(
@@ -541,30 +503,136 @@ def deactivate_linked_phone(
     )
 
     if not phone_record:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"Phone record id={phone_id} not found for this tenant. "
-                f"Check phone_tenant_map table."
-            )
-        )
+        raise HTTPException(status_code=404, detail=f"Phone id={phone_id} not found.")
 
     if not phone_record.is_active:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Phone record id={phone_id} is already inactive."
-        )
+        raise HTTPException(status_code=400, detail=f"Phone id={phone_id} is already inactive.")
 
     phone_record.is_active = False
     db.commit()
 
     logger.info(
-        f"Phone deactivated: id={phone_id}, "
-        f"****{phone_record.phone_number[-4:]} "
+        f"Phone deactivated: id={phone_id}, ****{phone_record.phone_number[-4:]} "
         f"for tenant_id={current_user.tenant_id}"
     )
 
     return {"status": "deactivated", "id": phone_id}
+
+
+# ---------------------------------------------------------------------------
+# ENDPOINT 7 — POST /trigger-dev-alerts
+# ---------------------------------------------------------------------------
+
+@router.post("/trigger-dev-alerts")
+async def trigger_dev_alerts(alert_type: str = "all"):
+    """
+    Manually trigger alert jobs for development testing.
+    Only works when WHATSAPP_MOCK_MODE=True.
+
+    Args:
+        alert_type: 'briefing', 'delays', 'conflicts', or 'all'
+
+    Returns:
+        {"status": "fired", "alert_type": alert_type}
+
+    Raises:
+        403 if WHATSAPP_MOCK_MODE=False.
+    """
+    if not settings.WHATSAPP_MOCK_MODE:
+        raise HTTPException(status_code=403, detail="Dev trigger only available in mock mode.")
+
+    from app.services.whatsapp_alerts import (
+        send_morning_briefings,
+        check_delayed_jobs,
+        check_scheduling_conflicts,
+    )
+
+    if alert_type in ("briefing", "all"):
+        await send_morning_briefings()
+    if alert_type in ("delays", "all"):
+        await check_delayed_jobs()
+    if alert_type in ("conflicts", "all"):
+        await check_scheduling_conflicts()
+
+    return {"status": "fired", "alert_type": alert_type}
+
+
+# ---------------------------------------------------------------------------
+# ENDPOINT 8 — POST /simulate-voice (v5.2 dev only)
+# ---------------------------------------------------------------------------
+
+@router.post("/simulate-voice", response_model=SimulateResponse)
+async def simulate_voice_message(
+    phone: str,
+    audio_file: UploadFile = File(...),
+):
+    """
+    Simulate a WhatsApp voice note by uploading a real audio file.
+    Dev only — tests the full voice pipeline end to end.
+
+    Upload an .ogg, .mp3, or .wav file. The file is transcribed via
+    Groq Whisper then processed through the normal AI pipeline.
+
+    Args:
+        phone:      E.164 phone number e.g. +919876543210
+        audio_file: Audio file upload (ogg, mp3, wav, m4a supported)
+
+    Returns:
+        SimulateResponse with transcribed=True and AI response.
+        The language field contains the detected language plus
+        a preview of the transcribed text for verification.
+
+    Raises:
+        403 if WHATSAPP_MOCK_MODE=False.
+        400 if audio file is empty or transcription fails.
+    """
+    if not settings.WHATSAPP_MOCK_MODE:
+        raise HTTPException(status_code=403, detail="Voice simulate disabled in production.")
+
+    audio_bytes = await audio_file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Audio file is empty.")
+
+    logger.info(
+        f"Voice simulate: phone={phone}, "
+        f"file={audio_file.filename}, size={len(audio_bytes)} bytes"
+    )
+
+    # Transcribe via Groq Whisper
+    transcribed_text = await transcribe_audio_bytes(
+        audio_bytes=audio_bytes,
+        filename=audio_file.filename or "voice_note.ogg"
+    )
+
+    if not transcribed_text:
+        raise HTTPException(
+            status_code=400,
+            detail="Transcription failed. Check GROQ_API_KEY and audio file validity."
+        )
+
+    logger.info(f"Voice transcribed: '{transcribed_text[:100]}'")
+
+    language = detect_language(transcribed_text)
+
+    db = SessionLocal()
+    try:
+        response_text = await _process_inbound_message(
+            phone_number=phone,
+            message_text=transcribed_text,
+            message_type="voice",
+            db=db
+        )
+        identity = await resolve_identity(phone_number=phone, db=db)
+
+        return SimulateResponse(
+            response=response_text or "No response generated.",
+            tenant_id=identity.tenant_id if identity else None,
+            language=f"{language} | transcribed: {transcribed_text[:80]}",
+            formatted=True,
+            transcribed=True
+        )
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -578,13 +646,15 @@ async def _process_inbound_message(
     db: Session
 ) -> str | None:
     """
-    Core message processing pipeline — shared by webhook and simulate endpoints.
+    Core message processing pipeline — shared by all inbound message endpoints.
 
-    Handles the complete flow from raw message to formatted response.
+    Voice messages arrive here already transcribed. They are treated
+    identically to text messages except for the [Voice] session prefix
+    which tells the AI the message was spoken rather than typed.
 
     Args:
         phone_number:  E.164 format phone number.
-        message_text:  The message text (already transcribed if voice).
+        message_text:  Message text (already transcribed if voice).
         message_type:  'text' or 'voice'.
         db:            Sync Session for DB operations.
 
@@ -595,25 +665,18 @@ async def _process_inbound_message(
     Side effects:
         Reads/writes Redis session.
         Calls Groq AI via whatsapp_bridge.
-        Writes to whatsapp_conversations table if consent given.
-        May write to main DB tables via whatsapp_actions (on confirmation).
+        Writes to whatsapp_conversations if consent given.
+        May write to DB via whatsapp_actions on confirmation.
     """
 
-    # Step 1: Resolve identity — phone → tenant
-    identity = await resolve_identity(
-        phone_number=phone_number,
-        db=db
-    )
+    # Step 1: Resolve identity
+    identity = await resolve_identity(phone_number=phone_number, db=db)
 
-    # Phone not registered — send instructions and stop
     if identity is None:
-        logger.info(
-            f"Unregistered phone ****{phone_number[-4:]} — "
-            f"sending registration instructions."
-        )
+        logger.info(f"Unregistered phone ****{phone_number[-4:]}.")
         return WELCOME_UNREGISTERED
 
-    # Step 2: Handle first-time consent
+    # Step 2: First-time consent
     if not identity.consent_given:
         if message_text.lower().strip() == CONSENT_TRIGGER:
             record_consent(phone_number=phone_number, db=db)
@@ -625,13 +688,11 @@ async def _process_inbound_message(
         else:
             return CONSENT_REQUEST
 
-    # Step 3: Check for pending confirmation state machine
-    # If a write action was proposed in the previous message, handle it first.
+    # Step 3: Pending confirmation state machine
     pending_action = await get_pending_action(phone_number=phone_number)
 
     if pending_action:
         if is_confirmation(message_text):
-            # Owner confirmed — execute the DB write
             try:
                 success, result_message = await execute_action(
                     pending_action=pending_action,
@@ -641,10 +702,7 @@ async def _process_inbound_message(
                 await clear_pending_action(phone_number=phone_number)
                 return result_message
             except Exception as e:
-                logger.error(
-                    f"execute_action failed for ****{phone_number[-4:]}: {e}. "
-                    f"Clearing pending action to unblock conversation."
-                )
+                logger.error(f"execute_action failed for ****{phone_number[-4:]}: {e}.")
                 await clear_pending_action(phone_number=phone_number)
                 return "Action complete nahi hua. Dobara try karein."
 
@@ -653,31 +711,21 @@ async def _process_inbound_message(
             return "Theek hai, action cancel kar diya. Kuch aur poochein?"
 
         else:
-            # Owner sent something else while action pending — remind them
-            confirmation_reminder = build_confirmation_prompt(
+            reminder = build_confirmation_prompt(
                 action_type=ActionType(pending_action["action_type"]),
                 action_params=pending_action["action_params"]
             )
-            return (
-                f"Ek action abhi bhi pending hai:\n\n"
-                f"{confirmation_reminder}"
-            )
+            return f"Ek action abhi bhi pending hai:\n\n{reminder}"
 
-    # Step 4: Handle reset commands
+    # Step 4: Reset commands
     if message_text.lower().strip() in ("reset", "naya", "clear", "start over"):
         await clear_session(phone_number=phone_number)
-        return (
-            "Session reset ho gaya. Fresh start!\n"
-            "Poochein: 'aaj ka schedule kya hai'"
-        )
+        return "Session reset ho gaya. Fresh start!\nPoochein: 'aaj ka schedule kya hai'"
 
     # Step 5: Detect language
     language = detect_language(message_text)
 
-    # Step 6: Detect write intent BEFORE calling AI
-    # If the user is asking us to change something (mark absent, maintenance etc.)
-    # we intercept it here, store a pending action, and ask for confirmation.
-    # Only read/query messages go through to the AI in Step 7+.
+    # Step 6: Detect write intent
     intent_db = SessionLocal()
     try:
         action_type, action_params = detect_write_intent(
@@ -689,7 +737,6 @@ async def _process_inbound_message(
         intent_db.close()
 
     if action_type is not None:
-        # Write intent detected — store pending action and return confirmation prompt
         await store_pending_action(
             phone_number=phone_number,
             action_type=action_type,
@@ -699,14 +746,11 @@ async def _process_inbound_message(
             action_type=action_type,
             action_params=action_params,
         )
-        logger.info(
-            f"Write intent '{action_type.value}' detected for "
-            f"****{phone_number[-4:]} — sending confirmation prompt."
-        )
+        logger.info(f"Write intent '{action_type.value}' for ****{phone_number[-4:]}.")
         return confirmation_prompt
 
-    # Step 6b: No write intent — add user message to session for AI
-    # Prefix voice messages so AI knows they were spoken not typed
+    # Step 6b: Add user message to session
+    # Voice messages prefixed with [Voice] so AI knows context
     content_for_session = (
         f"[Voice] {message_text}" if message_type == "voice"
         else message_text
@@ -718,12 +762,10 @@ async def _process_inbound_message(
         content=content_for_session
     )
 
-    # Step 7: Get conversation history for AI
-    # get_ai_history() returns history stripped of timestamps — Groq-safe format
+    # Step 7: Get conversation history
     ai_history = await get_ai_history(phone_number=phone_number)
 
-    # Step 8: Call AI via bridge
-    # Need a fresh sync db session for run_ai_chat() which uses sync SQLAlchemy
+    # Step 8: Call AI
     sync_db = SessionLocal()
     try:
         raw_ai_response = await active_bridge.process_message(
@@ -734,18 +776,12 @@ async def _process_inbound_message(
             language=language
         )
     except Exception as e:
-        logger.error(
-            f"AI processing failed for ****{phone_number[-4:]}: {e}. "
-            f"Sending error message to owner."
-        )
-        return (
-            "Maafi kijiye, abhi AI service available nahi hai. "
-            "Thodi der baad try karein."
-        )
+        logger.error(f"AI failed for ****{phone_number[-4:]}: {e}.")
+        return "Maafi kijiye, abhi AI service available nahi hai. Thodi der baad try karein."
     finally:
         sync_db.close()
 
-    # Step 9: Format response for WhatsApp (strip markdown, truncate)
+    # Step 9: Format for WhatsApp
     formatted_response = format_for_whatsapp(raw_ai_response)
 
     # Step 10: Add AI response to session
@@ -755,7 +791,7 @@ async def _process_inbound_message(
         content=formatted_response
     )
 
-    # Step 11: Log conversation if consent given
+    # Step 11: Log if consent given
     if identity.consent_given:
         await _log_conversation(
             phone_number=phone_number,
@@ -785,47 +821,29 @@ async def _process_inbound_message(
 # PRIVATE HELPERS
 # ---------------------------------------------------------------------------
 
-async def _verify_meta_signature(
-    raw_body: bytes,
-    signature_header: str
-) -> bool:
+async def _verify_meta_signature(raw_body: bytes, signature_header: str) -> bool:
     """
-    Verify that an inbound webhook request was signed by Meta.
-
-    Meta signs every webhook with HMAC-SHA256 using your app secret.
-    We recompute the signature and compare — if they match, the request
-    is genuinely from Meta/Interakt.
+    Verify that a webhook request was signed by Meta using HMAC-SHA256.
 
     Args:
-        raw_body:         Raw request body bytes — must be raw, not parsed.
-        signature_header: The X-Hub-Signature-256 header value from Meta.
-                          Format: "sha256=<hex_digest>"
+        raw_body:         Raw request bytes — must be raw before JSON parsing.
+        signature_header: X-Hub-Signature-256 header value from Meta.
 
     Returns:
-        True if signature is valid.
-        False if signature is missing, malformed, or does not match.
+        True if signature valid, False otherwise.
 
     Side effects:
         None — pure verification function.
     """
-
     if not signature_header or not signature_header.startswith("sha256="):
-        logger.warning(
-            "Missing or malformed X-Hub-Signature-256 header. "
-            "Request rejected. Check Interakt webhook configuration."
-        )
+        logger.warning("Missing or malformed X-Hub-Signature-256 header.")
         return False
 
     if not settings.WHATSAPP_APP_SECRET:
-        logger.error(
-            "WHATSAPP_APP_SECRET not set in .env. "
-            "Cannot verify webhook signatures. "
-            "Set this value from Meta developer dashboard."
-        )
+        logger.error("WHATSAPP_APP_SECRET not set in .env.")
         return False
 
-    received_signature = signature_header[7:]  # Remove "sha256=" prefix
-
+    received_signature = signature_header[7:]
     expected_signature = hmac.new(
         key=settings.WHATSAPP_APP_SECRET.encode("utf-8"),
         msg=raw_body,
@@ -833,34 +851,31 @@ async def _verify_meta_signature(
     ).hexdigest()
 
     is_valid = hmac.compare_digest(received_signature, expected_signature)
-
     if not is_valid:
-        logger.warning(
-            "Webhook signature mismatch — possible spoofed request. "
-            "Check WHATSAPP_APP_SECRET in .env matches Meta app secret."
-        )
+        logger.warning("Webhook signature mismatch — possible spoofed request.")
 
     return is_valid
 
 
 def _extract_message_from_payload(payload: dict) -> dict | None:
     """
-    Extract the message data from Meta's nested webhook payload format.
+    Extract message data from Meta's nested webhook payload.
 
-    Meta payload structure (simplified):
-      entry -> changes -> value -> messages -> [0] -> from + type + text.body
+    Meta payload: entry -> changes -> value -> messages -> [0]
+
+    v5.2: Also extracts media_id for audio messages so the webhook
+    handler can download and transcribe the voice note.
 
     Args:
-        payload: The parsed JSON payload from Meta/Interakt.
+        payload: Parsed JSON from Meta/Interakt webhook.
 
     Returns:
-        Dict with phone_number, text, type keys.
-        None if no message found (status update, read receipt etc.).
+        Dict with phone_number, text, type, and optionally media_id.
+        None if no message found (status updates, read receipts etc.).
 
     Side effects:
         None — pure extraction function.
     """
-
     try:
         entry    = payload.get("entry", [{}])[0]
         changes  = entry.get("changes", [{}])[0]
@@ -875,47 +890,55 @@ def _extract_message_from_payload(payload: dict) -> dict | None:
         phone_number = message.get("from", "")
 
         if message_type == "text":
-            text = message.get("text", {}).get("body", "")
+            text     = message.get("text", {}).get("body", "")
+            media_id = None
+
         elif message_type == "audio":
-            text = "[Voice message — transcription coming in v5.2]"
+            # v5.2 — extract media_id for Whisper transcription
+            # text is empty here — filled after transcription in receive_webhook()
+            media_id     = message.get("audio", {}).get("id")
+            text         = ""
             message_type = "voice"
+
         else:
             logger.info(f"Unsupported message type '{message_type}' — ignoring.")
             return None
 
-        if not phone_number or not text:
+        if not phone_number:
             return None
 
-        return {
+        # Text messages must have content — voice messages will be transcribed
+        if message_type == "text" and not text:
+            return None
+
+        result = {
             "phone_number": phone_number,
             "text":         text,
-            "type":         message_type
+            "type":         message_type,
         }
+
+        if media_id:
+            result["media_id"] = media_id
+
+        return result
 
     except (IndexError, KeyError, TypeError) as e:
         logger.error(f"Failed to extract message from payload: {e}")
         return None
 
 
-async def _send_whatsapp_message(
-    phone_number: str,
-    message: str
-) -> None:
+async def _send_whatsapp_message(phone_number: str, message: str) -> None:
     """
-    Send a WhatsApp message to a phone number via Interakt API.
-
-    In mock mode: logs the message to console instead of calling Interakt.
-    In production: makes HTTP POST to Interakt API.
+    Send a WhatsApp message via Interakt API.
+    Mock mode: logs to console. Production: POST to Interakt.
 
     Args:
-        phone_number: E.164 format phone number e.g. +919876543210
-        message:      Plain text message (already formatted, no markdown).
+        phone_number: E.164 format e.g. +919876543210
+        message:      Plain text (already formatted, no markdown).
 
     Side effects:
-        Mock mode: writes to log.
-        Production: HTTP POST to Interakt API.
+        Mock: writes to log. Production: HTTP POST to Interakt API.
     """
-
     if settings.WHATSAPP_MOCK_MODE:
         logger.info(
             f"[MOCK SEND] To=****{phone_number[-4:]} "
@@ -924,10 +947,7 @@ async def _send_whatsapp_message(
         return
 
     if not settings.INTERAKT_API_KEY:
-        logger.error(
-            "INTERAKT_API_KEY not set but WHATSAPP_MOCK_MODE=False. "
-            "Cannot send message. Set INTERAKT_API_KEY in .env."
-        )
+        logger.error("INTERAKT_API_KEY not set. Cannot send message.")
         return
 
     phone_without_plus = phone_number.lstrip("+")
@@ -948,22 +968,15 @@ async def _send_whatsapp_message(
                 },
                 timeout=10.0
             )
-
             if response.status_code != 200:
                 logger.error(
-                    f"Interakt API error {response.status_code} "
+                    f"Interakt error {response.status_code} "
                     f"for ****{phone_number[-4:]}: {response.text[:200]}"
                 )
-
     except httpx.TimeoutException:
-        logger.error(
-            f"Interakt API timeout for ****{phone_number[-4:]}. "
-            f"Message not delivered."
-        )
+        logger.error(f"Interakt timeout for ****{phone_number[-4:]}.")
     except Exception as e:
-        logger.error(
-            f"Failed to send via Interakt to ****{phone_number[-4:]}: {e}"
-        )
+        logger.error(f"Interakt send failed for ****{phone_number[-4:]}: {e}")
 
 
 async def _log_conversation(
@@ -977,24 +990,21 @@ async def _log_conversation(
     db: Session
 ) -> None:
     """
-    Log a conversation message to the whatsapp_conversations table.
-
-    Only called when identity.consent_given is True.
-    This builds the Factory GPT training dataset.
+    Log a conversation message to whatsapp_conversations table.
+    Only called when consent_given is True — builds Factory GPT training data.
 
     Args:
         phone_number:  E.164 phone number.
         tenant_id:     For multi-tenant isolation.
         industry_type: Cached for training data filtering.
         role:          'user' or 'assistant'.
-        content:       Message text.
+        content:       Message text (transcribed text for voice).
         content_type:  'text', 'voice', or 'alert'.
         language:      'hindi', 'hinglish', or 'english'.
         db:            Session for DB write.
 
     Side effects:
-        Inserts one row into whatsapp_conversations table.
-        Failure is logged but never blocks the main message flow.
+        Inserts one row. Failure logged but never blocks message flow.
     """
     try:
         conversation_log = WhatsAppConversation(
@@ -1005,7 +1015,7 @@ async def _log_conversation(
             content_type=content_type,
             language=language,
             industry_type=industry_type,
-            consent_given=True  # Only called when consent is True
+            consent_given=True
         )
         db.add(conversation_log)
         db.commit()
@@ -1013,43 +1023,5 @@ async def _log_conversation(
     except Exception as e:
         logger.error(
             f"Failed to log conversation for ****{phone_number[-4:]}: {e}. "
-            f"Message was still processed and sent. Only logging failed."
+            f"Message still processed. Only logging failed."
         )
-# ---------------------------------------------------------------------------
-# ENDPOINT 7 — POST /trigger-dev-alerts (dev only)
-# ---------------------------------------------------------------------------
-
-@router.post("/trigger-dev-alerts")
-async def trigger_dev_alerts(alert_type: str = "all"):
-    """
-    Manually trigger alert jobs for development testing.
-    Only works when WHATSAPP_MOCK_MODE=True.
-
-    Args:
-        alert_type: 'briefing', 'delays', 'conflicts', or 'all'
-
-    Returns:
-        {"status": "fired", "alert_type": alert_type}
-    """
-    if not settings.WHATSAPP_MOCK_MODE:
-        raise HTTPException(
-            status_code=403,
-            detail="Dev trigger only available in mock mode."
-        )
-
-    from app.services.whatsapp_alerts import (
-        send_morning_briefings,
-        check_delayed_jobs,
-        check_scheduling_conflicts,
-    )
-
-    if alert_type == "briefing" or alert_type == "all":
-        await send_morning_briefings()
-
-    if alert_type == "delays" or alert_type == "all":
-        await check_delayed_jobs()
-
-    if alert_type == "conflicts" or alert_type == "all":
-        await check_scheduling_conflicts()
-
-    return {"status": "fired", "alert_type": alert_type}
