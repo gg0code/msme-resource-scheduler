@@ -5,7 +5,7 @@ import { useRef, useState } from 'react'
 import { Upload, Download, CheckCircle2, XCircle, AlertTriangle, X, Loader2, FileText, ChevronDown } from 'lucide-react'
 import apiClient from '../../api/client'
 import { useLabels } from '../../context/IndustryContext'
-import type { ImportResult } from '../../types'
+import type { ImportResult } from '../../types/types_index'
 
 interface Props {
   resource: 'employees' | 'machines' | 'skills'

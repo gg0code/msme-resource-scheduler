@@ -5,7 +5,7 @@
  * Route: /jobs/:jobId/print  (auth required, no sidebar)
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import apiClient from '../api/client'
@@ -74,7 +74,7 @@ function fmtDuration(mins: number) {
 
 function InfoRow({ label, value, valueStyle, span }: {
   label: string; value: string;
-  valueStyle?: React.CSSProperties; span?: boolean
+  valueStyle?: CSSProperties; span?: boolean
 }) {
   return (
     <div style={{
@@ -151,7 +151,7 @@ function CompletedCard({ job, printedAt }: { job: JobDetail; printedAt: Date }) 
 
       {/* Footer */}
       <div style={s.cardFooter}>
-        <span>MSME Resource Scheduler</span>
+        <span>ZetaOps Copilot</span>
         <span>Completed Job Record</span>
         <span>Job #{job.id}</span>
       </div>
@@ -184,8 +184,9 @@ export default function PrintJobCard() {
         const tokenRes = await apiClient.post(`/api/jobs/${jobId}/scan-tokens`)
         setData(tokenRes.data)
       }
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Could not load job data')
+    } catch (err: unknown) {
+      const msg = (err as {response?:{data?:{detail?:string}}})?.response?.data?.detail
+      setError(msg || 'Could not load job data')
     } finally {
       setLoading(false)
     }
@@ -328,7 +329,7 @@ export default function PrintJobCard() {
 
           {/* Footer */}
           <div style={s.cardFooter}>
-            <span>MSME Resource Scheduler</span>
+            <span>ZetaOps Copilot</span>
             <span>QR codes expire: {expiryDisplay}</span>
             <span>Job #{data.job_id} · {data.steps.length} steps</span>
           </div>
@@ -349,7 +350,7 @@ export default function PrintJobCard() {
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const s: Record<string, React.CSSProperties> = {
+const s: Record<string, CSSProperties> = {
   loadPage:      { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' },
   loadCard:      { background: '#fff', borderRadius: '1rem', padding: '2rem', textAlign: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' },
   spinner:       { width: '40px', height: '40px', border: '4px solid #e2e8f0', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 1rem' },

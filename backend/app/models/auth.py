@@ -1,7 +1,7 @@
 """app/models/auth.py — V1.3
 Added: industry_type to Tenant (v4.0.1)
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, text, Date
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -15,7 +15,7 @@ class Tenant(Base):
     plan       = Column(String(20), nullable=False, default="free")
     is_active  = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     # AI usage tracking (migration 007)
     ai_queries_today = Column(Integer, default=0, nullable=False, server_default='0')
@@ -43,7 +43,7 @@ class User(Base):
     role            = Column(String(20), nullable=False, default="viewer")
     is_active       = Column(Boolean, nullable=False, default=True)
     created_at      = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
-    updated_at      = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=datetime.utcnow, nullable=False)
+    updated_at      = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     tenant         = relationship("Tenant", back_populates="users")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
 

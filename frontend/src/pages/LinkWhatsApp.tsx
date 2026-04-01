@@ -7,10 +7,10 @@
 // BRANCH:  v5-whatsapp
 // CREATED: 2026-03-29
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { MessageCircle, Phone, Trash2, Plus, CheckCircle, AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
-import { tokenStore } from '../auth/apiClient'
+import { tokenStore } from '../api/client'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const API_BASE        = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -77,7 +77,8 @@ export default function LinkWhatsApp() {
       const data = await res.json()
       // Backend returns { phones: LinkedPhone[] }
       setLinkedPhones(data.phones ?? [])
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const _errMsg = err instanceof Error ? err.message : 'Unknown error'
       // Non-fatal — show empty list, user can still link
       console.error('[LinkWhatsApp] fetchLinkedPhones failed:', err.message)
       setLinkedPhones([])
@@ -92,7 +93,7 @@ export default function LinkWhatsApp() {
    * Args: form submit event
    * Side effects: refreshes linked phones list, clears form on success.
    */
-  async function handleLink(e: React.FormEvent) {
+  async function handleLink(e: FormEvent) {
     e.preventDefault()
     setErrorMsg(null)
     setSuccessMsg(null)
@@ -135,8 +136,9 @@ export default function LinkWhatsApp() {
       setConsent(false)
       // Refresh list
       await fetchLinkedPhones()
-    } catch (err: any) {
-      setErrorMsg(err.message ?? 'Something went wrong. Check backend logs.')
+    } catch (err: unknown) {
+      const _errMsg = err instanceof Error ? err.message : 'Unknown error'
+      setErrorMsg(_errMsg ?? 'Something went wrong. Check backend logs.')
     } finally {
       setSubmitting(false)
     }
@@ -157,8 +159,9 @@ export default function LinkWhatsApp() {
       })
       if (!res.ok) throw new Error(`Server returned ${res.status}`)
       await fetchLinkedPhones()
-    } catch (err: any) {
-      setErrorMsg(`Deactivate failed: ${err.message}. Check backend logs at routers/whatsapp.py.`)
+    } catch (err: unknown) {
+      const _errMsg = err instanceof Error ? err.message : 'Unknown error'
+      setErrorMsg(`Deactivate failed: ${_errMsg}. Check backend logs at routers/whatsapp.py.`)
     }
   }
 

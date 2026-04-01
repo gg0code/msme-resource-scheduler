@@ -5,7 +5,7 @@ Added tenant_id to Machine and MachineSkillRequirement.
 
 from sqlalchemy import Column, Integer, String, Float, Boolean, Date, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
 
 
@@ -20,8 +20,8 @@ class Machine(Base):
     location_bay          = Column(String(50), nullable=True)
     status                = Column(String(30), nullable=False, default="Operational")
     hourly_rate           = Column(Float, nullable=True)
-    created_at            = Column(DateTime, default=datetime.utcnow)
-    updated_at            = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at            = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at            = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     skill_requirements     = relationship("MachineSkillRequirement", back_populates="machine", cascade="all, delete-orphan")
     availability_overrides = relationship(

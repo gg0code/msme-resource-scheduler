@@ -57,7 +57,7 @@ USAGE:
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
 
@@ -405,7 +405,7 @@ async def add_message_to_session(
     new_message = {
         "role": role,
         "content": content,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
     history.append(new_message)

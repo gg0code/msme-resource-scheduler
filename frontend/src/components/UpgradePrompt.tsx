@@ -58,7 +58,7 @@ export default function UpgradePrompt({ feature, onClose }: UpgradePromptProps) 
   }
 
   const waMessage = encodeURIComponent(
-    `Hi, I'd like to enable the ${copy.title} feature on my MSME Resource Scheduler account.`
+    `Hi, I'd like to enable the ${copy.title} feature on my ZetaOps Copilot account.`
   )
   const waLink = `https://wa.me/${WHATSAPP_NUMBER}?text=${waMessage}`
 

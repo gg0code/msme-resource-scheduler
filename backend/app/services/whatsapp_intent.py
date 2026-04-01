@@ -166,7 +166,7 @@ def _extract_employee_name(user_message: str) -> str | None:
 # HELPER — look up employee id by name in DB
 # ---------------------------------------------------------------------------
 
-def _find_employee_id(name: str, tenant_id: int, db: Session) -> int | None:
+def _find_employee_id(name: str, tenant_id: int, db: Session) -> tuple[int | None, str | None]:
     """
     Look up an employee's ID by partial name match within a tenant.
 

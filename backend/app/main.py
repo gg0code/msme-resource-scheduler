@@ -3,6 +3,7 @@ app/main.py — V3.9.4
 Added: resource_availability router (/api/jobs/{job_id}/resource-availability)
 v5-whatsapp: Added WhatsApp Copilot router + APScheduler startup/shutdown
 """
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -25,6 +26,7 @@ from app.routers import (
 # v5-whatsapp — WhatsApp Copilot router and alert scheduler
 from app.routers.whatsapp import router as whatsapp_router
 from app.services.whatsapp_alerts import start_scheduler, stop_scheduler
+from app.tasks.auto_advance import auto_advance_loop
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -51,6 +53,7 @@ async def startup_event():
     morning briefing at 7am IST, job delay checks, conflict checks.
     """
     start_scheduler()
+    asyncio.create_task(auto_advance_loop())  # auto-complete overdue steps every 15 min
 
 
 @app.on_event("shutdown")

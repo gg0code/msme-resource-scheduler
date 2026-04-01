@@ -11,8 +11,9 @@ import {
   useEffect,
   useRef,
   useState,
-} from "react";
-import { tokenStore } from "./apiClient";   // keeps axios in sync
+  type ReactNode,
+} from "react"
+import { tokenStore } from "../api/client"  // single HTTP client source of truth
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -51,14 +52,15 @@ export interface RegisterPayload {
 // ── Context ───────────────────────────────────────────────────────────────────
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
     accessToken: null,
     isLoading: true,
   });
 
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const silentRefreshRef   = useRef<(() => void) | null>(null);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const setAuth = useCallback((accessToken: string, user: AuthUser) => {
@@ -73,10 +75,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
   }, []);
 
-  const scheduleRefresh = (ms: number) => {
+  const scheduleRefresh = useCallback((ms: number) => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = setTimeout(() => silentRefresh(), ms);
-  };
+    refreshTimerRef.current = setTimeout(() => { silentRefreshRef.current?.() }, ms);
+  }, []);
 
   // ── Silent refresh (called on load + timer) ────────────────────────────────
   const silentRefresh = useCallback(async () => {
@@ -95,8 +97,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clearAuth, setAuth]);
 
+  // Keep ref in sync so scheduleRefresh can call it without circular deps
+  silentRefreshRef.current = silentRefresh
+
   // Restore session on mount
-  useEffect(() => { silentRefresh(); }, [silentRefresh]);
+  useEffect(() => { silentRefresh() }, [silentRefresh]);
 
   // ── Auth actions ───────────────────────────────────────────────────────────
   const login = useCallback(async (email: string, password: string) => {

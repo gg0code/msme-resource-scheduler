@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { Job } from '../types'
+import type { Job } from '../types/types_index'
 
 export const jobsApi = {
   list: ()                        => apiClient.get<Job[]>('/api/jobs/').then(r => r.data),

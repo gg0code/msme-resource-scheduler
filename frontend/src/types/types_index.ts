@@ -1,126 +1,237 @@
-// Shared TypeScript interfaces — single source of truth for all pages
+// src/types/types_index.ts
+// ─────────────────────────────────────────────────────────────────────────────
+// Single source of truth for all shared domain interfaces.
+// Industry config types live in src/config/industries/types.ts — do not
+// duplicate them here. Import from there if needed.
+//
+// Rules:
+//   - All optional fields use T | null (never undefined) — matches FastAPI JSON
+//   - Arrays that may be missing from API use optional ?: [] pattern
+//   - No implicit any — every field explicitly typed
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Skills ───────────────────────────────────────────────────────────────────
 
 export interface Skill {
-  id: number
-  name: string
-  category: string
-  is_premium: boolean
+  id:          number
+  name:        string
+  category:    string
+  is_premium:  boolean
+  is_active:   boolean
   description: string | null
 }
 
 export interface EmployeeSkill {
-  id: number
-  skill_id: number
+  id:          number
+  skill_id:    number
   skill_level: string
 }
 
+// ── Employees ─────────────────────────────────────────────────────────────────
+
 export interface Employee {
-  id: number
-  full_name: string
-  department: string | null
-  employment_type: string
+  id:                    number
+  full_name:             string
+  department:            string | null
+  employment_type:       string
   base_availability_pct: number
-  status: string
-  contact_number: string | null
-  join_date: string | null
-  hourly_rate: number | null
-  overtime_rate: number | null
-  skills: EmployeeSkill[]
+  status:                string
+  contact_number:        string | null
+  join_date:             string | null
+  hourly_rate:           number | null
+  overtime_rate:         number | null
+  skills:                EmployeeSkill[]
 }
 
+// ── Machines ──────────────────────────────────────────────────────────────────
+
 export interface MachineSkillReq {
-  id: number
-  skill_id: number
-  min_skill_level: string
+  id:                number
+  skill_id:          number
+  min_skill_level:   string
   employees_required: number
 }
 
 export interface Machine {
-  id: number
-  name: string
-  machine_type: string | null
+  id:                    number
+  name:                  string
+  machine_type:          string | null
   base_availability_pct: number
-  location_bay: string | null
-  status: string
-  hourly_rate: number | null
-  skill_requirements: MachineSkillReq[]
+  location_bay:          string | null
+  status:                string
+  hourly_rate:           number | null
+  skill_requirements:    MachineSkillReq[]
 }
 
+// ── Jobs ──────────────────────────────────────────────────────────────────────
+
 export interface SkillReq {
-  id?: number
-  skill_id: number
-  min_skill_level: string
+  id?:                number
+  skill_id:           number
+  min_skill_level:    string
   employees_required: number
 }
 
 export interface RawMaterial {
-  name: string
-  quantity: number
-  unit: string
+  name:      string
+  quantity:  number
+  unit:      string
   unit_cost: number
 }
 
 export interface AssignedEmployee {
-  id: number
-  full_name: string
+  id:         number
+  full_name:  string
   department: string | null
 }
 
 export interface AssignedMachine {
-  id: number
-  name: string
+  id:           number
+  name:         string
   machine_type: string | null
 }
 
+export interface TentativeBreakdown {
+  employee_cost: number | null
+  machine_cost:  number | null
+  material_cost: number | null
+  misc_cost:     number | null
+  total_cost:    number | null
+  hours:         number | null
+}
+
+export interface JobConflict {
+  resource_type: string
+  resource_name: string
+  reason:        string
+}
+
+export type StartMode = 'right_away' | 'pick_a_date' | 'flexible'
+export type TimerStatus = 'idle' | 'running' | 'paused' | 'ended'
+export type JobStatus =
+  | 'Draft'
+  | 'Pending Assignment'
+  | 'Scheduled'
+  | 'In Progress'
+  | 'Completed'
+  | 'Cancelled'
+  | 'Stopped'
+
 export interface Job {
-  id: number
-  name: string
-  customer: string | null
-  description: string | null
-  start_date: string
-  end_date: string
-  estimated_hours_per_day: number
-  tentative_profit: number | null
-  order_value: number | null
-  misc_cost: number | null
-  priority: string
-  status: string
-  notes: string | null
-  skill_requirements: (SkillReq & { id: number })[]
-  raw_materials: RawMaterial[]
-  assigned_employees: AssignedEmployee[]
-  assigned_machines: AssignedMachine[]
-  timer_status: 'idle' | 'running' | 'paused' | 'ended'
-  actual_start_at: string | null
-  actual_end_at: string | null
-  paused_seconds: number
-  timer_log: { event: string; timestamp: string }[]
-  created_at: string | null
+  id:                       number
+  name:                     string
+  customer:                 string | null
+  description:              string | null
+  start_date:               string
+  end_date:                 string
+  earliest_date:            string | null
+  latest_date:              string | null
+  estimated_hours_per_day:  number
+  tentative_profit:         number | null
+  order_value:              number | null
+  misc_cost:                number | null
+  priority:                 string
+  status:                   JobStatus
+  start_mode:               StartMode
+  is_locked:                boolean
+  has_conflict:             boolean
+  notes:                    string | null
+  job_type:                 string | null
+  quantity:                 number | null
+  invoice_number:           string | null
+  payment_status:           string | null
+  skill_requirements:       (SkillReq & { id: number })[]
+  raw_materials:            RawMaterial[]
+  assigned_employees:       AssignedEmployee[]
+  assigned_machines:        AssignedMachine[]
+  timer_status:             TimerStatus
+  timer_log:                { event: string; timestamp: string }[]
+  actual_start_at:          string | null
+  actual_end_at:            string | null
+  actual_hours:             number | null
+  paused_seconds:           number
+  has_steps:                boolean
+  conflicts:                JobConflict[]
+  tentative_breakdown:      TentativeBreakdown | null
+  actual_breakdown:         TentativeBreakdown | null
+  created_at:               string | null
+  status_icon:              string
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export interface DashboardJob {
+  id:                  number
+  name:                string
+  customer:            string | null
+  priority:            string
+  status:              JobStatus
+  status_icon:         string
+  start_date:          string
+  end_date:            string
+  has_conflict:        boolean
+  timer_status:        TimerStatus
+  paused_seconds:      number
+  actual_start_at:     string | null
+  actual_end_at:       string | null
+  tentative_profit:    number | null
+  order_value:         number | null
+  tentative_breakdown: TentativeBreakdown | null
+  actual_breakdown:    TentativeBreakdown | null
+  // Optional — may be missing from dashboard API response,
+  // fetched on demand via GET /api/jobs/{id} on card expand
+  assigned_employees?: AssignedEmployee[]
+  assigned_machines?:  AssignedMachine[]
 }
 
 export interface DashboardData {
-  total_active_jobs: number
-  available_machines: number
+  total_active_jobs:   number
+  available_machines:  number
   available_employees: number
-  jobs_by_status: Record<string, number>
-  upcoming_jobs_this_week: {
-    id: number; name: string; start_date: string; end_date: string
-    priority: string; status: string; tentative_profit: number | null
-  }[]
+  jobs_by_status:      Record<string, number>
+  jobs:                DashboardJob[]
 }
 
+// ── Availability ──────────────────────────────────────────────────────────────
+
 export interface AvailabilityOverride {
-  id: number
-  employee_id: number | null
-  machine_id: number | null
-  date_from: string
-  date_to: string
+  id:               number
+  employee_id:      number | null
+  machine_id:       number | null
+  date_from:        string
+  date_to:          string
   availability_pct: number
-  reason: string | null
+  reason:           string | null
 }
+
+// ── Import ────────────────────────────────────────────────────────────────────
 
 export interface ImportResult {
   rows_imported: number
-  rows_failed: number
-  errors: string[]
+  rows_failed:   number
+  errors:        string[]
+}
+
+// ── Job Steps ─────────────────────────────────────────────────────────────────
+
+export interface JobStep {
+  id:               number
+  job_id:           number
+  sequence_no:      number
+  name:             string
+  step_type:        string
+  duration_minutes: number
+  status:           'locked' | 'ready' | 'in_progress' | 'complete'
+}
+
+// ── Plan Limits ───────────────────────────────────────────────────────────────
+
+export interface PlanLimits {
+  employees_used:  number
+  employees_limit: number | null
+  machines_used:   number
+  machines_limit:  number | null
+  jobs_used:       number
+  jobs_limit:      number | null
+  plan:            string
 }

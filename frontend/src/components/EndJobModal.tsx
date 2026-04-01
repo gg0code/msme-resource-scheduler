@@ -122,8 +122,9 @@ export default function EndJobModal({ jobId, jobName, onConfirm, onClose }: Prop
     setConfirming(true)
     try {
       await onConfirm(selectedEmpIds, selectedMacIds)
-    } catch (e: any) {
-      setError(e?.response?.data?.detail ?? 'Failed to complete job')
+    } catch (e: unknown) {
+      const msg = (e as {response?:{data?:{detail?:string}}})?.response?.data?.detail
+      setError(msg ?? 'Failed to complete job')
       setConfirming(false)
     }
   }

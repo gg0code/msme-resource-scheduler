@@ -4,7 +4,7 @@
 // Week view : 10px per day (~3x zoom out)
 // Month view:  4px per day (~7x zoom out, full picture)
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { fetchGanttData } from '../api/api_gantt'
 import type { GanttJob } from '../api/api_gantt'
 import { CoachMark } from '../components/onboarding'
@@ -120,7 +120,8 @@ function TimerBadges({ job, x, y, barW }: { job: GanttJob; x: number; y: number;
     </>
   )
 }
-type ZoomLevel = 'day' | 'week' | 'month'
+type TabType       = 'jobs' | 'machines'
+type ZoomLevel     = 'day' | 'week' | 'month'
 type FilterPriority = 'all' | 'high' | 'medium' | 'low'
 
 export default function GanttPage() {
@@ -149,7 +150,7 @@ export default function GanttPage() {
     })
   }
 
-  function onDragStart(e: React.MouseEvent) {
+  function onDragStart(e: MouseEvent) {
     isDragging.current = true
     dragStartX.current = e.clientX
     dragStartW.current = labelWidth

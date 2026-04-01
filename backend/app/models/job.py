@@ -6,7 +6,7 @@ Added: delivery_date, invoice_number, invoice_date, payment_status,
 
 from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text, JSON, Boolean
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
 
 
@@ -59,8 +59,8 @@ class Job(Base):
     payment_date   = Column(Date, nullable=True)
     actual_hours   = Column(Float, nullable=True)        # stored on job end
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     skill_requirements = relationship("JobSkillRequirement", back_populates="job", cascade="all, delete-orphan", lazy="select")
     assignments        = relationship("JobAssignment", back_populates="job", cascade="all, delete-orphan", lazy="select")
@@ -88,7 +88,7 @@ class JobAssignment(Base):
     job_id      = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True)
     machine_id  = Column(Integer, ForeignKey("machines.id", ondelete="SET NULL"), nullable=True)
-    assigned_at    = Column(DateTime, default=datetime.utcnow)
+    assigned_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     allocation_pct = Column(Integer, nullable=True, default=100)  # % of time this resource is allocated
 
     job      = relationship("Job", back_populates="assignments", lazy="select")

@@ -123,7 +123,7 @@ class IdentityResult:
 # FUNCTION 1 — resolve_identity()
 # ---------------------------------------------------------------------------
 
-async def resolve_identity(
+def resolve_identity(
     phone_number: str,
     db: Session
 ) -> IdentityResult | None:
@@ -177,7 +177,7 @@ async def resolve_identity(
         )
     )
 
-    query_result =  db.execute(lookup_query)
+    query_result = db.execute(lookup_query)
 
     # scalars().first() returns the first matching row as a Python object,
     # or None if no rows matched the WHERE conditions.
@@ -229,7 +229,7 @@ async def resolve_identity(
 # FUNCTION 2 — check_consent()
 # ---------------------------------------------------------------------------
 
-async def check_consent(
+def check_consent(
     phone_number: str,
     db: Session
 ) -> bool:
@@ -264,11 +264,11 @@ async def check_consent(
         )
     )
 
-    result = await db.execute(consent_query)
+    result = db.execute(consent_query)
 
     # scalar_one_or_none() returns a single value (not a row object),
     # or None if no matching row was found.
-    consent_value = result.scalar_one_or_none()
+    consent_value = result.scalars().first()
 
     # Treat a missing row as no consent — the safest default.
     # We must never log data without confirmed consent.
@@ -282,7 +282,7 @@ async def check_consent(
 # FUNCTION 3 — record_consent()
 # ---------------------------------------------------------------------------
 
-async def record_consent(
+def record_consent(
     phone_number: str,
     db: Session
 ) -> bool:
@@ -323,7 +323,7 @@ async def record_consent(
         )
     )
 
-    result = await db.execute(check_query)
+    result = db.execute(check_query)
     mapping_id = result.scalar_one_or_none()
 
     # If no active mapping found, we cannot record consent.
@@ -338,7 +338,7 @@ async def record_consent(
 
     # Update both the consent flag and the timestamp in a single query.
     # consent_at records exactly when consent was given — for compliance audit.
-    await db.execute(
+    db.execute(
         update(PhoneTenantMap)
         .where(PhoneTenantMap.id == mapping_id)
         .values(
@@ -346,7 +346,7 @@ async def record_consent(
             consent_at=func.now()
         )
     )
-    await db.commit()
+    db.commit()
 
     logger.info(
         f"Consent recorded for phone ****{phone_number[-4:]}. "

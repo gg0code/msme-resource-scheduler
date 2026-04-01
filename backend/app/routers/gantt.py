@@ -49,8 +49,7 @@ class GanttJob(BaseModel):
     tentative_cost: Optional[float] = None
     tentative_profit: Optional[float] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 def _derive_status_icon(job: Job, has_conflict: bool) -> str:

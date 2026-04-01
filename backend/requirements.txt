@@ -32,8 +32,7 @@ openpyxl==3.1.2
 qrcode[pil]==7.4.2
 Pillow==10.3.0
 
-# ── PDF generation (job cards, reports — if server-side PDF needed) ───────────
-reportlab==4.1.0
+# reportlab removed — PDF generation not used server-side (frontend handles print)
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv==1.0.1

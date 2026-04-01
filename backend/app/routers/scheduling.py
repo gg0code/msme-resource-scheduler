@@ -25,7 +25,7 @@ from app.schemas.scheduling import (
     StepCreate, StepResponse, StepStatusUpdate, StepUpdate,
 )
 import app.crud.scheduling as crud
-from app.routers.auth import get_current_user  # reuse existing auth
+from app.core.dependencies import get_current_user  # reuse existing auth
 
 router = APIRouter()
 
@@ -35,12 +35,12 @@ def _current_tenant(current_user=Depends(get_current_user)) -> int:
 
 
 def _step_out(step) -> StepResponse:
-    return StepResponse.from_orm(step)
+    return StepResponse.model_validate(step)
 
 
 def _job_out(job) -> JobResponse:
-    resp = JobResponse.from_orm(job)
-    resp.steps = [StepResponse.from_orm(s) for s in job.steps]
+    resp = JobResponse.model_validate(job)
+    resp.steps = [StepResponse.model_validate(s) for s in job.steps]
     return resp
 
 

@@ -42,7 +42,7 @@ DEPENDENCIES:
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from sqlalchemy.orm import Session
@@ -159,7 +159,7 @@ async def store_pending_action(
     pending_action = {
         "action_type":   action_type.value,  # Store string not Enum object
         "action_params": action_params,
-        "proposed_at":   datetime.utcnow().isoformat(),
+        "proposed_at":   datetime.now(timezone.utc).isoformat(),
         "phone_number":  phone_number
     }
 

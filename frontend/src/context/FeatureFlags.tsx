@@ -1,4 +1,4 @@
-// src/context/FeatureFlags.tsx — V3.7
+// src/context/FeatureFlags.tsx — v4.0.9
 //
 // Fetches feature flags from /api/features once on app load.
 // Makes them available everywhere via useFeatureFlags() hook.
@@ -8,7 +8,7 @@
 //   const flags = useFeatureFlags()
 //   {flags.gantt && <NavItem to="/gantt" label="Production Timeline" />}
 
-import { createContext, useContext, ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '../api/client'
 
@@ -20,6 +20,7 @@ export interface FeatureFlags {
   step_intelligence: boolean
   csv_import:        boolean
   ai_copilot:        boolean
+  whatsapp:          boolean   // v5.0 — WhatsApp Copilot nav item
 }
 
 // All flags default to false — safe until the API responds
@@ -30,6 +31,7 @@ const DEFAULT_FLAGS: FeatureFlags = {
   step_intelligence: false,
   csv_import:        false,
   ai_copilot:        false,
+  whatsapp:          false,   // v5.0
 }
 
 // ── Context ────────────────────────────────────────────────────────────────

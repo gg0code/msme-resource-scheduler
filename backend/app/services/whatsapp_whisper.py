@@ -327,7 +327,7 @@ async def _transcribe_with_groq(
         # FastAPI's async event loop (same pattern as run_ai_chat())
         import asyncio
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _call_groq_sync() -> str:
             """Run Groq Whisper synchronously in thread pool."""

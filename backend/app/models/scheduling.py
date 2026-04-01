@@ -10,7 +10,7 @@ New tables (prefixed sched_* to avoid collision with existing job/machine tables
 """
 
 import enum
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Enum as SAEnum,
@@ -69,7 +69,7 @@ class SchedResource(Base):
     type        = Column(SAEnum(ResourceType, name="resource_type_enum"), nullable=False)
     shift_start = Column(Time, nullable=False, default=time(8, 0))
     shift_end   = Column(Time, nullable=False, default=time(16, 0))
-    created_at  = Column(DateTime, default=datetime.utcnow)
+    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     machine_steps = relationship("SchedStepMachine", back_populates="resource", cascade="all, delete-orphan")
@@ -99,8 +99,8 @@ class SchedJob(Base):
     shift            = Column(SAEnum(SchedJobShift, name="sched_job_shift_enum"), nullable=False, default=SchedJobShift.morning)
     lock_status      = Column(Boolean, nullable=False, default=False)
     status           = Column(SAEnum(SchedJobStatus, name="sched_job_status_enum"), nullable=False, default=SchedJobStatus.pending)
-    created_at       = Column(DateTime, default=datetime.utcnow)
-    updated_at       = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at       = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at       = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     steps = relationship(
         "SchedStep",
@@ -130,8 +130,8 @@ class SchedStep(Base):
         ForeignKey("sched_resources.id", ondelete="SET NULL"),
         nullable=True,
     )
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     job             = relationship("SchedJob", back_populates="steps")
     reserve_machine = relationship(

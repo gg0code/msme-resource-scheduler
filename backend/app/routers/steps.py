@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app.core.dependencies import get_current_user
@@ -219,7 +219,7 @@ def update_step(
     if body.notes is not None:
         step.notes = body.notes
 
-    step.updated_at = datetime.utcnow()
+    step.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(step)
     return step_to_dict(step, db)
@@ -306,7 +306,7 @@ def update_step_status(
         )
 
     step.status = target
-    step.updated_at = datetime.utcnow()
+    step.updated_at = datetime.now(timezone.utc)
 
     # When step completes → unlock next step
     if target == "complete":
@@ -321,7 +321,7 @@ def update_step_status(
         )
         if next_step:
             next_step.status = "ready"
-            next_step.updated_at = datetime.utcnow()
+            next_step.updated_at = datetime.now(timezone.utc)
         else:
             # No next step — this was the last step → complete the job
             job = db.query(Job).filter(Job.id == job_id).first()
@@ -403,7 +403,7 @@ def add_step_resource(
 
     # Flip step to step-level resources
     step.use_job_resources = False
-    step.updated_at = datetime.utcnow()
+    step.updated_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(res)
@@ -433,7 +433,7 @@ def remove_step_resource(
     if remaining <= 1:  # the one we just deleted hasn't committed yet
         step.use_job_resources = True
 
-    step.updated_at = datetime.utcnow()
+    step.updated_at = datetime.now(timezone.utc)
     db.commit()
     return {"deleted": True, "resource_id": resource_id}
 
@@ -451,7 +451,7 @@ def reset_to_job_resources(
     # Delete all step-level resources
     db.query(StepResource).filter(StepResource.step_id == step.id).delete()
     step.use_job_resources = True
-    step.updated_at = datetime.utcnow()
+    step.updated_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(step)

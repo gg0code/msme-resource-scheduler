@@ -28,7 +28,7 @@ DEPENDENCIES:
 IMPORTANT — SYNC vs ASYNC:
   run_ai_chat() in ai_service.py is a synchronous function (uses sync Session).
   Our WhatsApp router is async (uses AsyncSession).
-  We bridge this gap using asyncio.get_event_loop().run_in_executor() which runs
+  We bridge this gap using asyncio.get_running_loop().run_in_executor() which runs
   the sync function in a thread pool without blocking the async event loop.
   When Factory GPT arrives, its Supervisor Agent will be natively async —
   the executor wrapper will be removed from SupervisorAgentBridge.
@@ -264,7 +264,7 @@ class GroqDirectBridge:
         # HTTP calls to Groq API. Running it directly in async code would block
         # the entire FastAPI event loop, freezing ALL requests.
         # run_in_executor() offloads it to a separate thread — safe for async.
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         response = await loop.run_in_executor(
             None,  # None = use the default thread pool executor

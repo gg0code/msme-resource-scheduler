@@ -39,7 +39,7 @@ class LeaveOut(BaseModel):
     start_date:  date
     end_date:    date
     reason:      Optional[str]
-    class Config: from_attributes = True
+    model_config = {"from_attributes": True}
 
 class DowntimeIn(BaseModel):
     start_date: date
@@ -52,7 +52,7 @@ class DowntimeOut(BaseModel):
     start_date: date
     end_date:   date
     reason:     Optional[str]
-    class Config: from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 # ── Employee leaves ───────────────────────────────────────────────────────────

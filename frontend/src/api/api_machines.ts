@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { Machine, ImportResult } from '../types'
+import type { Machine, ImportResult } from '../types/types_index'
 
 export const machinesApi = {
   list: ()                        => apiClient.get<Machine[]>('/api/machines/').then(r => r.data),

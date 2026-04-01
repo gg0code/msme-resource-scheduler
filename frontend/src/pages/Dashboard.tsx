@@ -10,10 +10,13 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import {
-  Play, Pause, RotateCcw, Square, CheckCircle2,
-  AlertCircle, Loader2, Clock, CalendarDays, Zap,
-  BriefcaseBusiness, Factory, Users, ChevronDown, ChevronUp,
-  TrendingUp, TrendingDown,
+  Pause,
+  AlertCircle,
+  Loader2,
+  Clock,
+  CalendarDays,
+  Zap,
+  BriefcaseBusiness,
 } from 'lucide-react'
 import apiClient from '../api/client'
 import { useLabels } from '../context/IndustryContext'
@@ -21,7 +24,7 @@ import { CoachMark } from '../components/onboarding'
 import timerApi from '../api/api_timer'
 import EndJobModal from '../components/EndJobModal'
 import type { DashboardData, DashboardJob } from '../api/api_dashboard'
-import GettingStarted from '../components/GettingStarted'
+import GettingStarted from '../components/onboarding/GettingStarted'
 import EmptyState from '../components/EmptyState'
 
 // ─── Poll interval ─────────────────────────────────────────────────────────
@@ -303,11 +306,11 @@ function JobCard({ job, onAction, actionLoading }: JobCardProps) {
           )}
           <div className="flex gap-2">
             <span className="text-gray-400 w-24">{labels.employees}</span>
-            <span>{(jobDetail?.assigned_employees ?? job.assigned_employees ?? []).map((e: any) => e.full_name).join(', ') || 'None'}</span>
+            <span>{(jobDetail?.assigned_employees ?? job.assigned_employees ?? []).map((e: { full_name: string }) => e.full_name).join(', ') || 'None'}</span>
           </div>
           <div className="flex gap-2">
             <span className="text-gray-400 w-24">{labels.machines}</span>
-            <span>{(jobDetail?.assigned_machines ?? job.assigned_machines ?? []).map((m: any) => m.name).join(', ') || 'None'}</span>
+            <span>{(jobDetail?.assigned_machines ?? job.assigned_machines ?? []).map((m: { name: string }) => m.name).join(', ') || 'None'}</span>
           </div>
           {job.actual_start_at && (
             <div className="flex gap-2">
@@ -430,8 +433,8 @@ export default function Dashboard() {
       else if (action === 'resume') await timerApi.resume(jobId)
       else if (action === 'stop') await timerApi.stop(jobId)
       fetchData()
-    } catch (e: any) {
-      alert(e?.response?.data?.detail ?? `Failed to ${action} job`)
+    } catch (e: unknown) {
+      alert((e as {response?:{data?:{detail?:string}}})?.response?.data?.detail ?? `Failed to ${action} job`)
     } finally {
       setLoading(jobId, false)
     }

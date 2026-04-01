@@ -24,7 +24,7 @@ function dismissedKey(userId: number) { return `gs_dismissed_${userId}` }
 function isDismissed(userId: number) {
   try { return localStorage.getItem(dismissedKey(userId)) === '1' } catch { return false }
 }
-function setDismissed(userId: number) {
+function persistDismissed(userId: number) {
   try { localStorage.setItem(dismissedKey(userId), '1') } catch {}
 }
 function clearDismissed(userId: number) {
@@ -52,7 +52,7 @@ export default function GettingStarted() {
 
   const [collapsed,  setCollapsed]  = useState(false)
   const [dismissed,  setDismissedState] = useState(false)
-  const [tick,       setTick]       = useState(0)   // forces re-render to recheck cache
+  const [, setTick] = useState(0)   // write-only — forces re-render to recheck cache
 
   // Load dismissed state on mount
   useEffect(() => {
@@ -136,7 +136,7 @@ export default function GettingStarted() {
   }
 
   function handleDismiss() {
-    if (user) setDismissed(user.id)
+    if (user) persistDismissed(user.id)
     setDismissedState(true)
   }
 
@@ -159,10 +159,10 @@ export default function GettingStarted() {
   // Auto-dismiss when all steps done (after a short delay)
   useEffect(() => {
     if (allDone) {
-      const t = setTimeout(() => { if (user) { setDismissed(user.id); setDismissedState(true) } }, 5000)
+      const t = setTimeout(() => { if (user) { persistDismissed(user.id); setDismissedState(true) } }, 5000)
       return () => clearTimeout(t)
     }
-  }, [allDone])
+  }, [allDone, user])
 
   if (dismissed || !user) return null
 

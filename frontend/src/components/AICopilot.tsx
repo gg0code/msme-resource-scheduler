@@ -224,8 +224,8 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
         content: res.data.message,
         timestamp: new Date(),
       }])
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail ?? ''
+    } catch (err: unknown) {
+      const detail = (err as {response?:{data?:{detail?:string}}})?.response?.data?.detail ?? ''
       const isGroqLimit = detail.toLowerCase().includes('groq') || detail.toLowerCase().includes('capacity')
       // Fallback to static greeting — never show a raw error on open
       setMessages([{
@@ -310,7 +310,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
         usage_pct: (res.data.queries_used / res.data.queries_limit) * 100
       } : prev)
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       const status  = err?.response?.status
       const detail  = err?.response?.data?.detail ?? ''
 
@@ -488,3 +488,4 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
     </>
   )
 }
+

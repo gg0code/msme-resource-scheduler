@@ -115,8 +115,7 @@ def ai_chat(
     try:
         # v3.9.9 — pass structured_data to run_ai_chat so it injects into system prompt
         # v4.0.8 — pass industry_type so AI uses correct terminology
-        from app.models.auth import Tenant as TenantModel
-        tenant_obj = db.query(TenantModel).filter(TenantModel.id == current_user.tenant_id).first()
+        tenant_obj = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
         industry_type = (tenant_obj.industry_type or "printing") if tenant_obj else "printing"
         reply = run_ai_chat(
             messages=messages,
@@ -229,7 +228,7 @@ def get_greeting(
     at_risk = [
         j for j in active_jobs
         if j.end_date and j.status in ["Draft", "Scheduled"]
-        and 0 <= (j.end_date.date() if hasattr(j.end_date, 'date') else j.end_date - today).days <= 3
+        and 0 <= ((j.end_date.date() if hasattr(j.end_date, 'date') else j.end_date) - today).days <= 3
     ]
 
     # Overdue
