@@ -7,7 +7,7 @@ class EmployeeLeave(Base):
     __tablename__ = "employee_leaves"
 
     id          = Column(Integer, primary_key=True, index=True)
-    tenant_id   = Column(Integer, nullable=False, index=True)
+    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="CASCADE"), nullable=False, index=True)
     start_date  = Column(Date, nullable=False)
     end_date    = Column(Date, nullable=False)
@@ -19,7 +19,7 @@ class MachineDowntime(Base):
     __tablename__ = "machine_downtimes"
 
     id         = Column(Integer, primary_key=True, index=True)
-    tenant_id  = Column(Integer, nullable=False, index=True)
+    tenant_id  = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
     machine_id = Column(Integer, ForeignKey("machines.id", ondelete="CASCADE"), nullable=False, index=True)
     start_date = Column(Date, nullable=False)
     end_date   = Column(Date, nullable=False)

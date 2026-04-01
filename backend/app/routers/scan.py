@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.routers.auth import get_current_user
+from app.core.dependencies import get_current_user
 from app.services.token_service import create_scan_token, verify_scan_token
 from app.utils.feature_guard import require_feature
 

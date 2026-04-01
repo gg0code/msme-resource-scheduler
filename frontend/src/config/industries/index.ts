@@ -1,4 +1,4 @@
-// src/config/industries/index.ts — v4.0.2
+// src/config/industries/index.ts — v4.0.9
 // Central export for all industry configurations.
 // Use getIndustryConfig(industryType) to load the right config.
 
@@ -10,7 +10,7 @@ import chemical     from './chemical'
 import field_service from './field_service'
 
 export type { IndustryConfig }
-export type { IndustryLabels, IndustryBranding } from './types'
+export type { IndustryLabels, IndustryBranding, IndustryColours } from './types'
 
 const INDUSTRY_CONFIGS: Record<string, IndustryConfig> = {
   printing,

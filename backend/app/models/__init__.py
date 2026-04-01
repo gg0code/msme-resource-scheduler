@@ -5,3 +5,5 @@ from app.models.machine import Machine, MachineSkillRequirement
 from app.models.job import Job, JobSkillRequirement, JobAssignment
 from app.models.availability import AvailabilityOverride
 from app.models.auth import Tenant, User, RefreshToken
+# v5-whatsapp — WhatsApp Copilot models (migration 017)
+from app.models.whatsapp import PhoneTenantMap, WhatsAppConversation

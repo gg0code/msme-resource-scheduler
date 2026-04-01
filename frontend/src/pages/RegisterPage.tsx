@@ -134,8 +134,8 @@ export default function RegisterPage() {
       })
       localStorage.setItem('access_token', res.data.access_token)
       navigate('/')
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail
+    } catch (err: unknown) {
+      const detail = (err as {response?:{data?:{detail?:unknown}}})?.response?.data?.detail
       setError(typeof detail === 'string' ? detail : 'Registration failed. Please try again.')
     } finally {
       setLoading(false)

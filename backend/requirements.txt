@@ -32,9 +32,20 @@ openpyxl==3.1.2
 qrcode[pil]==7.4.2
 Pillow==10.3.0
 
-# ── PDF generation (job cards, reports — if server-side PDF needed) ───────────
-reportlab==4.1.0
+# reportlab removed — PDF generation not used server-side (frontend handles print)
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv==1.0.1
 httpx==0.27.0
+
+# ── v5-whatsapp additions ─────────────────────────────────────────────────
+# Redis client — async session storage for WhatsApp conversation history
+# Uses Upstash Redis (free tier) in production, mock mode in development
+redis==7.4.0
+
+# APScheduler — proactive alert scheduler (morning briefing, job delay alerts)
+# Runs inside FastAPI process — no separate worker needed for pilot scale
+apscheduler==3.11.2
+
+# httpx already listed above under Utilities — used for Interakt API calls
+# whisper, torch, pydub — added in v5.2 when voice notes are implemented

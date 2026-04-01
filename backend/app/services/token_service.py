@@ -10,9 +10,10 @@ Expiry logic (Option C):
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
+from app.config import settings
 
 # Secret key — in production move to settings/env var
-SCAN_TOKEN_SECRET = "msme-scan-secret-change-in-production"
+SCAN_TOKEN_SECRET = settings.SECRET_KEY  # uses main app secret key
 SCAN_TOKEN_ALGORITHM = "HS256"
 MAX_TOKEN_DAYS = 7
 

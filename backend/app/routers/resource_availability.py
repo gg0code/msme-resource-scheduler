@@ -11,7 +11,8 @@ Depends on:
   app/models/employee.py                — Employee
   app/models/machine.py                 — Machine
   app/services/availability_engine.py  — _date_range, _is_employee_busy, _is_machine_busy
-  app/core/dependencies.py             — get_current_user, get_db
+  app/core/dependencies.py             — get_current_user
+  app/database.py                      — get_db
 
 Added in v3.9.4.
 """
@@ -22,7 +23,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.core.dependencies import get_current_user, get_db
+from app.core.dependencies import get_current_user
+from app.database import get_db
 from app.models.job import Job, JobAssignment
 from app.models.employee import Employee
 from app.models.machine import Machine

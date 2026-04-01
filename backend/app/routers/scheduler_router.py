@@ -17,7 +17,7 @@ v3.9.5: loaders rewritten to read from Job/JobStep/Machine/Employee tables.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
@@ -31,7 +31,7 @@ from app.models.job import Job
 from app.models.job_steps import JobStep, StepResource
 from app.models.machine import Machine
 from app.models.employee import Employee
-from app.routers.auth import get_current_user
+from app.core.dependencies import get_current_user
 from app.scheduler.engine import (
     ConflictEntry, JobInput, LockedEntry,
     ResourceSlot, ScheduleEntry, SchedulerResult,
@@ -73,7 +73,7 @@ class ScheduleEntryModel(Base):
     assigned_helper_ids  = Column(PG_ARRAY(Integer), nullable=False, default=[])
     scheduled_start      = Column(DateTime, nullable=False)
     scheduled_end        = Column(DateTime, nullable=False)
-    created_at           = Column(DateTime, default=datetime.utcnow)
+    created_at           = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 # ─── Pydantic response models ─────────────────────────────────────────────────
@@ -111,7 +111,7 @@ class RunSchedulerRequest(BaseModel):
 # ─── Auth helper ─────────────────────────────────────────────────────────────
 
 def _tenant(current_user=Depends(get_current_user)) -> int:
-    return current_user.tenant_id
+    return current_user.tenant_id  # noqa: used as FastAPI Depends
 
 
 # ─── Loaders ─────────────────────────────────────────────────────────────────
@@ -382,7 +382,7 @@ def run_scheduler_endpoint(
                 assigned_helper_ids=entry.assigned_helper_ids,
                 scheduled_start=entry.scheduled_start,
                 scheduled_end=entry.scheduled_end,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             ))
 
     return SchedulerResultOut(

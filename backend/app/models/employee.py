@@ -5,7 +5,7 @@ Added tenant_id to Employee and EmployeeSkill.
 
 from sqlalchemy import Column, Integer, String, Float, Boolean, Date, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
 
 
@@ -25,8 +25,8 @@ class Employee(Base):
     status                = Column(String(20), nullable=False, default="Active")
     hourly_rate           = Column(Float, nullable=True)
     overtime_rate         = Column(Float, nullable=True)
-    created_at            = Column(DateTime, default=datetime.utcnow)
-    updated_at            = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at            = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at            = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     skills                 = relationship("EmployeeSkill", back_populates="employee", cascade="all, delete-orphan", lazy="select")
     availability_overrides = relationship(

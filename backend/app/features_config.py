@@ -1,4 +1,4 @@
-# backend/app/config/features.py — V3.7
+# backend/app/features_config.py — V3.7
 #
 # Single source of truth for all feature visibility.
 # Flip a flag to True and restart the backend — that feature is live.
@@ -18,4 +18,5 @@ FEATURE_FLAGS: dict[str, bool] = {
     "step_intelligence":  True,
     "csv_import":         True,
     "ai_copilot":         True,
+    "whatsapp":           False,  # v5-dev only — keep False on v3-dev
 }

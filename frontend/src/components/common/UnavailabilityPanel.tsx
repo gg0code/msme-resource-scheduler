@@ -57,14 +57,15 @@ export default function UnavailabilityPanel({ resourceType, resourceId, accentCo
   })
 
   const addPeriod = useMutation({
-    mutationFn: (body: object) => apiClient.post(apiPath, body),
+    mutationFn: (body: Record<string, unknown>) => apiClient.post(apiPath, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey })
       setShowForm(false)
       setStartDate(''); setEndDate(''); setReason(''); setCustomReason(''); setFormError('')
     },
-    onError: (err: any) => {
-      setFormError(err?.response?.data?.detail ?? 'Failed to save')
+    onError: (err: unknown) => {
+      const msg = (err as {response?:{data?:{detail?:string}}})?.response?.data?.detail
+      setFormError(msg ?? 'Failed to save')
     },
   })
 
@@ -81,7 +82,7 @@ export default function UnavailabilityPanel({ resourceType, resourceId, accentCo
     if (!startDate || !endDate) { setFormError('Start and end date are required'); return }
     if (endDate < startDate)    { setFormError('End date must be after start date'); return }
     const finalReason = reason === 'Other' ? customReason : reason
-    addPeriod.mutate({ start_date: startDate, end_date: endDate, reason: finalReason || null })
+    addPeriod.mutate({ start_date: startDate, end_date: endDate, reason: finalReason || null } as Record<string, unknown>)
   }
 
   function formatDate(d: string) {

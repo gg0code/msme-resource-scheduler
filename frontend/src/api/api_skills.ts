@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { Skill, ImportResult } from '../types'
+import type { Skill, ImportResult } from '../types/types_index'
 
 export const skillsApi = {
   list: ()                        => apiClient.get<Skill[]>('/api/skills/').then(r => r.data),

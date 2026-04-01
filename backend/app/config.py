@@ -1,5 +1,5 @@
 """
-config.py — V1.1
+config.py — V4.0.9
 Adds JWT + CORS + tier limit settings to existing V1.0 config.
 """
 from pydantic_settings import BaseSettings
@@ -24,11 +24,18 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:5173"
     FREE_TIER_MAX_WORKERS: int = 10
     FREE_TIER_MAX_JOBS: int = 50
-    APP_NAME: str = "MSME Resource Scheduler"
-    APP_VERSION: str = "1.1.0"
+    APP_NAME: str = "ZetaOps Copilot"
+    APP_VERSION: str = "4.0.9"
     GROQ_API_KEY: str = ""
-  
- 
+
+    # ── v5-whatsapp new fields ────────────────────────────────────────────────
+    UPSTASH_REDIS_URL: str = ""
+    WHATSAPP_VERIFY_TOKEN: str = ""
+    WHATSAPP_APP_SECRET: str = ""
+    INTERAKT_API_KEY: str = ""
+    WHATSAPP_MOCK_MODE: bool = True
+    WHISPER_MODE: str = "local"
+    OPENAI_API_KEY: str = ""
 
     @property
     def allowed_origins_list(self) -> list[str]:

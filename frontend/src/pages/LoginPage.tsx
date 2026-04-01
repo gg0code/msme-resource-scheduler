@@ -28,8 +28,9 @@ export default function LoginPage() {
     try {
       await login(email, password)
       navigate('/')
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? err?.message ?? 'Login failed. Check email / password.')
+    } catch (err: unknown) {
+      const e = err as {response?:{data?:{detail?:string}};message?:string}
+      setError(e?.response?.data?.detail ?? e?.message ?? 'Login failed. Check email / password.')
     } finally {
       setLoading(false)
     }

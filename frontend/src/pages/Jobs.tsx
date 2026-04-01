@@ -677,7 +677,7 @@ export default function Jobs() {
       const newJobId = res.data.id
       if ((selectedEmps.length > 0 || selectedMachines.length > 0) && newJobId) {
         try { await apiClient.post('/api/assignments/', { job_id:newJobId, employee_ids:selectedEmps, machine_ids:selectedMachines }) }
-        catch (err: any) {
+        catch (err: unknown) {
           const msg = err?.response?.data?.detail || 'Could not assign resources.'
           showToast(msg, 'error') 
         }
@@ -1316,7 +1316,16 @@ export default function Jobs() {
 
                         {/* Skill requirements coverage — shows which skills are met vs missing */}
                         {(() => {
-                          const checkResult = typeof availCache[job.id] === 'object' ? availCache[job.id] as any : null
+                          const checkResult = typeof availCache[job.id] === 'object'
+                                    ? availCache[job.id] as {
+                                        skill_requirements?: {
+                                          skill_id: number
+                                          min_skill_level: string
+                                          employees_required: number
+                                          available_employee_ids?: number[]
+                                        }[]
+                                      }
+                                    : null
                           const skillReqs = checkResult?.skill_requirements ?? []
                           if (skillReqs.length === 0) return null
                           return (
@@ -1325,7 +1334,7 @@ export default function Jobs() {
                                 <ClipboardCheck size={11} className="text-blue-400"/> Skill Coverage
                               </p>
                               <div className="space-y-1.5">
-                                {skillReqs.map((req: any) => {
+                                {skillReqs.map((req: { skill_id: number; min_skill_level: string; employees_required: number; id?: number; available_employee_ids?: number[] }) => {
                                   // Count how many assigned employees actually cover this skill
                                   const assignedIds = job.assigned_employees.map(e => e.id)
                                   const coveredCount = (req.available_employee_ids ?? [])
@@ -2533,3 +2542,4 @@ export default function Jobs() {
     </div>
   )
 }
+

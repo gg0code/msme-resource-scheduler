@@ -10,9 +10,18 @@ import CsvImport from '../components/common/CsvImport'
 import { useFeatureFlags } from '../context/FeatureFlags'
 
 import {
-  Plus, Pencil, Trash2, Loader2, AlertCircle,
-  Search, X, Check, ChevronUp, ChevronDown, IndianRupee,
-  ChevronRight, CalendarDays, Briefcase,
+  Plus,
+  Pencil,
+  Trash2,
+  Loader2,
+  AlertCircle,
+  Search,
+  X,
+  Check,
+  ChevronUp,
+  ChevronDown,
+  IndianRupee,
+  ChevronRight,
 } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner } from '../components/PlanLimitGuard'
 import UnavailabilityPanel from '../components/common/UnavailabilityPanel'

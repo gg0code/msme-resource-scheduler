@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app.core.dependencies import get_current_user, require_role
@@ -201,7 +201,7 @@ def start_job(
     except Exception:
         pass  # If engine fails, allow start
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     job.actual_start_at = now
     job.timer_status = "running"
     job.status = "In Progress"
@@ -223,7 +223,7 @@ def pause_job(
     if job.timer_status != "running":
         raise HTTPException(status_code=400, detail="Job is not running")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     job.timer_status = "paused"
     job.timer_log = _log_event(job, "pause", now)
 
@@ -243,7 +243,7 @@ def resume_job(
     if job.timer_status != "paused":
         raise HTTPException(status_code=400, detail="Job is not paused")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Accumulate paused duration
     log = list(job.timer_log or [])
@@ -276,7 +276,7 @@ def stop_job(
     if job.timer_status not in ("running", "paused", "idle"):
         raise HTTPException(status_code=400, detail="Job cannot be stopped in its current state")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # If paused, accumulate final pause duration
     if job.timer_status == "paused":
@@ -310,7 +310,7 @@ def get_job_summary(
     """
     job = _get_job_or_404(db, job_id, current_user.tenant_id)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     hours = _actual_hours(job, now)
 
     # Current assignments
@@ -375,7 +375,7 @@ def end_job(
             detail="Job must be running or paused to end it",
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Accumulate final pause if paused
     if job.timer_status == "paused":
@@ -424,7 +424,7 @@ def log_outage(
     if job.timer_status not in ("running", "paused"):
         raise HTTPException(status_code=400, detail="Job must be running or paused to log outage")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     log = list(job.timer_log or [])
 
     if payload.action == "start":

@@ -5,7 +5,7 @@
  * No login required. No navbar.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -83,7 +83,7 @@ export default function ScanPage() {
       <div style={styles.card}>
         {/* Header */}
         <div style={styles.header}>
-          <span style={styles.logo}>📋 MSME Scheduler</span>
+          <span style={styles.logo}>⚙️ ZetaOps Copilot</span>
         </div>
 
         {state.stage === 'loading' && (
@@ -169,14 +169,14 @@ export default function ScanPage() {
           </div>
         )}
 
-        <div style={styles.footer}>Shop Floor Scanner · MSME Resource Scheduler</div>
+        <div style={styles.footer}>Shop Floor Scanner · ZetaOps Copilot</div>
       </div>
     </div>
   )
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: '100vh',
     background: '#f1f5f9',
