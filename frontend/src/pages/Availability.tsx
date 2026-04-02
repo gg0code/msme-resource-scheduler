@@ -1,9 +1,29 @@
-// src/pages/Availability.tsx
-// --------------------------
-// Availability Overrides page. Covers both individual leave/maintenance and
-// bulk factory holidays. Shows a filterable list of all overrides with
-// add, edit and delete. Uses GET/POST/PATCH/DELETE /api/availability/.
-
+/**
+ * frontend/src/pages/Availability.tsx
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * The availability override management page. Shows a calendar or table view of
+ * employee and machine availability overrides — leaves, maintenance periods, and
+ * custom availability percentage changes. Lets schedulers and proprietors add
+ * overrides that the availability engine reads when computing resource availability.
+ *
+ * WHAT THIS FILE DOES
+ * Fetches availability overrides from /api/availability/, lets users add new
+ * overrides (employee or machine, date range, percentage, reason), and delete
+ * existing ones. Uses TanStack Query for data management.
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as a protected route
+ *
+ * INTERN NOTES
+ * - Availability overrides differ from UnavailabilityPanel (which manages leaves/
+ *   downtimes). Overrides set a specific percentage (0-100%) for a date range.
+ *   Leaves and downtimes always set 0% (fully unavailable).
+ * - Design Principle 2: tenant scoping automatic via JWT.
+ * - Design Principle 5: skill gaps and availability conflicts are different things.
+ *   This page manages availability data — not skill requirements.
+ */
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'

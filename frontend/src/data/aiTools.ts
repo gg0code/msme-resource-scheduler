@@ -1,3 +1,49 @@
+/**
+ * frontend/src/data/aiTools.ts — v4.0.8
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * Defines 50 pre-built AI prompt buttons shown on the Tools tab of AICopilot.tsx.
+ * All prompts are industry-aware — they use IndustryLabels terminology so the
+ * correct words appear per tenant (e.g. "batch orders" not "jobs" for chemical
+ * industry, "technicians" not "operators" for field service). Also defines the
+ * 8 category pills that filter the tool list. Introduced in v4.0.8.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Defines the AITool interface: id, icon, label, prompt, category.
+ * 2. Exports AI_TOOL_CATEGORIES — 8 category objects with id, label, icon.
+ * 3. Exports getAITools(labels) — takes IndustryLabels and returns 50 AITool
+ *    objects with terminology substituted (j=jobs, e=employees, m=machines etc).
+ * 4. Organises tools into 8 categories: reporting, scheduling, people, cost,
+ *    alerts, whatif, machines, jobs.
+ * 5. Exports AI_TOOLS as a backward-compat constant using printing defaults.
+ *
+ * KEY FUNCTIONS
+ *
+ * Name         : getAITools
+ * Type         : function
+ * Purpose      : Returns 50 AITool objects with industry-specific terminology.
+ *                Call with useLabels() from IndustryContext to get the right words.
+ * Parameters   : labels: IndustryLabels
+ * Returns      : AITool[]
+ * Calls        : nothing — pure function
+ * DB/API       : none
+ * Side effects : none
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/components/AICopilot.tsx — getAITools(labels) and AI_TOOL_CATEGORIES
+ *
+ * INTERN NOTES
+ * - Add new tools by appending to the return array inside getAITools().
+ *   Always assign a unique id (r8, s8 etc) and a valid category from AI_TOOL_CATEGORIES.
+ * - Add new categories by adding to AI_TOOL_CATEGORIES and using the new id in tools.
+ * - Design Principle 1: prompts are plain-language questions. The AI narrates answers
+ *   from live DB data — these prompts never compute anything themselves.
+ * - The AI_TOOLS export at the bottom uses hardcoded printing labels for backward
+ *   compatibility. New code should always call getAITools(labels) instead.
+ * - If a prompt shows wrong terminology: check that getAITools() is called with
+ *   useLabels() from IndustryContext, not with a hardcoded labels object.
+ */
 // src/data/aiTools.ts — v4.0.8
 // 50 pre-built AI prompts — industry-aware via IndustryLabels
 // Call getAITools(labels) to get prompts in the right terminology

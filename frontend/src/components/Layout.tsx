@@ -1,6 +1,88 @@
-// src/components/Layout.tsx — v4.0.9
-// Industry-aware nav labels, ZetaOps Copilot branding, CSS theme variables
-// WhatsApp nav gated behind feature flag
+/**
+ * frontend/src/components/Layout.tsx — v4.0.9
+ * Branch: v4-dev | v5-whatsapp (both — WhatsApp nav item is feature-flagged)
+ *
+ * FILE PURPOSE
+ * The main application shell for all authenticated pages. Layout renders the
+ * sidebar navigation, the top header bar, and the <Outlet> where page content
+ * renders. It is the component that every protected page lives inside. Introduced
+ * in v4.0.9 with full ZetaOps Copilot branding, industry-aware nav labels, CSS
+ * theme variables, and feature-flagged navigation items (Gantt, WhatsApp). Sits
+ * at the top of the authenticated route tree — registered in App.tsx as the
+ * element for the protected route group that wraps all pages.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Reads user and logout from useAuth() — displays user email, role badge, log out button.
+ * 2. Reads feature flags from useFeatureFlags() — conditionally shows Gantt and WhatsApp nav items.
+ * 3. Reads industry config and labels from useIndustry() / useLabels() — nav item labels
+ *    change per industry (e.g. "Jobs" → "Orders" for field service).
+ * 4. Defines ROLE_BADGE map for colour-coded role pills in the sidebar footer.
+ * 5. Defines coreNavItems array using industry-aware labels and fixed icons.
+ * 6. Renders a fixed sidebar (w-56) with brand logo, nav links, and user info.
+ * 7. Sidebar colours come from CSS variables (--brand-sidebar-bg, --brand-active-bg etc.)
+ *    set by IndustryContext for per-industry theming.
+ * 8. Renders feature-flagged Gantt nav item (flags.gantt).
+ * 9. Renders feature-flagged WhatsApp nav item (flags.whatsapp) — v5 only but
+ *    guarded by flag so it is safely present in v4-dev without appearing.
+ * 10. Renders right-side column: fixed header bar (TourButton + SchedulerToolbar)
+ *     and scrollable main content area (<Outlet />).
+ * 11. Renders GettingStarted checklist overlay (onboarding).
+ * 12. Renders AI Copilot floating button + AICopilot panel (flags.ai_copilot).
+ *
+ * KEY FUNCTIONS / CLASSES / COMPONENTS
+ *
+ * Name         : Layout (default export)
+ * Type         : React component
+ * Purpose      : Application shell. Provides sidebar, header, and main content area.
+ *                All authenticated pages render inside its <Outlet>.
+ * Parameters   : none (receives no props — gets page content via React Router Outlet)
+ * Returns      : JSX.Element — full-screen flex layout
+ * Calls        : useAuth, useFeatureFlags, useIndustry, useLabels, logout,
+ *                NavLink, Outlet from react-router-dom
+ * DB/API       : none directly — child components handle their own data
+ * Side effects : handleLogout() calls logout() which clears auth state and
+ *                navigates to /login
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as the element for the main protected route group
+ *   <Route element={<FeatureFlagProvider><IndustryProvider><SchedulerProvider>
+ *   <OnboardingProvider><Layout /></OnboardingProvider>...</Route>
+ *
+ * IMPORTS EXPLAINED
+ * - useState from 'react': Controls aiOpen state for the AI Copilot panel toggle.
+ * - Outlet, NavLink, useNavigate from 'react-router-dom': Renders child pages,
+ *   creates sidebar links, navigates to /login after logout.
+ * - LayoutDashboard, Users, Settings, BriefcaseBusiness, Factory, LogOut, BarChart2,
+ *   Bot, MessageCircle from 'lucide-react': Sidebar nav icons and action icons.
+ * - useAuth from '../auth/AuthContext': User info and logout function.
+ * - useIndustry, useLabels from '../context/IndustryContext': Industry-specific
+ *   nav labels and CSS theme variable values.
+ * - SchedulerToolbar from '../scheduler/SchedulerToolbar': Run scheduler button
+ *   in the header bar.
+ * - GettingStarted from './onboarding/GettingStarted': Onboarding checklist overlay.
+ * - TourButton from './onboarding/TourButton': Button to start the onboarding tour.
+ * - AICopilot from './AICopilot': The sliding AI chat panel.
+ * - useFeatureFlags from '../context/FeatureFlags': Feature flag values for nav
+ *   item visibility and AI Copilot button.
+ *
+ * INTERN NOTES
+ * - CSS theme variables (--brand-sidebar-bg etc.) are set by IndustryContext on
+ *   the :root element. Changing industry in settings changes the sidebar colour
+ *   without any Layout code changes — Layout just reads the variables.
+ * - The WhatsApp nav item (flags.whatsapp) is present in this file on both branches.
+ *   On v4-dev, flags.whatsapp is always false so the item never renders. On v5-whatsapp,
+ *   it can be enabled. Never remove the flag check.
+ * - The AI Copilot button uses inline style (not Tailwind) for brand colour when not
+ *   open. This is because --brand-primary is a CSS variable that Tailwind cannot resolve
+ *   at build time — it must be applied via style prop.
+ * - Design Principle 8: Gantt, WhatsApp, and AI Copilot nav items are all gated by
+ *   feature flags — never render them unconditionally.
+ * - If the sidebar shows wrong labels (e.g. "Jobs" instead of "Orders"): check that
+ *   IndustryProvider is mounted above Layout in App.tsx and that the tenant's
+ *   industry_type is set correctly in the database.
+ * - If the AI Copilot button does not appear: check flags.ai_copilot in the browser
+ *   — fetch /api/features/ in devtools to see the flag values.
+ */
 
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'

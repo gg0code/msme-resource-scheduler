@@ -1,18 +1,152 @@
 """
-routers/timer.py — V2.0
+```python
+"""
+═══════════════════════════════════════════════════════════════════════════════════════
+FILE: backend/app/routers/timer.py
+═══════════════════════════════════════════════════════════════════════════════════════
 
-Job lifecycle (timer) endpoints. All state transitions go through here.
-Registered in main.py as /api/timer
+FILE PURPOSE
+This file implements the core job lifecycle management system for ZetaOps Copilot's 
+manufacturing scheduler. It provides REST API endpoints for all job timer state 
+transitions (start/pause/resume/stop/end), cost tracking, and resource management. 
+This is a V2.0 rewrite introduced in v4-dev that replaced legacy timer logic with 
+proper state machines and resource release mechanisms. It sits at the heart of the 
+scheduling architecture, bridging the UI job control buttons with the database 
+models and cost calculation services.
 
-Endpoints:
-  POST /api/timer/{job_id}/start    — idle    → running  (sets actual_start_at)
-  POST /api/timer/{job_id}/pause    — running → paused
-  POST /api/timer/{job_id}/resume   — paused  → running  (accumulates paused_seconds)
-  POST /api/timer/{job_id}/stop     — any     → stopped  (early stop, releases resources)
-  GET  /api/timer/{job_id}/summary  — returns cost preview for End Job modal
-  POST /api/timer/{job_id}/end      — any running/paused → completed (releases resources)
+WHAT THIS FILE DOES — step by step
+1. Defines FastAPI router with 6 endpoints under /api/timer prefix
+2. Declares Pydantic schemas for request payloads (EndJobPayload, OutagePayload)
+3. Implements helper functions for job retrieval, event logging, and resource management
+4. Provides timer state transition endpoints with strict validation rules
+5. Integrates with availability_engine to prevent starting jobs with conflicts
+6. Calculates real-time cost previews for the End Job modal
+7. Manages JobAssignment records to control resource allocation/release
+8. Maintains timer_log JSON field for audit trail of all state changes
 
-Access: scheduler+ for all actions
+KEY FUNCTIONS / CLASSES / COMPONENTS
+
+Name         : EndJobPayload
+Type         : Pydantic BaseModel class
+Purpose      : Request schema for POST /end endpoint. Allows users to modify the final 
+               employee and machine assignments before completing a job, enabling 
+               cost adjustments based on who actually worked on the job.
+Parameters   : employee_ids (List[int]) - final employee IDs to assign
+               machine_ids (List[int]) - final machine IDs to assign
+Returns      : N/A (schema class)
+Calls        : N/A
+DB/API       : N/A
+Side effects : None
+
+Name         : OutagePayload  
+Type         : Pydantic BaseModel class
+Purpose      : Request schema for machine/employee outage tracking. Currently defined 
+               but not used by any endpoints - likely reserved for future outage 
+               management features.
+Parameters   : action (str) - "start" or "end" action type
+               reason (Optional[str]) - optional outage reason description
+Returns      : N/A (schema class)
+Calls        : N/A
+DB/API       : N/A
+Side effects : None
+
+Name         : _get_job_or_404
+Type         : helper function
+Purpose      : Tenant-scoped job retrieval with automatic 404 error handling. This is a 
+               critical security function that ensures users can only access jobs within 
+               their tenant boundary.
+Parameters   : db (Session) - SQLAlchemy database session
+               job_id (int) - job primary key to retrieve
+               tenant_id (int) - current user's tenant ID for filtering
+Returns      : Job model instance or raises HTTPException(404)
+Calls        : SQLAlchemy query on Job model
+DB/API       : SELECT query on jobs table with tenant_id filter
+Side effects : None
+
+Name         : _log_event
+Type         : helper function  
+Purpose      : Appends timestamped events to job's timer_log JSON field for audit 
+               purposes. Creates immutable history of all timer state changes with 
+               ISO timestamps for forensic analysis.
+Parameters   : job (Job) - job instance to log event for
+               event (str) - event type like "start", "pause", "resume", "stop", "end"
+               now (datetime) - UTC timestamp of the event
+Returns      : Updated timer_log list with new event appended
+Calls        : datetime.isoformat() for timestamp formatting
+DB/API       : None (pure data transformation)
+Side effects : None (returns new list, doesn't mutate job)
+
+Name         : _release_resources
+Type         : helper function
+Purpose      : Immediately frees up all employees and machines assigned to a job by 
+               deleting JobAssignment records. This is critical for making resources 
+               available to other jobs when a job stops/completes/fails.
+Parameters   : db (Session) - SQLAlchemy database session
+               job (Job) - job instance to release resources for
+Returns      : None
+Calls        : SQLAlchemy DELETE query
+DB/API       : DELETE from job_assignments table with tenant filtering
+Side effects : Deletes JobAssignment records, making resources available globally
+
+Name         : _sync_assignments
+Type         : helper function
+Purpose      : Replaces all current job assignments with a new set of employee and 
+               machine IDs. Used during job ending to finalize who actually worked 
+               on the job for accurate cost calculation.
+Parameters   : db (Session) - SQLAlchemy database session
+               job (Job) - job instance to update assignments for
+               employee_ids (List[int]) - new employee IDs to assign
+               machine_ids (List[int]) - new machine IDs to assign  
+Returns      : None
+Calls        : _release_resources, SQLAlchemy add operations
+DB/API       : DELETE old assignments, INSERT new JobAssignment records
+Side effects : Modifies database assignments, affects resource availability
+
+Name         : _actual_hours
+Type         : helper function
+Purpose      : Calculates net working hours for a job by subtracting paused time from 
+               total elapsed time. Handles both running jobs (uses current time) and 
+               completed jobs (uses actual_end_at).
+Parameters   : job (Job) - job instance with timing data
+               now (Optional[datetime]) - current time for running jobs, None uses actual_end_at
+Returns      : Float representing net working hours
+Calls        : datetime arithmetic operations
+DB/API       : None (pure calculation)
+Side effects : None
+
+Name         : _job_summary
+Type         : helper function
+Purpose      : Builds comprehensive job status dictionary with cost breakdowns, 
+               resource assignments, conflicts, and timing data. This is the 
+               standardized response format for all timer endpoints.
+Parameters   : db (Session) - database session for related data queries
+               job (Job) - job instance to summarize
+Returns      : Dictionary with job status, costs, assignments, conflicts, and timing
+Calls        : compute_tentative_cost, compute_actual_cost, check_availability
+DB/API       : Queries JobAssignment, Employee, Machine tables
+Side effects : None
+
+Name         : start_job
+Type         : FastAPI endpoint (POST)
+Purpose      : Transitions job from 'idle' to 'running' state with conflict validation. 
+               Sets actual_start_at timestamp and blocks start if availability conflicts 
+               exist. Only scheduler+ roles can start jobs.
+Parameters   : job_id (int) - path parameter for job to start
+               db (Session) - dependency injected database session
+               current_user (User) - authenticated user with scheduler+ role
+Returns      : Full job summary dictionary with updated status
+Calls        : _get_job_or_404, check_availability, _log_event, _job_summary
+DB/API       : Updates job record, commits transaction
+Side effects : Changes job status to In Progress, logs start event
+
+Name         : pause_job  
+Type         : FastAPI endpoint (POST)
+Purpose      : Pauses a running job without releasing resources. Job remains assigned 
+               to workers/machines but stops accumulating actual hours. Can only pause 
+               jobs in 'running' state.
+Parameters   : job_id (int) - path parameter for job to pause
+               db (Session) - dependency injected database session  
+               current_user (User)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status

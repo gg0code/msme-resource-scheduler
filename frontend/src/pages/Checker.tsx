@@ -1,12 +1,25 @@
-// src/pages/Checker.tsx
-// ---------------------
-// Availability Checker page. Select a job, run the 5-step availability check
-// from the backend engine, and see a full feasibility report:
-//   - Feasibility score (0-100%)
-//   - Pass / Fail per skill requirement with available employee list
-//   - Conflict details with blocked dates and reasons
-// No data is changed — this is a read-only diagnostic tool.
-
+/**
+ * frontend/src/pages/Checker.tsx
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * The availability checker page. Lets users select a job and see a computed
+ * availability report — which employees and machines are free, which are busy,
+ * and what conflicts exist. Uses the resource availability endpoint introduced
+ * in v3.9.4. Provides a visual breakdown of allocation percentages and blocking
+ * jobs for each assigned resource.
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as a protected route
+ * - frontend/src/pages/Jobs.tsx — may link to checker for specific jobs
+ *
+ * INTERN NOTES
+ * - Calls GET /api/jobs/{id}/resource-availability via getResourceAvailability()
+ *   from api_resource_availability.ts.
+ * - Design Principle 5: amber status (partial) means the resource has capacity
+ *   remaining but is partially committed. Red (unavailable) means fully committed.
+ *   These are NOT the same as scheduling conflicts.
+ */
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '../api/client'

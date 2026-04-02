@@ -1,5 +1,34 @@
-// src/pages/Employees.tsx — table with expandable assignment rows
-
+/**
+ * frontend/src/pages/Employees.tsx
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * Employee management page. Lists all employees with expandable rows showing
+ * skills, assignments, and unavailability periods. Supports create, edit, delete,
+ * bulk CSV/XLSX import, and leave period management. Uses industry labels throughout.
+ * Plan limit enforcement via usePlanLimits() and LimitedButton/PlanLimitBanner.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Fetches employees via useEmployees() from hooks_index.ts (['employees'] key).
+ * 2. Renders header with CsvImport widget and LimitedButton for "Add Employee".
+ * 3. PlanLimitBanner shows amber warning when free plan limit (10 employees) is reached.
+ * 4. Renders employee table with expand/collapse per row.
+ * 5. Expanded row: shows EmployeeSkill list, job assignments, UnavailabilityPanel.
+ * 6. Edit modal: inline form for updating employee fields including skills.
+ * 7. Delete: calls useDeleteEmployee() which invalidates ['employees'] + ['dashboard'].
+ * 8. CoachMark wraps the Add Employee button for onboarding tour.
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as /employees route (protected)
+ *
+ * INTERN NOTES
+ * - The ['employees'] query key is used by GettingStarted.tsx for onboarding detection.
+ * - Plan limits: free plan allows 10 employees. usePlanLimits() fetches from
+ *   /dashboard/plan-limits (no /api/ prefix).
+ * - UnavailabilityPanel inside expanded rows manages leaves independently via its
+ *   own ['emp-leaves', id] query key.
+ * - Design Principle 2: all queries are automatically tenant-scoped via JWT.
+ 
 import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'

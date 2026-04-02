@@ -1,12 +1,32 @@
-// frontend/src/pages/LinkWhatsApp.tsx — v5.5
-// FILE:    LinkWhatsApp.tsx
-// PATH:    frontend/src/pages/LinkWhatsApp.tsx
-// PURPOSE: Allows a logged-in proprietor to link their WhatsApp number to their
-//          ZetaOps tenant account. Calls POST /api/v1/whatsapp/link-phone and
-//          shows current linked numbers for the tenant.
-// BRANCH:  v5-whatsapp
-// CREATED: 2026-03-29
-
+/**
+ * frontend/src/pages/LinkWhatsApp.tsx
+ * Branch: v5-whatsapp (v4-dev has this file but it is only meaningful on v5)
+ *
+ * FILE PURPOSE
+ * The WhatsApp phone number linking page. Factory owners visit this page to link
+ * their WhatsApp number to their ZetaOps account. The linked number is used by the
+ * WhatsApp Copilot (v5) to identify which tenant is messaging when an inbound
+ * WhatsApp message arrives. Creates a PhoneTenantMap record on the backend.
+ * Gated behind flags.whatsapp in Layout.tsx — only visible when the feature is enabled.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Fetches existing linked phone (if any) from the backend.
+ * 2. Renders a phone number input in E.164 format (+91XXXXXXXXXX).
+ * 3. On submit: POSTs to the phone linking endpoint.
+ * 4. Shows QR code or confirmation after linking.
+ * 5. Explains consent — the factory owner must reply HAAN on WhatsApp to consent
+ *    to conversation logging for Factory GPT training.
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as /whatsapp route (protected)
+ *
+ * INTERN NOTES
+ * - Design Principle 9: this page is v5-whatsapp only. On v4-dev, the route
+ *   exists but the nav item is hidden by flags.whatsapp=false.
+ * - Phone numbers must be in E.164 format (+919876543210). The backend validates this.
+ * - Consent is tracked server-side in PhoneTenantMap.consent_given. This page
+ *   explains consent but does not set it — the owner sets it by replying HAAN.
+ */
 import { useEffect, useState, type FormEvent } from 'react'
 import { MessageCircle, Phone, Trash2, Plus, CheckCircle, AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'

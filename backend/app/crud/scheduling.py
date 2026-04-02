@@ -1,20 +1,112 @@
 """
-app/crud/scheduling.py — Prompt 1 CRUD
+```python
+"""
+app/crud/scheduling.py — Legacy Scheduling System CRUD Operations
 
-Business rules enforced here:
+FILE PURPOSE
+This file provides database CRUD (Create, Read, Update, Delete) operations for the legacy scheduling system in ZetaOps Copilot. It was introduced in early v4.x development and handles the SchedJob/SchedStep/SchedResource data model, which is separate from the main Job/JobStep system used by the current scheduler engine. This file sits in the data access layer and enforces critical business rules around step sequencing and readiness propagation. Note that this is legacy code - the main scheduler in backend/app/scheduler/engine.py uses the Job/JobStep models instead.
 
-Rule 1 — Readiness propagation:
-  After ANY step status change, _refresh_readiness(db, job_id) is called.
-  A step becomes 'ready' only when all steps with lower sequence_order are 'complete'.
+WHAT THIS FILE DOES — step by step
+1. Defines internal helper functions for eager-loading database relationships
+2. Validates that resource references (machines/helpers) exist and belong to the correct tenant
+3. Manages step resource associations through link tables (SchedStepMachine, SchedStepHelper)
+4. Enforces step sequencing rules - automatically assigns sequence_order and resequences after deletions
+5. Implements readiness propagation - updates step status based on predecessor completion
+6. Provides CRUD operations for SchedResource entities (machines and helpers)
+7. Provides CRUD operations for SchedJob entities with eager-loaded relationships
+8. Provides CRUD operations for SchedStep entities with automatic business rule enforcement
 
-Rule 2 — Sequence integrity:
-  create → always appends at max_order + 1 (or 1 if first).
-  delete → calls _resequence(db, job_id) to close gaps.
-  sequence_order is never manually set by callers.
+KEY FUNCTIONS / CLASSES / COMPONENTS
 
-Rule 3 — Setup step validation:
-  setup: required_machine_ids must be [] (validated in schema + here)
-  regular: reserve_machine_id must be None
+Name         : _eager_step
+Type         : function
+Purpose      : Internal helper that loads a SchedStep with all its resource associations (machine_links, helper_links) in a single query. Prevents N+1 query problems when accessing step resources.
+Parameters   : db (Session) - SQLAlchemy database session, step_id (int) - primary key of step to load
+Returns      : Optional[SchedStep] - step object with preloaded relationships, or None if not found
+Calls        : SQLAlchemy select() and selectinload() for eager loading
+DB/API       : Single SELECT query on SchedStep with JOIN to association tables
+Side effects : None - pure read operation
+
+Name         : _eager_job
+Type         : function
+Purpose      : Internal helper that loads a SchedJob with all its steps and each step's resource associations. Essential for job detail views and scheduling operations.
+Parameters   : db (Session) - SQLAlchemy database session, job_id (int) - primary key of job to load
+Returns      : Optional[SchedJob] - job object with preloaded steps and step resources, or None if not found
+Calls        : SQLAlchemy select() with nested selectinload() for deep eager loading
+DB/API       : Single SELECT query with multiple JOINs to load entire job hierarchy
+Side effects : None - pure read operation
+
+Name         : _validate_resource_refs
+Type         : function
+Purpose      : Critical security function that verifies all resource IDs exist in the database, belong to the correct tenant, and have the expected resource type (machine vs helper). Prevents tenant isolation violations.
+Parameters   : db (Session) - database session, tenant_id (int) - tenant scope, machine_ids (List[int]) - machine IDs to validate, helper_ids (List[int]) - helper IDs to validate, reserve_machine_id (Optional[int]) - optional reserved machine ID
+Returns      : None - raises ValueError if validation fails
+Calls        : SQLAlchemy queries to check SchedResource table
+DB/API       : SELECT queries on SchedResource filtered by tenant_id
+Side effects : Raises ValueError exceptions for invalid references
+
+Name         : _set_step_resources
+Type         : function
+Purpose      : Replaces all resource associations for a step by deleting existing links and creating new ones. Used during step updates to change required machines/helpers.
+Parameters   : db (Session) - database session, step (SchedStep) - step to update, machine_ids (List[int]) - new machine requirements, helper_ids (List[int]) - new helper requirements
+Returns      : None
+Calls        : SQLAlchemy delete() and add() operations
+DB/API       : DELETE on existing links, INSERT new SchedStepMachine and SchedStepHelper records
+Side effects : Modifies database by replacing step resource associations
+
+Name         : _resequence
+Type         : function
+Purpose      : Implements Rule 2 - renumbers all steps in a job to have consecutive sequence_order values 1, 2, 3... after a step deletion. Maintains sequence integrity.
+Parameters   : db (Session) - database session, job_id (int) - job whose steps need resequencing
+Returns      : None
+Calls        : SQLAlchemy select() and attribute updates
+DB/API       : SELECT steps ordered by sequence, UPDATE sequence_order values
+Side effects : Modifies sequence_order field on multiple SchedStep records
+
+Name         : _refresh_readiness
+Type         : function
+Purpose      : Implements Rule 1 - updates step status to enforce readiness propagation. A step can only be 'ready' if all predecessor steps are 'complete'. Reverts steps to 'pending' if predecessors become incomplete.
+Parameters   : db (Session) - database session, job_id (int) - job whose step readiness needs refresh
+Returns      : None
+Calls        : SQLAlchemy select() and status updates
+DB/API       : SELECT steps in sequence order, UPDATE status fields
+Side effects : Changes status field on SchedStep records based on predecessor completion
+
+Name         : create_resource
+Type         : function
+Purpose      : Creates a new SchedResource (machine or helper) for a tenant. Enforces unique naming constraint within tenant scope.
+Parameters   : db (Session) - database session, tenant_id (int) - tenant creating the resource, data (ResourceCreate) - Pydantic schema with resource details
+Returns      : SchedResource - newly created resource object
+Calls        : SQLAlchemy queries and model creation
+DB/API       : SELECT to check name uniqueness, INSERT new resource
+Side effects : Creates new database record, commits transaction
+
+Name         : get_resource
+Type         : function
+Purpose      : Retrieves a single resource by ID, filtered by tenant for security. Used in resource detail views and validation.
+Parameters   : db (Session) - database session, tenant_id (int) - tenant scope filter, resource_id (int) - resource primary key
+Returns      : Optional[SchedResource] - resource if found and owned by tenant, None otherwise
+Calls        : SQLAlchemy select() with WHERE clause
+DB/API       : Single SELECT query with tenant_id filter
+Side effects : None - pure read operation
+
+Name         : list_resources
+Type         : function
+Purpose      : Lists all resources for a tenant, optionally filtered by resource type (machine/helper). Used in resource management screens and dropdowns.
+Parameters   : db (Session) - database session, tenant_id (int) - tenant scope filter, resource_type (Optional[ResourceType]) - optional filter for machines vs helpers
+Returns      : List[SchedResource] - all matching resources ordered by name
+Calls        : SQLAlchemy select() with conditional filtering
+DB/API       : SELECT query with tenant filter and optional type filter
+Side effects : None - pure read operation
+
+Name         : update_resource
+Type         : function
+Purpose      : Updates an existing resource with new data. Validates shift timing (start must be before end) and enforces tenant ownership.
+Parameters   : db (Session) - database session, tenant_id (int) - tenant scope, resource_id (int) - resource to update, data (ResourceUpdate) - Pydantic schema with changes
+Returns      : Optional[SchedResource] - updated resource or None if not found
+Calls        : get_resource() for retrieval, SQLAlchemy attribute updates
+DB/API       : SELECT via get_resource(), UPDATE resource fields
+Side effects : Modifies database record, commits transaction
 """
 
 from __future__ import annotations

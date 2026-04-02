@@ -1,59 +1,104 @@
 """
-FILE:    whatsapp.py
-PATH:    backend/app/routers/whatsapp.py
-PURPOSE: FastAPI router — the entry point for all WhatsApp messages.
+```python
+"""
+FILE PURPOSE:
+This file is the primary FastAPI router for all WhatsApp messaging functionality in the ZetaOps Copilot system. It serves as the entry point for Meta's webhook callbacks and provides eight endpoints for receiving, processing, and managing WhatsApp messages from manufacturing business users. Introduced in v5-whatsapp branch (v5.0) and enhanced in v5.2 with voice transcription support via Groq Whisper. This router sits at the top of the WhatsApp message processing pipeline, handling everything from webhook verification to message routing to AI responses.
 
-         Eight endpoints:
-           GET  /api/v1/whatsapp/webhook              — Meta webhook verification handshake.
-           POST /api/v1/whatsapp/webhook              — Receives inbound WhatsApp messages.
-           POST /api/v1/whatsapp/simulate             — Dev only. Simulates full pipeline.
-           POST /api/v1/whatsapp/link-phone           — Link a phone number to a tenant.
-           GET  /api/v1/whatsapp/linked-phones        — List linked phones for a tenant.
-           PATCH /api/v1/whatsapp/linked-phones/{id}/deactivate — Deactivate a linked phone.
-           POST /api/v1/whatsapp/trigger-dev-alerts   — Dev only. Fire alerts on demand.
-           POST /api/v1/whatsapp/simulate-voice       — Dev only. Test voice transcription.
+WHAT THIS FILE DOES — step by step:
+1. Defines FastAPI router with /api/v1/whatsapp prefix and eight endpoints
+2. Provides Meta webhook verification handshake (GET /webhook) for initial setup
+3. Receives inbound WhatsApp messages (POST /webhook) with signature verification
+4. Transcribes voice notes using Groq Whisper for audio messages (v5.2 feature)
+5. Routes messages through identity resolution, consent checking, and session management
+6. Detects write intents and manages confirmation state machine for dangerous actions
+7. Processes AI interactions through whatsapp_bridge and formats responses
+8. Provides simulation endpoints for development testing without real WhatsApp
+9. Manages phone number linking/unlinking for tenant association
+10. Handles development alert triggering and voice transcription testing
 
-         Message flow for POST /webhook:
-           1.  Verify Meta signature (security)
-           2.  Extract message from payload
-           2b. If audio message — transcribe via Groq Whisper (v5.2)
-           3.  Resolve phone to tenant identity
-           4.  Check for pending confirmation (write action state machine)
-           5.  Handle reset commands
-           6.  Detect write intent in user message
-           6b. If intent found — store pending action, return confirmation prompt
-           6c. If no intent — add user message to session, continue to AI
-           7.  Get conversation history for AI
-           8.  Call AI via whatsapp_bridge.active_bridge
-           9.  Format response for WhatsApp (strip markdown)
-           10. Add AI response to session
-           11. Log conversation if consent given
+KEY FUNCTIONS / CLASSES / COMPONENTS:
 
-BRANCH:  v5-whatsapp
-VERSION: v5.2
-CREATED: 2026-03
-UPDATED: 2026-03-30 — v5.2: Voice note support via Groq Whisper.
-                      Audio messages are transcribed before entering pipeline.
-                      Mock mode returns placeholder text.
-                      Added /simulate-voice endpoint for dev testing.
+Name         : verify_webhook
+Type         : FastAPI GET endpoint
+Purpose      : Handles Meta's one-time webhook verification handshake when registering the webhook URL. Meta sends hub.mode, hub.verify_token, and hub.challenge query parameters. Must return the challenge integer if verification passes.
+Parameters   : hub_mode (str) - always "subscribe" from Meta, hub_verify_token (str) - must match WHATSAPP_VERIFY_TOKEN setting, hub_challenge (str) - random string to echo back
+Returns      : Integer challenge value if verification succeeds, 403 HTTPException if token mismatch
+Calls        : settings.WHATSAPP_VERIFY_TOKEN for token comparison
+DB/API       : No database or external API calls
+Side effects : Logs verification success/failure, enables webhook for Meta to send messages
 
-DEPENDENCIES:
-  app/services/whatsapp_identity.py  — resolve_identity(), record_consent()
-  app/services/whatsapp_session.py   — add_message_to_session(), get_ai_history()
-  app/services/whatsapp_bridge.py    — active_bridge.process_message()
-  app/services/whatsapp_formatter.py — format_for_whatsapp(), detect_language()
-  app/services/whatsapp_actions.py   — confirmation state machine
-  app/services/whatsapp_intent.py    — detect_write_intent()
-  app/services/whatsapp_whisper.py   — transcribe_voice_note() (v5.2)
-  app/models/whatsapp.py             — WhatsAppConversation, PhoneTenantMap
-  app/database.py                    — get_db() dependency, SessionLocal
-  app/config.py                      — settings
-  app/core/dependencies.py           — get_current_user()
+Name         : receive_webhook
+Type         : FastAPI POST endpoint
+Purpose      : Main entry point for all inbound WhatsApp messages from Meta via Interakt. Verifies message signatures for security, extracts message content, transcribes voice notes, and processes through the full WhatsApp pipeline. Always returns 200 OK to prevent Meta retries.
+Parameters   : request (Request) - raw FastAPI request for signature verification, db (Session) - SQLAlchemy session from dependency injection
+Returns      : {"status": "ok"} dictionary always, regardless of success or failure
+Calls        : _verify_meta_signature(), _extract_message_from_payload(), transcribe_voice_note(), _process_inbound_message(), _send_whatsapp_message()
+DB/API       : Database queries via _process_inbound_message(), Groq Whisper API for voice transcription, WhatsApp Business API for sending responses
+Side effects : Processes messages, updates conversation history, sends WhatsApp responses, logs all interactions
 
-NOTES:
-  - Always return 200 OK to Meta even on errors. Meta retries on non-200.
-  - Signature verification must happen before any business logic.
-  - /simulate and /simulate-voice only available in WHATSAPP_MOCK_MODE.
+Name         : simulate_message
+Type         : FastAPI POST endpoint
+Purpose      : Development-only endpoint for simulating inbound WhatsApp messages without real WhatsApp integration. Processes messages through the same pipeline as real webhooks but bypasses signature verification and Meta integration. Only available when WHATSAPP_MOCK_MODE=True.
+Parameters   : body (SimulateRequest) - contains phone (str), message (str), and type (str) fields
+Returns      : SimulateResponse with response text, tenant_id, language, formatted flag, and transcribed flag
+Calls        : detect_language(), _process_inbound_message() with SessionLocal database connection
+DB/API       : Database queries through _process_inbound_message(), no external APIs
+Side effects : Processes simulated messages, updates database state, no actual WhatsApp messages sent
+
+Name         : SimulateRequest
+Type         : Pydantic model class
+Purpose      : Request body schema for the /simulate endpoint. Defines the structure for simulated WhatsApp messages including phone number, message text, and message type with default "text" type.
+Parameters   : phone (str) - phone number to simulate, message (str) - message content to process, type (str) - message type with default "text"
+Returns      : Not applicable - data model class
+Calls        : No function calls - pure data model
+DB/API       : No database or API interactions
+Side effects : None - pure data validation and serialization
+
+Name         : SimulateResponse
+Type         : Pydantic model class
+Purpose      : Response schema for the /simulate endpoint. Contains the AI-generated response text, tenant identification, detected language, formatting status, and voice transcription flag. Provides structured feedback about message processing results.
+Parameters   : response (str) - AI response text, tenant_id (int|None) - resolved tenant ID, language (str) - detected language with default "english", formatted (bool) - whether response was formatted, transcribed (bool) - whether message was voice-transcribed
+Returns      : Not applicable - data model class
+Calls        : No function calls - pure data model
+DB/API       : No database or API interactions
+Side effects : None - pure data serialization
+
+Name         : LinkPhoneRequest
+Type         : Pydantic model class
+Purpose      : Request body schema for POST /link-phone endpoint. Defines required and optional fields for linking a phone number to a tenant account, including display name, role assignment, and consent preferences.
+Parameters   : phone_number (str) - phone number to link, display_name (str) - human-readable name, phone_role (str) - user role with default "owner", consent_given (bool) - data usage consent with default False
+Returns      : Not applicable - data model class
+Calls        : No function calls - pure data model
+DB/API       : No database or API interactions
+Side effects : None - pure data validation
+
+Name         : LinkedPhoneResponse
+Type         : Pydantic model class
+Purpose      : Response schema representing a single linked phone record returned to the frontend. Contains all phone mapping details including active status and consent preferences. Configured for SQLAlchemy ORM attribute mapping.
+Parameters   : id (int) - database ID, phone_number (str) - linked phone, display_name (str) - human name, phone_role (str) - assigned role, is_active (bool) - active status, consent_given (bool) - consent flag
+Returns      : Not applicable - data model class
+Calls        : No function calls - pure data model
+DB/API       : No database or API interactions
+Side effects : None - pure data serialization with ORM compatibility
+
+Name         : LinkedPhonesListResponse
+Type         : Pydantic model class
+Purpose      : Response wrapper schema for GET /linked-phones endpoint. Contains a list of LinkedPhoneResponse objects representing all phones linked to the current tenant.
+Parameters   : phones (list[LinkedPhoneResponse]) - list of linked phone records
+Returns      : Not applicable - data model class
+Calls        : No function calls - pure data model
+DB/API       : No database or API interactions
+Side effects : None - pure data serialization wrapper
+
+WHO CALLS THIS FILE:
+- backend/app/main.py imports this router and registers it with the FastAPI application
+- Meta's webhook system calls GET and POST /webhook endpoints directly via HTTP
+- Frontend React components call /link-phone and /linked-phones endpoints via Axios
+- Development tools and testing scripts call /simulate endpoints during development
+- Background services may call internal functions for message processing
+
+IMPORTS EXPLAINED:
+- hashlib, hmac: Cryptographic functions for verifying Meta webhook signatures to ensure message
 """
 
 import hashlib

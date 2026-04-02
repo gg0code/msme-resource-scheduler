@@ -1,7 +1,32 @@
-// src/pages/LoginPage.tsx — V3.7.3
-// Fixed: now uses AuthContext.login() instead of direct apiClient call
-// This ensures the in-memory tokenStore is populated and ProtectedRoute works correctly
-
+/**
+ * frontend/src/pages/LoginPage.tsx — v3.7.3
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * The sign-in page for ZetaOps Copilot. Users enter email and password. The page
+ * also shows a role selector (Owner / Scheduler / Viewer) as a UI hint — the actual
+ * role is determined by the backend from the user's DB record, not by this selector.
+ * Fixed in v3.7.3 to use AuthContext.login() instead of direct apiClient calls,
+ * ensuring tokenStore is populated and ProtectedRoute works correctly after sign-in.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Renders a role selector (visual only — does not affect authentication).
+ * 2. Renders email + password fields.
+ * 3. On submit: calls useAuth().login(email, password).
+ * 4. On success: navigates to / (which redirects to /dashboard).
+ * 5. On failure: shows error from the backend detail field.
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as the /login route (public)
+ *
+ * INTERN NOTES
+ * - The role selector is purely cosmetic — it shows role descriptions but does NOT
+ *   send the role to the backend. The backend determines role from the users table.
+ * - login() is from AuthContext — it calls /auth/login, gets the token, calls
+ *   /auth/me, sets tokenStore, and schedules refresh. Never bypass it with direct
+ *   apiClient calls.
+ * - Design Principle 3: no tokens stored in state here — AuthContext owns that.
+ */
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'

@@ -1,10 +1,123 @@
 """
-app/routers/ai_chat.py — V3.7
-AI Copilot chat endpoint using Groq + Llama 3.3
-POST /api/ai/chat
-GET  /api/ai/usage  — get current usage for tenant
-Added: per-tenant daily query tracking + token counting
-V3.7: feature flag guard — returns warm message if ai_copilot flag is False
+```python
+"""
+FILE PURPOSE
+This file implements the AI Copilot chat functionality for ZetaOps, providing manufacturing
+businesses with conversational AI assistance for their scheduling and resource management
+needs. Introduced in v3.7 on v4-dev branch, it serves as the FastAPI router that handles
+all AI chat interactions, usage tracking, and proactive shop floor summaries. It sits
+between the frontend chat interface and the core AI service, managing tenant-scoped
+rate limiting and feature flag protection.
+
+WHAT THIS FILE DOES — step by step
+1. Defines FastAPI router with /api/ai/ prefix for all AI-related endpoints
+2. Sets up plan-based daily query limits (free: 50, pro: 500, enterprise: 99999)
+3. Creates Pydantic schemas for chat requests/responses and usage tracking
+4. Implements usage reset logic that resets counters daily per tenant
+5. Provides POST /api/ai/chat endpoint that processes conversational AI requests
+6. Guards all endpoints with ai_copilot feature flag via require_feature()
+7. Tracks and enforces daily query limits per tenant plan level
+8. Injects page context into user messages for better AI responses
+9. Passes structured data and industry type to AI service for enhanced responses
+10. Handles Groq rate limiting errors with user-friendly messages
+11. Provides GET /api/ai/usage endpoint for frontend usage indicators
+12. Implements GET /api/ai/greeting for proactive shop floor summaries without LLM calls
+
+KEY FUNCTIONS / CLASSES / COMPONENTS
+
+Name         : ChatMessage
+Type         : Pydantic BaseModel class
+Purpose      : Defines the structure for individual chat messages with role (user/assistant/system) and content. Used as building blocks for conversation history in chat requests.
+Parameters   : role (str) - message sender type, content (str) - message text
+Returns      : N/A (data model)
+Calls        : None
+DB/API       : None
+Side effects : None
+
+Name         : ChatRequest
+Type         : Pydantic BaseModel class
+Purpose      : Defines the request payload for chat interactions, including message history, current page context, and pre-fetched structured data. Added structured_data in v3.9.9 for richer AI responses.
+Parameters   : messages (list[ChatMessage]) - conversation history, page_context (Optional[str]) - current UI page, structured_data (Optional[dict]) - pre-fetched endpoint data
+Returns      : N/A (data model)
+Calls        : None
+DB/API       : None
+Side effects : None
+
+Name         : ChatResponse
+Type         : Pydantic BaseModel class
+Purpose      : Defines the response payload for chat interactions, including AI reply, usage tracking, and warning messages. Provides frontend with usage metrics for display.
+Parameters   : reply (str) - AI response text, page_context (Optional[str]) - echoed page context, queries_used (int) - current usage, queries_limit (int) - plan limit, queries_remaining (int) - remaining quota, warning (Optional[str]) - usage warning
+Returns      : N/A (data model)
+Calls        : None
+DB/API       : None
+Side effects : None
+
+Name         : UsageResponse
+Type         : Pydantic BaseModel class
+Purpose      : Defines the response payload for usage tracking endpoint, providing detailed metrics about AI query consumption for frontend usage indicators and billing warnings.
+Parameters   : queries_used (int) - today's usage, queries_limit (int) - plan limit, queries_remaining (int) - remaining quota, usage_pct (float) - percentage used, plan (str) - tenant plan name, date (str) - current date
+Returns      : N/A (data model)
+Calls        : None
+DB/API       : None
+Side effects : None
+
+Name         : get_or_reset_usage
+Type         : function
+Purpose      : Manages daily usage counter resets by checking if the tenant's last query date differs from today. If different, resets ai_queries_today and ai_tokens_today to 0 and updates the date. Ensures usage tracking is scoped to calendar days.
+Parameters   : tenant (Tenant) - tenant ORM object, db (Session) - SQLAlchemy session
+Returns      : Tenant - updated tenant object with current usage state
+Calls        : None directly
+DB/API       : Updates Tenant.ai_queries_today, ai_tokens_today, ai_queries_date; commits transaction
+Side effects : Modifies tenant usage counters in database
+
+Name         : check_limit
+Type         : function
+Purpose      : Evaluates whether a tenant has remaining AI queries for today by comparing current usage against plan limits. Returns boolean allowed status plus usage metrics for response building.
+Parameters   : tenant (Tenant) - tenant ORM object with usage data
+Returns      : tuple[bool, int, int] - (allowed status, queries used, query limit)
+Calls        : None
+DB/API       : None
+Side effects : None
+
+Name         : ai_chat
+Type         : FastAPI POST endpoint
+Purpose      : Main conversational AI endpoint that processes chat requests, enforces rate limits, injects context, and returns AI responses. Handles feature flagging, usage tracking, error handling, and provides rich context to the AI service including page location and structured data.
+Parameters   : request (ChatRequest) - chat payload, db (Session) - database session, current_user (User) - authenticated user
+Returns      : ChatResponse - AI reply with usage metrics and warnings
+Calls        : require_feature(), run_ai_chat() from app.services.ai_service
+DB/API       : Queries Tenant table; calls Groq API via ai_service; updates ai_queries_today counter
+Side effects : Increments tenant AI query counter; commits database transaction
+
+Name         : get_usage
+Type         : FastAPI GET endpoint
+Purpose      : Provides current AI usage statistics for the authenticated tenant, enabling frontend to display usage bars, warnings, and upgrade prompts. Resets daily counters if needed before returning metrics.
+Parameters   : db (Session) - database session, current_user (User) - authenticated user
+Returns      : UsageResponse - detailed usage metrics and plan information
+Calls        : require_feature(), get_or_reset_usage()
+DB/API       : Queries Tenant table; may update usage counters if date changed
+Side effects : May reset daily usage counters and commit transaction
+
+Name         : get_greeting
+Type         : FastAPI GET endpoint
+Purpose      : Generates proactive shop floor summaries without LLM calls for fast AI chat initialization. Queries actual job, employee, and machine data to provide real-time status of running jobs, overdue items, at-risk jobs, and resource counts. Pure database logic with no AI inference.
+Parameters   : db (Session) - database session, current_user (User) - authenticated user
+Returns      : dict - greeting message with embedded shop floor data and metrics
+Calls        : require_feature()
+DB/API       : Queries Job, Employee, Machine tables with tenant filtering; uses aggregate functions
+Side effects : None (read-only queries)
+
+WHO CALLS THIS FILE
+- frontend/src/api/api_ai.ts - makes HTTP requests to these endpoints
+- frontend/src/components/AIChatPanel.tsx - consumes chat and usage endpoints
+- frontend/src/pages/Dashboard.tsx - may call greeting endpoint for AI initialization
+- backend/app/main.py - registers this router with /api/ai prefix
+
+IMPORTS EXPLAINED
+- traceback - captures full stack traces for debugging AI service errors in production
+- date from datetime - manages daily usage reset logic and date comparisons
+- APIRouter, Depends, HTTPException from fastapi - core FastAPI routing and dependency injection
+- BaseModel from pydantic - creates request/response schemas with validation
+- Session from sqlalchemy.orm - provides database session for tenant and usage queries
 """
 
 import traceback

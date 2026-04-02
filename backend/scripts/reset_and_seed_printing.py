@@ -1,24 +1,87 @@
 """
-scripts/reset_and_seed_printing.py
-====================================
-Interactive script that:
-  1. Lists ALL tenants in the database
-  2. Asks which tenant to WIPE (with confirmation)
-  3. Creates a NEW tenant with your chosen credentials
-  4. Seeds it with printing industry data
+```python
+"""
+FILE PURPOSE
+This is an interactive database seeding script specifically designed for the printing industry vertical of ZetaOps Copilot. It provides a safe way to reset tenant data and populate it with realistic printing business scenarios including flexo printing, offset printing, die cutting, and finishing operations. The script was introduced in v4-dev to help developers and testers quickly set up printing industry environments without manually creating dozens of employees, machines, jobs, and skills. It sits in the backend/scripts/ directory as a standalone utility that directly manipulates the database using SQLAlchemy models.
 
-Usage (from backend/ directory):
-  venv\\Scripts\\python.exe scripts\\reset_and_seed_printing.py
+WHAT THIS FILE DOES — step by step
+1. Parses command-line arguments to allow automated tenant wiping and custom tenant creation parameters
+2. Connects to the PostgreSQL database using the same SessionLocal used by the main application
+3. Lists all existing tenants in the database and prompts the user to select which tenant to wipe (unless --wipe flag is used)
+4. Completely deletes all data for the selected tenant across all tables (jobs, employees, machines, skills, etc.)
+5. Creates a new tenant with either provided credentials or prompts for tenant name, slug, owner email, and password
+6. Seeds the new tenant with 15 printing industry skills including flexo printing, offset printing, die cutting, and various finishing operations
+7. Creates 12 employees with realistic Indian names, departments, availability percentages, hourly rates, and skill assignments typical of printing businesses
+8. Sets up 10 machines including different color flexo printers, Heidelberg offset presses, die cutters, and finishing equipment with their required skills
+9. Generates 7 realistic printing jobs with detailed specifications, customer names, raw materials lists, and proper employee/machine assignments
+10. Commits all changes to the database and provides confirmation of successful seeding
 
-  # Skip prompts — wipe tenant 2 and seed fresh:
-  venv\\Scripts\\python.exe scripts\\reset_and_seed_printing.py --wipe 2
+KEY FUNCTIONS / CLASSES / COMPONENTS
+Name         : SKILLS_DATA
+Type         : Global constant list
+Purpose      : Defines the complete set of skills available in a printing business, organized by category (Printing, Cutting, Finishing, Pre-press, Binding, Quality, General). Each skill has a name and category to help organize the workflow capabilities of the printing operation.
+Parameters   : N/A (constant data)
+Returns      : List of tuples containing (skill_name, category)
+Calls        : N/A (static data)
+DB/API       : Used to populate the Skill table in the database
+Side effects : None (read-only data structure)
 
-  # Custom new tenant details:
-  venv\\Scripts\\python.exe scripts\\reset_and_seed_printing.py --wipe 2 \\
-      --name "PrintMaster Industries" \\
-      --slug "printmaster" \\
-      --email "owner@printmaster.com" \\
-      --password "print1234"
+Name         : EMPLOYEES_DATA
+Type         : Global constant list
+Purpose      : Contains realistic employee profiles for a printing business including Indian names, departments, employment types, availability percentages, base hourly rates, overtime rates, and skill sets. Designed to represent a typical small-to-medium printing operation's workforce structure.
+Parameters   : N/A (constant data)
+Returns      : List of tuples containing (name, department, employment_type, availability_pct, hourly_rate, overtime_rate, skills_list)
+Calls        : N/A (static data)
+DB/API       : Used to populate Employee and EmployeeSkill tables
+Side effects : None (read-only data structure)
+
+Name         : MACHINES_DATA
+Type         : Global constant list
+Purpose      : Defines printing machinery typical of a modern printing facility including single and multi-color flexo printers, Heidelberg offset presses, die cutters, and finishing equipment. Each machine has operational parameters, bay locations, availability percentages, hourly rates, and required skill levels for operation.
+Parameters   : N/A (constant data)
+Returns      : List of tuples containing (name, type, bay_location, availability_pct, hourly_rate, skills_requirements_list)
+Calls        : N/A (static data)
+DB/API       : Used to populate Machine and MachineSkillRequirement tables
+Side effects : None (read-only data structure)
+
+Name         : JOBS_DATA
+Type         : Global constant list
+Purpose      : Provides realistic printing job orders with complete specifications including customer details, job descriptions, timelines, financial information, resource assignments, and detailed raw materials lists. Jobs represent typical orders from food packaging, pharmaceuticals, electronics, and publishing industries.
+Parameters   : N/A (constant data)
+Returns      : List of dictionaries containing comprehensive job specifications including dates, costs, priorities, assigned resources, and materials
+Calls        : N/A (static data)
+DB/API       : Used to populate Job, JobSkillRequirement, and JobAssignment tables
+Side effects : None (read-only data structure)
+
+Name         : parser (argparse.ArgumentParser instance)
+Type         : Command-line argument parser
+Purpose      : Handles command-line arguments to allow automated execution of the script without interactive prompts. Supports specifying which tenant to wipe, seeding into existing tenants, and providing custom tenant creation parameters to streamline development and testing workflows.
+Parameters   : --wipe (int): Tenant ID to wipe without prompting, --seed-tenant (int): Existing tenant ID to seed into, --name/--slug/--email/--password (str): New tenant creation parameters
+Returns      : Namespace object with parsed command-line arguments
+Calls        : Standard argparse module functionality
+DB/API       : None (argument parsing only)
+Side effects : Modifies global args variable with parsed command-line arguments
+
+WHO CALLS THIS FILE
+This script is executed directly from the command line and is not imported by other Python files. It's typically called by developers, testers, or during development environment setup using commands like "python scripts/reset_and_seed_printing.py" from the backend directory. The script may be referenced in documentation, setup guides, or automation scripts for development environment provisioning.
+
+IMPORTS EXPLAINED
+sys, os, argparse: Standard Python modules for system operations, file path manipulation, and command-line argument parsing needed for script execution and path management.
+datetime.date, datetime.timedelta: Used to generate realistic job start and end dates relative to today's date, ensuring seeded jobs have proper scheduling timelines.
+app.database.SessionLocal: The main database session factory used throughout the application, ensuring the script uses the same database connection configuration as the running application.
+app.models.auth.Tenant, app.models.auth.User: SQLAlchemy ORM models for tenant and user management, needed to create the new tenant and owner user account.
+app.models.skill.Skill: SQLAlchemy model for skill definitions that employees and machines can have, central to the scheduling engine's capability matching.
+app.models.employee.Employee, app.models.employee.EmployeeSkill: Models for workforce management including employee profiles and their skill associations.
+app.models.machine.Machine, app.models.machine.MachineSkillRequirement: Models for equipment management including machine definitions and their required operator skills.
+app.models.job.Job, app.models.job.JobSkillRequirement, app.models.job.JobAssignment: Core scheduling models for job definitions, required skills, and resource assignments that the scheduling engine processes.
+
+INTERN NOTES
+- Easiest thing to break: Running this script against a production database will permanently delete tenant data with no recovery option, always verify database connection settings before execution
+- Non-obvious design decision: The script creates jobs with start dates in the future (today + timedelta) to ensure they appear in the scheduling queue rather than as historical completed jobs
+- Most common mistake: Forgetting to run from the backend/ directory will cause import failures since the script adds the parent directory to sys.path to import app modules
+- This file implements design principle #2 (tenant scoping) by ensuring all created records include proper tenant_id foreign key relationships for data isolation
+- If jobs don't appear in scheduling: Check that job start_date is in the future, status is "Scheduled", and all referenced employees/machines exist and have required skills
+- This is v4-dev only: The script doesn't include WhatsApp-related models (PhoneTenantMap, WhatsAppConvers
 """
 
 import sys, os, argparse

@@ -1,9 +1,111 @@
-// src/components/PlanLimitGuard.tsx
-// Shared hook + components for plan limit enforcement across all pages.
-// Usage:
-//   const { planLimits, isReached, getInfo } = usePlanLimits()
-//   <LimitedButton resource="jobs" planLimits={planLimits} onClick={...}>New Job</LimitedButton>
-//   <PlanLimitBanner resource="jobs" planLimits={planLimits} />
+/**
+ * frontend/src/components/PlanLimitGuard.tsx
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * Provides shared plan limit enforcement UI across all resource management pages.
+ * The free plan caps employees at 10, jobs at 20, machines at 10, skills at 20,
+ * and raw materials per job at a configurable limit. This file contains a hook
+ * (usePlanLimits) and three components (PlanLimitBanner, RawMaterialLimitHint,
+ * LimitedButton) that any page can use to consistently enforce and communicate
+ * these limits. Introduced in v3.7 and updated in v4.0.9. Sits in the shared
+ * components layer — called from Jobs, Employees, Machines, and Skills pages.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Defines ResourceLimit and PlanLimits TypeScript interfaces matching the
+ *    backend /dashboard/plan-limits response shape.
+ * 2. Exports usePlanLimits() hook that fetches plan limits from the backend
+ *    using TanStack Query with a 30-second cache.
+ * 3. usePlanLimits returns planLimits data, isLoading, isReached(resource) helper,
+ *    and getInfo(resource) helper.
+ * 4. Exports PlanLimitBanner — an amber warning banner shown below page headers
+ *    when a resource limit is reached.
+ * 5. Exports RawMaterialLimitHint — a small inline hint inside the job wizard
+ *    showing raw material count vs limit.
+ * 6. Exports LimitedButton — a button wrapper that disables itself and shows a
+ *    lock icon when the resource limit is reached.
+ * 7. Internal UpgradeHint renders the contact email and phone as clickable links.
+ *
+ * KEY FUNCTIONS / CLASSES / COMPONENTS
+ *
+ * Name         : usePlanLimits
+ * Type         : React hook
+ * Purpose      : Fetches current plan limits and usage counts from the backend.
+ *                Returns helpers to check if a specific resource limit is reached.
+ *                Used by every resource management page to gate create actions.
+ * Parameters   : none
+ * Returns      : { planLimits, isLoading, isReached(resource), getInfo(resource) }
+ * Calls        : apiClient.get('/dashboard/plan-limits')
+ * DB/API       : GET /dashboard/plan-limits (note: no /api/ prefix — special route)
+ * Side effects : none — read only, cached 30s
+ *
+ * Name         : PlanLimitBanner
+ * Type         : React component
+ * Purpose      : Amber warning banner displayed when a resource limit is reached.
+ *                Returns null (renders nothing) if limit is not reached — safe to
+ *                always render without conditional logic in the parent.
+ * Parameters   : resource: string — e.g. 'jobs', 'employees'
+ *                planLimits: PlanLimits | undefined
+ *                label?: string — display name e.g. "jobs" (defaults to resource key)
+ * Returns      : JSX.Element | null
+ * Calls        : UpgradeHint
+ * DB/API       : none
+ * Side effects : none
+ *
+ * Name         : RawMaterialLimitHint
+ * Type         : React component
+ * Purpose      : Inline hint inside the job raw materials wizard showing used/limit.
+ *                Turns amber with a lock icon when the count reaches the limit.
+ * Parameters   : current: number — current raw material count
+ *                planLimits: PlanLimits | undefined
+ * Returns      : JSX.Element | null (null if plan is unlimited)
+ * Calls        : UpgradeHint (when limit reached)
+ * DB/API       : none
+ * Side effects : none
+ *
+ * Name         : LimitedButton
+ * Type         : React component
+ * Purpose      : A button that automatically disables itself when the resource limit
+ *                is reached, shows a lock icon, and displays the limit details in
+ *                the title tooltip. Drop-in replacement for plain buttons on pages
+ *                that have plan limit enforcement.
+ * Parameters   : resource: string, planLimits: PlanLimits | undefined,
+ *                onClick?: () => void, children: ReactNode,
+ *                className?: string, disabledClassName?: string
+ * Returns      : JSX.Element — button element, disabled or enabled
+ * Calls        : nothing
+ * DB/API       : none
+ * Side effects : none
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/pages/Jobs.tsx — LimitedButton, PlanLimitBanner, usePlanLimits
+ * - frontend/src/pages/Employees.tsx — LimitedButton, PlanLimitBanner, usePlanLimits
+ * - frontend/src/pages/Machines.tsx — LimitedButton, PlanLimitBanner, usePlanLimits
+ * - frontend/src/pages/Skills.tsx — LimitedButton, PlanLimitBanner, usePlanLimits
+ *
+ * IMPORTS EXPLAINED
+ * - useQuery from '@tanstack/react-query': Fetches and caches plan limits with
+ *   automatic background refetch after 30 seconds.
+ * - apiClient from '../api/client': Authenticated Axios instance for the plan limits call.
+ * - Lock from 'lucide-react': Lock icon shown on disabled buttons and banners.
+ * - ReactNode from 'react': Type for the children prop in LimitedButton.
+ *
+ * INTERN NOTES
+ * - The /dashboard/plan-limits endpoint has NO /api/ prefix — this is the one exception
+ *   to Design Principle 4 in the frontend. The backend route is registered differently.
+ *   Do not add /api/ to this URL.
+ * - CONTACT_EMAIL and CONTACT_PHONE are hardcoded strings. Update them when the
+ *   business contact changes — they appear in every plan limit message shown to users.
+ * - PlanLimitBanner returns null when limit is not reached. Always render it without
+ *   a conditional wrapper — the component handles its own visibility.
+ * - LimitedButton accepts className and disabledClassName props so each page can
+ *   match its own button styling. The defaults are standard blue/gray Tailwind classes.
+ * - Design Principle 8: Plan limits are a form of feature gating enforced at both
+ *   backend (HTTP 402) and frontend (this file). Both layers must be respected.
+ * - If usePlanLimits returns undefined planLimits: the fetch likely failed because
+ *   the user is not authenticated or the /dashboard/plan-limits route is not registered.
+ *   Check backend main.py for the dashboard router registration.
+ */
 
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '../api/client'
@@ -64,7 +166,7 @@ function UpgradeHint() {
 interface BannerProps {
   resource: string
   planLimits: PlanLimits | undefined
-  label?: string        // e.g. "jobs", "employees" — defaults to resource
+  label?: string
 }
 
 export function PlanLimitBanner({ resource, planLimits, label }: BannerProps) {
@@ -114,8 +216,8 @@ interface LimitedButtonProps {
   planLimits: PlanLimits | undefined
   onClick?: () => void
   children: ReactNode
-  className?: string           // applied when NOT limited
-  disabledClassName?: string   // applied when limited
+  className?: string
+  disabledClassName?: string
 }
 
 export function LimitedButton({

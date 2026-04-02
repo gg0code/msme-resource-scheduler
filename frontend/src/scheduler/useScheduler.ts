@@ -1,4 +1,60 @@
-// src/scheduler/useScheduler.ts — v3.9.5
+/**
+ * frontend/src/scheduler/useScheduler.ts — v3.9.5
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * The scheduler state machine hook. Manages all state related to the auto-scheduler
+ * feature: current status (active/warn/clean/locked), conflict list, last run time,
+ * running flag, error, and the detailed run summary. Calls POST /api/scheduler/run
+ * and builds a per-job result summary from the resolved entries. Consumed by
+ * SchedulerContext.tsx which provides it to the whole app via useSchedulerContext().
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Defines SchedulerStatus type — 4 states the toolbar button can be in.
+ * 2. Defines ConflictEntry, ResolvedEntry, ScheduledJobSummary, SchedulerRunSummary
+ *    types matching the backend scheduler response shapes.
+ * 3. useScheduler() hook manages a SchedulerState object in useState.
+ * 4. markDirty(): sets status to 'active' (needs run) after any job/step change.
+ *    Does not override 'greyed-locked' state.
+ * 5. checkAllLocked(jobs): sets status to 'greyed-locked' if every job has
+ *    lock_status=true. Reverts to 'active' if any job becomes unlocked.
+ * 6. runScheduler(scheduleDate?): POSTs to /api/scheduler/run, processes the
+ *    resolved/unresolved response, builds SchedulerRunSummary from resolved entries
+ *    using job names from the ['jobs'] TanStack Query cache.
+ * 7. After run: invalidates ['sched-jobs'], ['schedule-entries'], ['jobs'] cache keys.
+ *
+ * KEY FUNCTIONS
+ *
+ * Name         : runScheduler
+ * Type         : async function (useCallback)
+ * Purpose      : Triggers the backend scheduling engine and processes results.
+ *                Builds a per-job summary by grouping resolved step entries by job_id,
+ *                finding earliest_start and latest_end per job, and merging with job
+ *                names from the TanStack Query cache.
+ * Parameters   : scheduleDate?: string — ISO date to schedule from (defaults to today)
+ * Returns      : Promise<void>
+ * Calls        : apiClient.post('/api/scheduler/run'), qc.getQueryData(['jobs']),
+ *                qc.invalidateQueries (3 keys)
+ * DB/API       : POST /api/scheduler/run
+ * Side effects : updates scheduler state, invalidates 3 query cache keys
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/scheduler/SchedulerContext.tsx — wraps this hook in a provider
+ * - frontend/src/scheduler/SchedulerToolbar.tsx — calls runScheduler via context
+ *
+ * INTERN NOTES
+ * - SchedulerStatus drives the toolbar button appearance: active=blue pulse,
+ *   warn=orange with conflict count, greyed-clean=gray check, greyed-locked=gray lock.
+ * - markDirty() should be called by Jobs.tsx after any create/update/delete/lock
+ *   mutation. If the toolbar does not turn blue after a job change, check that the
+ *   job mutation calls markDirty() in its onSuccess.
+ * - Job names in the summary are read from the TanStack Query ['jobs'] cache.
+ *   If cache is empty (first load), job names show as "Job #123". This is acceptable.
+ * - Design Principle 1: the engine runs on the backend. This hook only calls the
+ *   API and processes the response — it never schedules anything client-side.
+ * - Design Principle 6: the backend scheduler reads from Job/JobStep tables, not
+ *   legacy SchedJob tables. The summary here reflects that correctly.
+ // src/scheduler/useScheduler.ts — v3.9.5
 // Hook: state machine + API calls for the scheduler toolbar
 // v3.9.5: captures resolved jobs and builds a result summary after each run
 

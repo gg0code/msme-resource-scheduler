@@ -1,9 +1,36 @@
-// src/pages/GanttPage.tsx — V2.1
-// Added: Day / Week / Month zoom toggle
-// Day view  : 30px per day (detailed)
-// Week view : 10px per day (~3x zoom out)
-// Month view:  4px per day (~7x zoom out, full picture)
-
+/**
+ * frontend/src/pages/GanttPage.tsx
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * The Production Timeline (Gantt chart) page. Shows all jobs on a horizontal
+ * timeline with assigned resources, conflict indicators, and status icons.
+ * Feature-flagged (flags.gantt) — only visible in the nav when enabled.
+ * Uses fetchGanttData() from api_gantt.ts which calls GET /api/gantt/.
+ * The backend pre-computes all conflict detection and cost data — this page
+ * only renders what the backend returns (Design Principle 1).
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Fetches Gantt data via useQuery(['gantt'], fetchGanttData).
+ * 2. Renders a date-range header with week/month navigation.
+ * 3. For each job: renders a horizontal bar spanning start_date to end_date.
+ * 4. Bar colour reflects status_icon (ready=green, conflict=red, in_progress=blue etc).
+ * 5. Shows assigned employees and machines as small chips below each bar.
+ * 6. Conflict jobs show a red indicator with conflict_reasons on hover.
+ * 7. Clicking a job opens a side panel with full job details.
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as /gantt route (protected, feature-flagged nav)
+ *
+ * INTERN NOTES
+ * - The Gantt is read-only — no mutations happen here. All edits go through Jobs.tsx.
+ * - Design Principle 1: backend computes has_conflict, conflict_reasons, status_icon,
+ *   tentative_cost. Frontend only renders these values.
+ * - Design Principle 8: the nav item for Gantt is gated by flags.gantt in Layout.tsx.
+ *   The route is always registered but the nav item only shows when the flag is on.
+ * - If jobs don't appear on the timeline: check start_date and end_date are set.
+ *   Jobs without dates are excluded from the Gantt by the backend.
+ */
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { fetchGanttData } from '../api/api_gantt'
 import type { GanttJob } from '../api/api_gantt'

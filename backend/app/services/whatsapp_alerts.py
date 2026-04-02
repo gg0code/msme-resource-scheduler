@@ -1,59 +1,122 @@
 """
-FILE:    whatsapp_alerts.py
-PATH:    backend/app/services/whatsapp_alerts.py
-PURPOSE: Proactive alert scheduler for WhatsApp Copilot.
+```python
+"""
+FILE PURPOSE:
+This file implements the proactive WhatsApp alert system for ZetaOps Copilot v5.x 
+WhatsApp branch. It sends automated alerts to factory owners WITHOUT them asking, 
+making ZetaOps feel like a real AI assistant rather than just a reactive chatbot. 
+The system watches factory operations and proactively alerts owners about morning 
+briefings, job delays, machine downtime, and scheduling conflicts. It uses APScheduler 
+running inside the FastAPI process to trigger alerts at specific times and intervals.
 
-         Sends alerts to factory owners WITHOUT them asking first.
-         This is what makes ZetaOps feel like a real assistant rather
-         than just a chatbot — it watches the factory and speaks up
-         when something needs attention.
+WHAT THIS FILE DOES — step by step:
+1. Defines scheduler constants (timezone IST, cron timings, alert type identifiers)
+2. Creates a single AsyncIOScheduler instance for the entire application  
+3. Exports start_scheduler() and stop_scheduler() for FastAPI lifecycle management
+4. Provides set_dev_schedule() helper for 2-minute testing intervals during development
+5. Implements send_morning_briefings() that runs at 7am IST daily with job/employee counts
+6. Implements check_delayed_jobs() that runs every 2 hours during working hours (8am-8pm)
+7. Implements check_scheduling_conflicts() that runs every 4 hours checking for resource conflicts
+8. Implements check_machine_downtime() that runs when machine status changes to maintenance
+9. Provides helper functions to fetch active phone mappings, build alert messages, and send WhatsApp alerts
+10. Respects tenant-scoped alert preferences stored in phone_tenant_map.alert_preferences JSON column
 
-         Four alert types:
-           BRIEFING     — 7am IST daily morning summary of the day ahead
-           JOB_DELAY    — when a job falls behind its scheduled end date
-           MACHINE_DOWN — when a machine status changes to maintenance
-           CONFLICT     — when a scheduling conflict is detected
+KEY FUNCTIONS / CLASSES / COMPONENTS:
 
-         Uses APScheduler running INSIDE the FastAPI process.
-         No separate worker or Celery needed for pilot scale (5 factories).
-         Scheduler is started when FastAPI app starts and stopped on shutdown.
+Name         : scheduler
+Type         : AsyncIOScheduler instance  
+Purpose      : Single shared APScheduler instance for the entire FastAPI application. Uses AsyncIOScheduler to work with FastAPI's async event loop and IST timezone for all Indian pilot factories.
+Parameters   : timezone=SCHEDULER_TIMEZONE ("Asia/Kolkata")
+Returns      : Global scheduler object
+Calls        : APScheduler library methods
+DB/API       : None directly
+Side effects : Creates background thread for cron job execution
 
-         Alert flow:
-           APScheduler triggers job → fetch data from DB → format message
-           → send via Interakt (or log in mock mode) → done
+Name         : start_scheduler
+Type         : function
+Purpose      : Initializes and starts the APScheduler with all four alert job types registered. Called from app/main.py FastAPI startup event. Guards against double-start and logs all registered jobs for debugging.
+Parameters   : None
+Returns      : None
+Calls        : scheduler.add_job(), scheduler.start()
+DB/API       : None
+Side effects : Starts background scheduler thread, registers cron jobs, writes to application logs
 
-         Each factory owner can opt out of individual alert types via
-         alert_preferences JSON in phone_tenant_map table.
+Name         : stop_scheduler  
+Type         : function
+Purpose      : Gracefully stops the APScheduler and waits for any running jobs to complete. Called from app/main.py FastAPI shutdown event to prevent orphaned background threads.
+Parameters   : None
+Returns      : None
+Calls        : scheduler.shutdown()
+DB/API       : None
+Side effects : Stops background scheduler, allows running jobs to finish
 
-BRANCH:  v5-whatsapp
-VERSION: v5.4.1
-CREATED: 2026-03
-UPDATED: 2026-03-30 — v5.4.1: Replaced execute_tool() calls with direct DB
-                      queries for briefing and conflicts. execute_tool() depends
-                      on tool names that may not exist (get_dashboard_summary,
-                      get_schedule_alerts). Direct queries are more reliable
-                      and have no dependency on ai_service tool names.
+Name         : set_dev_schedule
+Type         : function
+Purpose      : Development helper that overrides all alert schedules to run every 2 minutes instead of production timings. NEVER use in production as it will spam factory owners. Used for testing alert content and formatting during development.
+Parameters   : None
+Returns      : None  
+Calls        : scheduler.remove_all_jobs(), scheduler.add_job()
+DB/API       : None
+Side effects : Replaces all production cron jobs with 2-minute intervals, starts scheduler if not running
 
-DEPENDENCIES:
-  apscheduler==3.11.2          — pip install apscheduler
-  app/models/whatsapp.py       — PhoneTenantMap for active phone numbers
-  app/models/job.py            — Job model for delay and conflict queries
-  app/models/employee.py       — Employee model for briefing headcount
-  app/services/whatsapp_formatter.py — format_for_whatsapp() for clean text
-  app/database.py              — SessionLocal for DB queries
-  app/config.py                — settings (WHATSAPP_MOCK_MODE, timezone)
+Name         : send_morning_briefings
+Type         : async function
+Purpose      : Sends daily morning briefing WhatsApp messages to all active factory owners at 7am IST. Fetches job counts, employee counts, and today's priorities directly from PostgreSQL for each tenant. Respects alert preferences to allow opt-out.
+Parameters   : None
+Returns      : None
+Calls        : _get_active_phone_mappings(), _build_morning_briefing(), _send_alert()
+DB/API       : Reads from Job, Employee, PhoneTenantMap tables; sends WhatsApp via Interakt API
+Side effects : Sends WhatsApp messages, writes to logs, updates daily alert counts
 
-USAGE:
-  # In app/main.py — start scheduler when app starts, stop on shutdown
-  from app.services.whatsapp_alerts import start_scheduler, stop_scheduler
+Name         : check_delayed_jobs
+Type         : async function  
+Purpose      : Checks for jobs that have passed their end_date but are not completed or cancelled. Runs every 2 hours during working hours (8am-8pm IST). Alerts factory owners about which specific jobs are behind schedule with delay duration.
+Parameters   : None
+Returns      : None
+Calls        : _get_active_phone_mappings(), _get_delayed_jobs(), _build_delay_alert(), _send_alert()
+DB/API       : Queries Job table filtering by end_date < today and status not in [completed, cancelled]
+Side effects : Sends WhatsApp delay alerts, logs delay check results
 
-  @app.on_event("startup")
-  async def startup():
-      start_scheduler()
+Name         : check_scheduling_conflicts
+Type         : async function
+Purpose      : Detects resource conflicts where multiple jobs are assigned to the same machine or employee at overlapping times. Runs every 4 hours. Queries JobAssignment and Job tables to find double-bookings and alerts owners to resolve conflicts manually.
+Parameters   : None  
+Returns      : None
+Calls        : _get_active_phone_mappings(), _get_scheduling_conflicts(), _build_conflict_alert(), _send_alert()
+DB/API       : Complex JOIN queries on Job, JobAssignment, Machine, Employee tables to detect overlapping assignments
+Side effects : Sends WhatsApp conflict alerts, logs conflict detection results
 
-  @app.on_event("shutdown")
-  async def shutdown():
-      stop_scheduler()
+Name         : _get_active_phone_mappings
+Type         : async function
+Purpose      : Fetches all active phone numbers from phone_tenant_map table that have opted-in to receive the specified alert type. Checks alert_preferences JSON column to respect user opt-out choices. Returns tenant context for alert personalization.
+Parameters   : alert_type (str) - one of ALERT_TYPE_* constants to check preferences
+Returns      : List[Dict] with phone_number, tenant_id, industry_type for active recipients  
+Calls        : SessionLocal database session
+DB/API       : SELECT from phone_tenant_map with JSON path queries on alert_preferences
+Side effects : None (read-only)
+
+Name         : _build_morning_briefing  
+Type         : async function
+Purpose      : Constructs personalized morning briefing text by querying job counts, employee counts, high-priority jobs, and today's deadlines for a specific tenant. Formats message using industry-specific terminology and WhatsApp-friendly formatting.
+Parameters   : tenant_id (int), industry_type (str) for personalization
+Returns      : str formatted WhatsApp message or empty string if no data
+Calls        : SessionLocal, format_for_whatsapp()
+DB/API       : Queries Job, Employee tables with tenant_id filtering
+Side effects : None (read-only)
+
+Name         : _send_alert
+Type         : async function  
+Purpose      : Sends WhatsApp message via Interakt API or logs to console if WHATSAPP_MOCK_MODE=True. Handles Interakt API authentication, message formatting, rate limiting, and error handling. Updates daily alert quotas and tracks delivery status.
+Parameters   : phone_number (str), message (str), alert_type (str)
+Returns      : None
+Calls        : Interakt WhatsApp API via requests
+DB/API       : HTTP POST to Interakt API, updates PhoneTenantMap alert counts  
+Side effects : Sends WhatsApp message, writes to logs, updates database counters
+
+WHO CALLS THIS FILE:
+- app/main.py imports start_scheduler and stop_scheduler for FastAPI lifecycle events
+- Development scripts may import set_dev_schedule for testing alert content
+- No other files directly import this module
 """
 
 import logging

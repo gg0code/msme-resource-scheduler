@@ -1,17 +1,117 @@
 """
-backend/app/services/demo_seeder.py — v4.0.6
+```python
+"""
+backend/app/services/demo_seeder.py — Demo Data Seeding Service
 
-Seeds realistic demo data for a new tenant based on their industry_type.
-Called automatically after registration in auth_service.register_tenant_and_user().
+FILE PURPOSE
+This service creates realistic demo data for newly registered tenants based on their industry type. 
+It was introduced in v4.0.6 on the v4-dev branch as part of the tenant onboarding flow. The service 
+sits in the business logic layer and is automatically called by auth_service.register_tenant_and_user() 
+to populate a new tenant's workspace with sample jobs, employees, machines, and skills so they can 
+immediately explore the scheduling system without manual setup.
 
-Each industry gets:
-  - 5 skills
-  - 6 employees with skill assignments
-  - 3 machines with skill requirements
-  - 3 jobs with skill requirements, raw materials, and steps
-  - Assignments linking jobs to employees and machines
+WHAT THIS FILE DOES — step by step
+1. Defines helper functions to create skills, employees, machines, and jobs with proper tenant scoping
+2. Implements industry-specific seeding functions (_seed_printing, _seed_manufacturing) that create realistic datasets
+3. For each industry, seeds 5 skills (mix of premium and generic), 6 employees with skill assignments, 3 machines with skill requirements
+4. Creates 3 sample jobs with realistic raw materials, skill requirements, job steps, and resource assignments
+5. All seeding operations are idempotent - checks for existing records before creating to avoid duplicates
+6. Properly flushes database session after each object creation to get auto-generated IDs for relationships
 
-Seeding is idempotent — skips any records that already exist.
+KEY FUNCTIONS / CLASSES / COMPONENTS
+
+Name         : _today_plus
+Type         : function
+Purpose      : Helper function that calculates a date offset from today. Used to create realistic 
+               start and end dates for demo jobs that span into the future.
+Parameters   : days (int) - number of days to add to today's date
+Returns      : date object representing today + the specified number of days
+Calls        : Python's date.today() and timedelta
+DB/API       : None
+Side effects : None
+
+Name         : _seed_skill
+Type         : function
+Purpose      : Creates a new Skill record for the tenant if it doesn't already exist. Skills represent 
+               capabilities that employees have and jobs/machines require, like "Flexo Printing" or "Welding".
+Parameters   : db (Session) - SQLAlchemy database session, tid (int) - tenant ID, name (str) - skill name, 
+               category (str) - skill category, is_premium (bool) - whether skill requires premium plan
+Returns      : Skill object (either newly created or existing one found by name)
+Calls        : SQLAlchemy query operations on Skill model
+DB/API       : Queries Skill table filtered by tenant_id and name, creates new record if not found
+Side effects : May add new Skill record to database session and flush to get ID
+
+Name         : _seed_employee
+Type         : function
+Purpose      : Creates a new Employee record with associated EmployeeSkill relationships if the employee 
+               doesn't already exist. Employees are the human resources that can be assigned to jobs.
+Parameters   : db (Session) - database session, tid (int) - tenant ID, full_name (str) - employee name, 
+               department (str) - employee department, employment_type (str) - Full-time/Part-time, 
+               skills (list[tuple]) - list of (skill_obj, level) pairs
+Returns      : Employee object (newly created or existing)
+Calls        : SQLAlchemy operations on Employee and EmployeeSkill models
+DB/API       : Queries Employee table, creates Employee and EmployeeSkill records
+Side effects : Adds Employee and multiple EmployeeSkill records to database session
+
+Name         : _seed_machine
+Type         : function
+Purpose      : Creates a new Machine record with MachineSkillRequirement relationships if the machine 
+               doesn't exist. Machines are physical resources like printers, lathes, or welders.
+Parameters   : db (Session) - database session, tid (int) - tenant ID, name (str) - machine name, 
+               machine_type (str) - type of machine, location_bay (str) - physical location, 
+               skill_reqs (list[tuple]) - list of (skill_obj, level, headcount) requirements
+Returns      : Machine object (newly created or existing)
+Calls        : SQLAlchemy operations on Machine and MachineSkillRequirement models
+DB/API       : Queries Machine table, creates Machine and MachineSkillRequirement records
+Side effects : Adds Machine and multiple MachineSkillRequirement records to database session
+
+Name         : _seed_job
+Type         : function
+Purpose      : Creates a comprehensive Job record with all related data including skill requirements, 
+               resource assignments, and job steps. Jobs represent work orders that need to be scheduled.
+Parameters   : db (Session) - database session, tid (int) - tenant ID, name (str) - job name, 
+               customer (str) - customer name, start_offset/end_offset (int) - days from today, 
+               priority/status/job_type (str) - job metadata, profit/order_value/quantity (float) - financials, 
+               raw_materials (list[dict]) - materials needed, skill_reqs (list[tuple]) - skill requirements, 
+               machines/employees (list) - assigned resources, steps (list[dict]) - job steps
+Returns      : Job object (newly created or existing)
+Calls        : SQLAlchemy operations on Job, JobSkillRequirement, JobAssignment, JobStep models
+DB/API       : Queries Job table, creates Job with all related records (requirements, assignments, steps)
+Side effects : Adds Job and numerous related records across multiple tables to database session
+
+Name         : _seed_printing
+Type         : function
+Purpose      : Seeds a complete dataset for printing industry tenants including skills like "Flexo Printing" 
+               and "Die Cutting", employees with realistic names and skill levels, machines like flexo printers, 
+               and sample jobs for corrugated boxes, mono cartons, and labels with authentic materials and steps.
+Parameters   : db (Session) - database session, tid (int) - tenant ID for printing industry tenant
+Returns      : None
+Calls        : All _seed_* helper functions to create the complete dataset
+DB/API       : Creates dozens of records across Skills, Employees, Machines, Jobs and related tables
+Side effects : Populates database with complete printing industry demo dataset
+
+Name         : _seed_manufacturing
+Type         : function
+Purpose      : Seeds a complete dataset for manufacturing industry tenants including skills like "CNC Operation" 
+               and "Welding", employees with manufacturing-relevant names and skills, machines like CNC lathes, 
+               and sample jobs for automotive parts with realistic machining steps and materials.
+Parameters   : db (Session) - database session, tid (int) - tenant ID for manufacturing industry tenant
+Returns      : None (appears to be cut off in the source code)
+Calls        : All _seed_* helper functions to create manufacturing-specific dataset
+DB/API       : Creates comprehensive manufacturing demo dataset across all relevant tables
+Side effects : Populates database with complete manufacturing industry demo dataset
+
+WHO CALLS THIS FILE
+- backend/app/services/auth_service.py - calls appropriate seeding function during tenant registration in register_tenant_and_user()
+
+IMPORTS EXPLAINED
+- datetime.date, timedelta: Used by _today_plus helper to calculate realistic job start/end dates offset from today
+- sqlalchemy.orm.Session: Database session type for all CRUD operations and transaction management
+- app.models.skill.Skill: ORM model for skills that employees have and jobs require
+- app.models.employee.Employee, EmployeeSkill: Employee records and their skill-level relationships  
+- app.models.machine.Machine, MachineSkillRequirement: Machine records and their skill requirements
+- app.models.job.Job, JobSkillRequirement, JobAssignment: Job records with skill needs and resource assignments
+- app.
 """
 
 from __future__ import annotations
