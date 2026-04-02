@@ -1,6 +1,5 @@
-// src/components/ZeroZetaLogo.tsx — v4.0.3
-// Inline SVG recreation of the ZeroZeta logo.
-// Used in sidebar, login, and register pages.
+// frontend/src/components/ZeroZetaLogo.tsx
+// Brand logo component.
 
 interface ZeroZetaLogoProps {
   size?: 'sm' | 'md' | 'lg'
@@ -27,7 +26,7 @@ export default function ZeroZetaLogo({ size = 'md', variant = 'dark' }: ZeroZeta
       xmlns="http://www.w3.org/2000/svg"
       aria-label="ZeroZeta"
     >
-      {/* Zeta symbol — stylised curved Z */}
+      {/* Zeta symbol - stylised curved Z */}
       <path
         d="M6 6 C6 6 18 6 20 6 C22 6 22 8 20 10 L8 22 C6 24 8 26 10 26 C12 26 22 26 22 26"
         stroke={green}

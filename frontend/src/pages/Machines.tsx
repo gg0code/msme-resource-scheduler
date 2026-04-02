@@ -1,30 +1,7 @@
-/**
- * frontend/src/pages/Machines.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * Machine management page. Lists all machines with expandable rows showing skill
- * requirements, job assignments, and downtime periods. Supports create, edit, delete,
- * bulk CSV/XLSX import, and downtime period management. Mirrors Employees.tsx
- * structure. Plan limit enforcement: free plan allows 10 machines.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Fetches machines via useMachines() from hooks_index.ts (['machines'] key).
- * 2. Header: CsvImport widget + LimitedButton for "Add Machine".
- * 3. PlanLimitBanner for free plan machine limit.
- * 4. Machine table with expand/collapse. Expanded row: skill requirements,
- *    job assignments, UnavailabilityPanel (green accent for machines).
- * 5. Edit modal: update machine fields and skill requirements.
- * 6. Delete: useDeleteMachine() invalidates ['machines'] + ['dashboard'].
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as /machines route (protected)
- *
- * INTERN NOTES
- * - UnavailabilityPanel used with accentColor="green" for machine downtime periods.
- * - The ['machines'] query key is used by GettingStarted.tsx for onboarding detection.
- * - Design Principle 2: tenant scoping automatic via JWT.
- 
+// frontend/src/pages/Machines.tsx
+// Machine management: list, create, edit, delete, skill reqs, downtime, CSV import.
+// Plan limit enforcement via usePlanLimits().
+
 import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -88,7 +65,7 @@ const priorityColour: Record<string, string> = {
 const availBar  = (p: number) => p >= 100 ? 'bg-green-400' : p >= 50 ? 'bg-yellow-400' : 'bg-red-400'
 const availText = (p: number) => p >= 100 ? 'text-green-600' : p >= 50 ? 'text-yellow-600' : 'text-red-500'
 
-// ── Assignment sub-rows ───────────────────────────────
+// -- Assignment sub-rows -------------------------------
 function AssignmentRows({ machineId }: { machineId: number }) {
   const labels = useLabels()
   const qc = useQueryClient()
@@ -151,7 +128,7 @@ function AssignmentRows({ machineId }: { machineId: number }) {
                 {assignments.map(a => (
                   <tr key={a.assignment_id} className="hover:bg-green-100/40 transition-colors">
                     <td className="py-2 pr-4 font-medium text-gray-800">{a.job_name}</td>
-                    <td className="py-2 pr-4 text-gray-500">{a.customer ?? '—'}</td>
+                    <td className="py-2 pr-4 text-gray-500">{a.customer ?? '-'}</td>
                     <td className="py-2 pr-4 text-gray-600">
                       <span className="flex items-center gap-1">
                         <CalendarDays size={11} className="text-gray-400"/>{a.start_date}
@@ -204,7 +181,7 @@ const emptyForm = () => ({
   skill_requirements: [] as { skill_id: number; min_skill_level: string; employees_required: number }[],
 })
 
-// ══════════════════════════════════════════════════════
+// ------------------------------------------------------
 export default function Machines() {
   const qc = useQueryClient()
    const flags = useFeatureFlags()
@@ -426,7 +403,7 @@ export default function Machines() {
 
                         {/* Bay */}
                         <td className="px-4 py-3 text-gray-700">
-                          {machine.location_bay ?? <span className="text-gray-300 italic text-xs">—</span>}
+                          {machine.location_bay ?? <span className="text-gray-300 italic text-xs">-</span>}
                         </td>
 
                         {/* Skills */}
@@ -450,7 +427,7 @@ export default function Machines() {
                             ? <div className="flex items-center gap-0.5 justify-end text-sm font-semibold text-gray-800">
                                 <IndianRupee size={12}/>{machine.hourly_rate}/hr
                               </div>
-                            : <span className="text-gray-300 text-xs italic">—</span>
+                            : <span className="text-gray-300 text-xs italic">-</span>
                           }
                         </td>
 
@@ -569,7 +546,7 @@ export default function Machines() {
                   <button onClick={addSkillReq} className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"><Plus size={12}/>Add Skill</button>
                 </div>
                 {form.skill_requirements.length === 0 && (
-                  <p className="text-xs text-gray-400 italic">No skill requirements — machine can be operated by anyone.</p>
+                  <p className="text-xs text-gray-400 italic">No skill requirements - machine can be operated by anyone.</p>
                 )}
                 {form.skill_requirements.map((req, i) => (
                   <div key={i} className="flex gap-2 mb-2 items-center">

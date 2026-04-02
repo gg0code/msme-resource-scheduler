@@ -1,53 +1,8 @@
-/**
- * frontend/src/pages/Jobs.tsx — ~2500 lines
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * The main job management page — the most complex file in the entire frontend.
- * ~2500 lines handling the complete job lifecycle: create, edit, delete, assign
- * resources, manage steps, run scheduler, view resource availability, control
- * timers, print job cards, and receive AI Copilot answers. Every major v4 feature
- * surfaces here. Industry-aware labels throughout via useLabels().
- *
- * WHAT THIS FILE DOES — step by step (major sections)
- * 1. Data: fetches jobs, employees, machines, skills, plan limits, schedule entries.
- * 2. Job list: filterable by status, priority, customer. Each job card is expandable.
- * 3. Create/Edit wizard: multi-step form — basic info → raw materials → skill
- *    requirements → step management → resource assignment.
- * 4. Raw materials: JSON array with name/quantity/unit/unit_cost per item.
- *    Plan limit enforced (RawMaterialLimitHint).
- * 5. Step management: add/reorder/delete JobStep records for a job.
- * 6. Resource assignment: assign employees and machines, shows availability panel
- *    (ResourceAvailabilityResponse) with real-time free_pct and blocking jobs.
- * 7. Scheduler toolbar: triggers POST /api/scheduler/run, shows resolved/unresolved.
- * 8. Material estimate: calls GET /api/jobs/{id}/material-estimate, AI narrates result.
- * 9. Schedule suggestions: calls GET /api/jobs/{id}/schedule-suggestions.
- * 10. Timer controls: start/pause/resume/stop per job via timerApi.
- * 11. End job: opens EndJobModal for final cost confirmation.
- * 12. Print: opens /jobs/:jobId/print in new tab (QR card generation).
- * 13. Plan limits: LimitedButton + PlanLimitBanner for job count enforcement.
- *
- * KEY INTERNAL COMPONENTS (defined inline)
- * - JobWizard — multi-step create/edit modal (~800 lines)
- * - StepManager — step CRUD for a job
- * - ResourcePanel — assignment + availability display
- * - SchedulerResultPanel — shows run_scheduler() output
- * - MaterialEstimatePanel — shows material estimate with confidence score
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as /jobs route (protected)
- *
- * INTERN NOTES
- * - This file is too large to understand all at once. Read it section by section.
- *   Each major section has a comment block starting with ── SectionName ──.
- * - The ['jobs'] query key is used by GettingStarted.tsx for onboarding detection.
- * - Design Principle 1: material estimates, schedule suggestions, and cost
- *   calculations all come from backend endpoints — never computed in this file.
- * - Design Principle 5: resource availability (amber = partial, red = unavailable)
- *   is different from scheduling conflicts (red in Gantt). Both surfaces exist here.
- * - If a job action (assign, step edit etc) seems to have no effect: check that
- *   the mutation's onSuccess is calling qc.invalidateQueries with the right key.
- 
+// frontend/src/pages/Jobs.tsx
+// Main job management page (~2500 lines). Full lifecycle:
+// create, edit, assign, steps, timer, print, scheduler, AI.
+// Each major section starts with a -- SectionName -- comment.
+
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -72,7 +27,7 @@ import { usePlanLimits, LimitedButton, PlanLimitBanner, RawMaterialLimitHint } f
 import { useSchedulerContext } from '../scheduler/SchedulerContext'
 import { useLabels } from '../context/IndustryContext'
 
-// ── Types ──────────────────────────────────────────────
+// -- Types ----------------------------------------------
 interface Skill    { id: number; name: string; is_premium: boolean }
 interface Employee { id: number; full_name: string; department: string | null }
 interface MachineSkillReq { skill_id: number; min_skill_level: string; employees_required: number }
@@ -145,14 +100,14 @@ interface CheckResult {
   currently_assigned_machine_ids: number[]
 }
 
-// ── Constants ──────────────────────────────────────────
+// -- Constants ------------------------------------------
 const PRIORITIES  = ['Low','Medium','High','Critical']
 const STATUSES    = ['Draft','Pending Assignment','Scheduled','In Progress','Completed','Cancelled']
 const LEVELS      = ['Generic','Intermediate','Premium']
 const UNITS       = ['pcs','kg','m','l','set','lot']
 const START_MODES = [
-  { value: 'right_away',  label: 'Right Away',  desc: 'Start today — date locked to today' },
-  { value: 'pick_a_date', label: 'Pick a Date', desc: 'Choose start date — locked once set' },
+  { value: 'right_away',  label: 'Right Away',  desc: 'Start today - date locked to today' },
+  { value: 'pick_a_date', label: 'Pick a Date', desc: 'Choose start date - locked once set' },
   { value: 'flexible',    label: 'Flexible',    desc: 'Scheduler picks best slot within your range' },
 ] as const
 
@@ -188,13 +143,13 @@ const emptyDetails = () => ({
 })
 const emptyMat = (): RawMat => ({ name:'', quantity:1, unit:'pcs', unit_cost:0 })
 
-// ── Job ID formatter ───────────────────────────────────
+// -- Job ID formatter -----------------------------------
 function jobDisplayId(job: Job, prefix?: string | null): string {
   return prefix ? `${prefix}-${job.id}` : `#${job.id}`
 }
 
 
-// ── Availability badge ─────────────────────────────────
+// -- Availability badge ---------------------------------
 function AvailBadge({ result, loading, status }: { result?: AvailResult | null; loading?: boolean; status?: string }) {
   const [showTip, setShowTip] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -250,7 +205,7 @@ function AvailBadge({ result, loading, status }: { result?: AvailResult | null; 
   )
 }
 
-// ── Conflict badge ─────────────────────────────────────
+// -- Conflict badge -------------------------------------
 function ConflictBadge({ reasons }: { reasons?: string[] }) {
   const [show, setShow] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -272,7 +227,7 @@ function ConflictBadge({ reasons }: { reasons?: string[] }) {
           <p className="text-xs font-semibold text-red-700 mb-1 flex items-center gap-1"><AlertTriangle size={11}/>Conflict Details</p>
           {reasons && reasons.length > 0
             ? reasons.map((r,i) => <p key={i} className="text-xs text-red-600 mb-0.5">· {r}</p>)
-            : <p className="text-xs text-gray-500">Resource conflict detected — check assignments</p>
+            : <p className="text-xs text-gray-500">Resource conflict detected - check assignments</p>
           }
           <p className="text-xs text-gray-400 mt-2 border-t pt-2">Resolve conflicts to enable Start</p>
         </div>
@@ -281,7 +236,7 @@ function ConflictBadge({ reasons }: { reasons?: string[] }) {
   )
 }
 
-// ── Timeline progress bar ──────────────────────────────
+// -- Timeline progress bar ------------------------------
 function TimelineBar({ job }: { job: Job }) {
   if (!job.start_date || !job.end_date) return null
   if (['Completed','Cancelled'].includes(job.status)) return (
@@ -314,7 +269,7 @@ function TimelineBar({ job }: { job: Job }) {
   )
 }
 
-// ── Lock badge ─────────────────────────────────────────
+// -- Lock badge -----------------------------------------
 function LockBadge({ locked }: { locked: boolean }) {
   if (locked) return (
     <span className="flex items-center gap-0.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
@@ -328,7 +283,7 @@ function LockBadge({ locked }: { locked: boolean }) {
   )
 }
 
-// ── Timer display ──────────────────────────────────────
+// -- Timer display --------------------------------------
 function TimerDisplay({ job }: { job: Job }) {
   const [elapsed, setElapsed] = useState('')
   useEffect(() => {
@@ -352,7 +307,7 @@ function TimerDisplay({ job }: { job: Job }) {
         : job.timer_status === 'ended' && job.actual_start_at && job.actual_end_at
           ? (() => {
               const net = Math.floor((new Date(job.actual_end_at).getTime() - new Date(job.actual_start_at).getTime()) / 1000) - (job.paused_seconds||0)
-              return `Done — ${Math.floor(net/3600)}h ${Math.floor((net%3600)/60)}m`
+              return `Done - ${Math.floor(net/3600)}h ${Math.floor((net%3600)/60)}m`
             })()
           : job.timer_status
       }
@@ -360,7 +315,7 @@ function TimerDisplay({ job }: { job: Job }) {
   )
 }
 
-// ── Start Mode selector ────────────────────────────────
+// -- Start Mode selector --------------------------------
 function StartModeSelector({
   value, onChange, startDate, onStartDateChange, earliestDate, onEarliestChange, latestDate, onLatestChange
 }: {
@@ -423,7 +378,7 @@ function StartModeSelector({
 }
 
 
-// ── JobStepsPanel ─────────────────────────────────────────────────────────────
+// -- JobStepsPanel -------------------------------------------------------------
 interface JobStep {
   id: number; job_id: number; sequence_no: number; name: string
   step_type: string; duration_minutes: number; status: string
@@ -527,7 +482,7 @@ function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string 
         <p className="text-xs text-gray-400 px-4 pb-3">Loading steps...</p>
       ) : steps.length === 0 ? (
         <p className="text-xs text-gray-400 italic px-4 pb-3">
-          No steps yet — add steps to track progress within this job.
+          No steps yet - add steps to track progress within this job.
         </p>
       ) : (
         <div className="px-4 pb-3 space-y-1.5">
@@ -576,7 +531,7 @@ function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string 
   )
 }
 
-// ══════════════════════════════════════════════════════
+// ------------------------------------------------------
 export default function Jobs() {
   const qc = useQueryClient()
   const { markDirty, checkAllLocked } = useSchedulerContext()
@@ -599,7 +554,7 @@ export default function Jobs() {
   const [openMenu,    setOpenMenu]        = useState<number | null>(null)
   const [allocPct,    setAllocPct]        = useState<Record<string, number>>({})
   const [savingAlloc, setSavingAlloc]     = useState(false)
-  // v3.9.4 — real-time resource availability per job, fetched on row expand
+  // v3.9.4 - real-time resource availability per job, fetched on row expand
   const [resAvail,        setResAvail]        = useState<Record<number, ResourceAvailabilityResponse>>({})
   const [resAvailLoading, setResAvailLoading] = useState<Record<number, boolean>>({})
 
@@ -637,7 +592,7 @@ export default function Jobs() {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500) }
 
-  // ── Queries ──────────────────────────────────────────
+  // -- Queries ------------------------------------------
   const { data: jobs = [], isLoading, isError } = useQuery<Job[]>({
     queryKey:['jobs'], queryFn:() => apiClient.get('/api/jobs/').then(r => r.data),
   })
@@ -660,7 +615,7 @@ export default function Jobs() {
 
   const getSkillName = useCallback((id: number) => skills.find(s => s.id === id)?.name ?? `Skill#${id}`, [skills])
 
-  // ── Availability checks ───────────────────────────────
+  // -- Availability checks -------------------------------
   const runAvailCheck = useCallback(async (jobId: number) => {
     setAvailCache(c => ({ ...c, [jobId]: 'loading' }))
     try {
@@ -679,14 +634,14 @@ export default function Jobs() {
     })
   }, [jobs, availCache, runAvailCheck])
 
-  // v3.9.5 — keep greyed-locked state in sync with jobs list
+  // v3.9.5 - keep greyed-locked state in sync with jobs list
   useEffect(() => {
     checkAllLocked(jobs.map(j => ({ lock_status: j.is_locked })))
   }, [jobs, checkAllLocked])
 
   function openPdfExport(job: Job) { setPdfJob(job) }
 
-  // ── Filters ───────────────────────────────────────────
+  // -- Filters -------------------------------------------
   const filtered = useMemo(() => jobs.filter(j => {
     const q = search.toLowerCase()
     if (q && !j.name.toLowerCase().includes(q) && !(j.customer ?? '').toLowerCase().includes(q)) return false
@@ -708,7 +663,7 @@ export default function Jobs() {
     return groups
   }, [filtered, groupByCustomer])
 
-  // ── Mutations ─────────────────────────────────────────
+  // -- Mutations -----------------------------------------
   const createJob = useMutation({
     mutationFn: (p: object) => apiClient.post('/api/jobs/', p),
     onSuccess: async (res) => {
@@ -802,7 +757,7 @@ export default function Jobs() {
     },
   })
 
-  // ── Wizard helpers ────────────────────────────────────
+  // -- Wizard helpers ------------------------------------
   function openWizard() {
     setDetails(emptyDetails())
     setSkillReqs([]); setRawMats([]); setSelectedEmps([]); setSelectedMachines([])
@@ -859,7 +814,7 @@ export default function Jobs() {
     })
   }
 
-  // ── Edit helpers ──────────────────────────────────────
+  // -- Edit helpers --------------------------------------
   function openEdit(job: Job) {
     setEditJob(job)
     setEditForm({
@@ -910,7 +865,7 @@ export default function Jobs() {
     }})
   }
 
-  // ── Assign drawer ─────────────────────────────────────
+  // -- Assign drawer -------------------------------------
   async function openAssign(job: Job) {
     setAssignJob(job); setAssignEmps([]); setAssignMachines([]); setAssignError('')
     setAssignCheck(null); setAssignChecking(true); setAssignTab('machines')
@@ -933,7 +888,7 @@ export default function Jobs() {
   const jobProfit = (job: Job) => job.order_value != null ? job.order_value - jobCost(job) : null
 
 
-  // ── Status badge styles ──────────────────────────────
+  // -- Status badge styles ------------------------------
   const STATUS_STYLE: Record<string,string> = {
     'Draft':              'bg-gray-100 text-gray-500 border-gray-200',
     'Scheduled':          'bg-blue-100 text-blue-700 border-blue-200',
@@ -943,15 +898,15 @@ export default function Jobs() {
     'Cancelled':          'bg-red-100 text-red-500 border-red-200',
   }
 
-  // ── Timer badge styles ────────────────────────────────
+  // -- Timer badge styles --------------------------------
   const TIMER_STYLE: Record<string,{label:string;cls:string}> = {
-    idle:    { label:'—',       cls:'text-gray-300 bg-gray-50 border-gray-100'       },
+    idle:    { label:'-',       cls:'text-gray-300 bg-gray-50 border-gray-100'       },
     running: { label:'Running', cls:'text-green-700 bg-green-50 border-green-200'    },
     paused:  { label:'Paused',  cls:'text-amber-700 bg-amber-50 border-amber-200'    },
     ended:   { label:'Ended',   cls:'text-teal-600 bg-teal-50 border-teal-200'       },
   }
 
-  // ── Running pulse dot (used in header pill) ──────────
+  // -- Running pulse dot (used in header pill) ----------
   function RunningDot() {
     return (
       <span className="relative flex h-2 w-2 shrink-0">
@@ -961,7 +916,7 @@ export default function Jobs() {
     )
   }
 
-  // ── Render a single job row ───────────────────────────
+  // -- Render a single job row ---------------------------
   function JobRow({ job }: { job: Job }) {
    
     const avail    = availCache[job.id]
@@ -1021,7 +976,7 @@ export default function Jobs() {
             }
           `}
         >
-          {/* Chevron — thick, visible, coloured on hover/expanded */}
+          {/* Chevron - thick, visible, coloured on hover/expanded */}
           <td className="pl-3 pr-1 py-3 w-7">
             <div className={`w-6 h-6 rounded flex items-center justify-center transition-all ${
               isExpanded ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 group-hover:bg-blue-100 group-hover:text-blue-600'
@@ -1058,7 +1013,7 @@ export default function Jobs() {
             </div>
           </td>
 
-          {/* Timer — full text badge + pulse dot */}
+          {/* Timer - full text badge + pulse dot */}
           <td className="px-3 py-3 w-28">
             <div className="flex items-center gap-1.5">
               {job.timer_status === 'running' && <RunningDot/>}
@@ -1085,7 +1040,7 @@ export default function Jobs() {
             <TimelineBar job={job} />
           </td>
 
-          {/* Actions — compact icon buttons */}
+          {/* Actions - compact icon buttons */}
           <td className="px-2 py-3 w-36 whitespace-nowrap" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-1 justify-end">
 
@@ -1103,7 +1058,7 @@ export default function Jobs() {
 
               {!['Completed','Cancelled'].includes(job.status) && (
                 <>
-                  {/* ▶ Start — idle */}
+                  {/* ▶ Start - idle */}
                   {job.timer_status === 'idle' && (
                     <button
                       onClick={() => !job.has_conflict && timerMut.mutate({id:job.id,action:'start'})}
@@ -1117,7 +1072,7 @@ export default function Jobs() {
                       <Play size={12}/>
                     </button>
                   )}
-                  {/* ▶ Resume — paused */}
+                  {/* ▶ Resume - paused */}
                   {job.timer_status === 'paused' && (
                     <button onClick={()=>timerMut.mutate({id:job.id,action:'resume'})}
                       title="Resume"
@@ -1125,7 +1080,7 @@ export default function Jobs() {
                       <Play size={12}/>
                     </button>
                   )}
-                  {/* ⏸ Pause — running */}
+                  {/* ⏸ Pause - running */}
                   {job.timer_status === 'running' && (
                     <button onClick={()=>timerMut.mutate({id:job.id,action:'pause'})}
                       title="Pause"
@@ -1133,7 +1088,7 @@ export default function Jobs() {
                       <Pause size={12}/>
                     </button>
                   )}
-                  {/* ■ End — running or paused */}
+                  {/* ■ End - running or paused */}
                   {['running','paused'].includes(job.timer_status) && (
                     <button onClick={()=>timerMut.mutate({id:job.id,action:'end'})}
                       title="End job"
@@ -1199,7 +1154,7 @@ export default function Jobs() {
           </td>
         </tr>
 
-        {/* ── Expanded detail row ── */}
+        {/* -- Expanded detail row -- */}
         {isExpanded && (
           <tr key={`${job.id}-detail`}>
             <td colSpan={5} className="bg-blue-50/40 border-b border-blue-100 px-4 py-4">
@@ -1208,12 +1163,12 @@ export default function Jobs() {
               {/* Cost summary bar */}
               <div className="flex items-stretch gap-0 bg-gray-50 border-b border-blue-100 overflow-hidden divide-x divide-gray-100">
                 {[
-                  { label: 'Order Value', value: job.order_value != null ? `₹${job.order_value.toLocaleString('en-IN')}` : '—', cls: 'text-gray-800' },
+                  { label: 'Order Value', value: job.order_value != null ? `₹${job.order_value.toLocaleString('en-IN')}` : '-', cls: 'text-gray-800' },
                   { label: 'RM Cost',     value: `₹${rawTotal.toLocaleString('en-IN')}`,                 cls: 'text-red-500'   },
                   { label: 'Misc / OH',   value: `₹${(job.misc_cost??0).toLocaleString('en-IN')}`,       cls: 'text-red-400'   },
                   { label: 'Total Cost',  value: `₹${totalCost.toLocaleString('en-IN')}`,                cls: 'text-red-600 font-black' },
                   { label: 'Profit',
-                    value: profit != null ? `${profitPos?'+':''}₹${Math.abs(profit).toLocaleString('en-IN')}` : '—',
+                    value: profit != null ? `${profitPos?'+':''}₹${Math.abs(profit).toLocaleString('en-IN')}` : '-',
                     cls: profit != null ? (profitPos ? 'text-green-600 font-black' : 'text-red-600 font-black') : 'text-gray-400'
                   },
                 ].map(({ label, value, cls }) => (
@@ -1248,7 +1203,7 @@ export default function Jobs() {
                   }
                 </div>
 
-                {/* People & Machines — v3.9.4: real-time availability */}
+                {/* People & Machines - v3.9.4: real-time availability */}
                 <div>
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
                     <Users size={11} className="text-blue-500"/> People & Machines
@@ -1352,7 +1307,7 @@ export default function Jobs() {
                           </button>
                         )}
 
-                        {/* Skill requirements coverage — shows which skills are met vs missing */}
+                        {/* Skill requirements coverage - shows which skills are met vs missing */}
                         {(() => {
                           const checkResult = typeof availCache[job.id] === 'object'
                                     ? availCache[job.id] as {
@@ -1385,8 +1340,8 @@ export default function Jobs() {
                                   const statusLabel = isMet
                                     ? `${covered}/${needed} assigned`
                                     : isPartial
-                                    ? `${covered}/${needed} — need ${needed - covered} more`
-                                    : `0/${needed} — nobody assigned`
+                                    ? `${covered}/${needed} - need ${needed - covered} more`
+                                    : `0/${needed} - nobody assigned`
                                   return (
                                     <div key={req.id} className="flex items-center gap-2 bg-white rounded-lg border border-gray-100 px-3 py-1.5">
                                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: dotColor }}/>
@@ -1443,7 +1398,7 @@ export default function Jobs() {
                     const realConflicts = result.conflicts.filter(c => c.resource_type !== 'employee')
                     return (
                       <>
-                        {/* Skill Gaps — amber, action: assign qualified staff */}
+                        {/* Skill Gaps - amber, action: assign qualified staff */}
                         {skillGaps.length > 0 && (
                           <div className="mb-2 bg-amber-50 rounded-lg border border-amber-200 px-3 py-2">
                             <p className="text-xs font-semibold text-amber-700 mb-1.5 flex items-center gap-1">
@@ -1462,7 +1417,7 @@ export default function Jobs() {
                                   <span className="shrink-0 mt-0.5">·</span>
                                   <span>
                                     <span className="font-medium">{skillName}</span>
-                                    {' '}— need {need}, only {found} qualified {found === '0' ? 'assigned' : 'available'}
+                                    {' '}- need {need}, only {found} qualified {found === '0' ? 'assigned' : 'available'}
                                   </span>
                                 </div>
                               )
@@ -1472,7 +1427,7 @@ export default function Jobs() {
                             </p>
                           </div>
                         )}
-                        {/* Real scheduling conflicts — red, action: change dates or reassign resource */}
+                        {/* Real scheduling conflicts - red, action: change dates or reassign resource */}
                         {realConflicts.length > 0 && (
                           <div className="mb-2 bg-red-50 rounded-lg border border-red-200 px-3 py-2">
                             <p className="text-xs font-semibold text-red-600 mb-1.5 flex items-center gap-1">
@@ -1560,11 +1515,11 @@ export default function Jobs() {
       </>
     )
   }
-  // ── Main render ───────────────────────────────────────
+  // -- Main render ---------------------------------------
   return (
     <div className="space-y-0">
 
-      {/* ── Page Header ─────────────────────────────────── */}
+      {/* -- Page Header ----------------------------------- */}
       <div className="bg-white border-b border-gray-200 px-1 py-4 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
@@ -1572,7 +1527,7 @@ export default function Jobs() {
             <p className="text-xs text-gray-400 mt-0.5">{labels.jobsPageSubtitle}</p>
           </div>
           <div className="flex items-center gap-2">
-            <CoachMark id="jobs-new" title="Create your first job" description="Pick a machine — skills are auto-suggested. Set dates and assign your team." position="bottom" step={1} totalSteps={3}>
+            <CoachMark id="jobs-new" title="Create your first job" description="Pick a machine - skills are auto-suggested. Set dates and assign your team." position="bottom" step={1} totalSteps={3}>
               <LimitedButton resource="jobs" planLimits={planLimits} onClick={openWizard}>
                 <Plus size={16}/> {labels.newJobButton}
               </LimitedButton>
@@ -1632,7 +1587,7 @@ export default function Jobs() {
 
 
 
-      {/* ── Toolbar ─────────────────────────────────────── */}
+      {/* -- Toolbar --------------------------------------- */}
       <div className="bg-white border-b border-gray-100 py-3 flex items-center gap-3 flex-wrap">
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"/>
@@ -1687,7 +1642,7 @@ export default function Jobs() {
       {isLoading && <div className="flex items-center gap-2 text-gray-500 justify-center py-10"><Loader2 className="animate-spin" size={18}/>Loading jobs...</div>}
       {isError   && <div className="flex items-center gap-2 text-red-500 justify-center py-10"><AlertCircle size={18}/>Failed to load jobs.</div>}
 
-      {/* ── Table ───────────────────────────────────────── */}
+      {/* -- Table ----------------------------------------- */}
       {!isLoading && !isError && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mt-4">
           <div className="overflow-x-auto scrollbar-thin" style={{overflowX:'auto', WebkitOverflowScrolling:'touch'}}>
@@ -1749,7 +1704,7 @@ export default function Jobs() {
         </div>
       )}
 
-      {/* ══ NEW JOB WIZARD ══════════════════════════════════ */}
+      {/* -- NEW JOB WIZARD ---------------------------------- */}
       {wizardOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
@@ -1843,7 +1798,7 @@ export default function Jobs() {
                     <textarea className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                       rows={2} value={details.notes} onChange={e=>setDetails({...details,notes:e.target.value})}/>
                   </div>
-                  {/* v3.9.6 — Job Type + Quantity */}
+                  {/* v3.9.6 - Job Type + Quantity */}
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Job Type</label>
                     <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1863,7 +1818,7 @@ export default function Jobs() {
                     onClick={()=>{ if(details.name&&details.end_date&&(details.start_mode==='flexible'?details.earliest_date:details.start_date)) setWizardStep(2) }}
                     disabled={!details.name || !details.end_date || (details.start_mode==='flexible' ? !details.earliest_date : !details.start_date)}
                     className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm py-2.5 rounded-xl font-medium">
-                    Next — {labels.skills} & People <ChevronRight size={15}/>
+                    Next - {labels.skills} & People <ChevronRight size={15}/>
                   </button>
                   <button onClick={closeWizard} className="px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm py-2.5 rounded-xl">Cancel</button>
                 </div>
@@ -1875,7 +1830,7 @@ export default function Jobs() {
               <div className="p-6 space-y-5">
                 <div>
                   <h4 className="font-semibold text-gray-700 flex items-center gap-2 mb-1">
-                    <Factory size={15} className="text-green-600"/> Step 1 — Select {labels.machines}
+                    <Factory size={15} className="text-green-600"/> Step 1 - Select {labels.machines}
                   </h4>
                   <p className="text-xs text-gray-400 mb-3">Selecting a machine auto-adds its skill requirements below.</p>
                   {machines.filter(m=>m.status==='Operational').length === 0
@@ -1922,7 +1877,7 @@ export default function Jobs() {
                 <hr className="border-gray-100"/>
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-semibold text-gray-700 flex items-center gap-2"><Users size={15} className="text-blue-500"/> Step 2 — Skill Requirements</h4>
+                    <h4 className="font-semibold text-gray-700 flex items-center gap-2"><Users size={15} className="text-blue-500"/> Step 2 - Skill Requirements</h4>
                     <button onClick={()=>setSkillReqs(r=>[...r,{skill_id:skills[0]?.id??0,min_skill_level:'Generic',employees_required:1}])}
                       className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5">
                       <Plus size={12}/> Add Skill
@@ -1956,7 +1911,7 @@ export default function Jobs() {
                               <div className={`px-3 pb-2 text-xs font-medium flex items-center gap-1 ${ok ? 'text-green-700' : 'text-red-600'}`}>
                                 {ok ? <Check size={11}/> : <AlertTriangle size={11}/>}
                                 Need {req.employees_required} · <span className="font-bold">{available} available</span>
-                                {!ok && <span className="font-normal text-red-500 ml-1">— add staff or lower level</span>}
+                                {!ok && <span className="font-normal text-red-500 ml-1">- add staff or lower level</span>}
                               </div>
                             )
                           })()}
@@ -1967,7 +1922,7 @@ export default function Jobs() {
                 {skillReqs.length>0 && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-semibold text-gray-700 flex items-center gap-2"><UserCheck size={15} className="text-purple-500"/> Step 3 — Available People</h4>
+                      <h4 className="font-semibold text-gray-700 flex items-center gap-2"><UserCheck size={15} className="text-purple-500"/> Step 3 - Available People</h4>
                       {wizardChecking && <span className="flex items-center gap-1 text-xs text-gray-400"><Loader2 size={11} className="animate-spin"/>Checking...</span>}
                     </div>
                     {wizardCheck && !wizardChecking && (
@@ -1983,7 +1938,7 @@ export default function Jobs() {
                 <div className="flex gap-2">
                   <button onClick={()=>setWizardStep(1)} className="flex items-center gap-1.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm py-2.5 rounded-xl"><ChevronLeft size={15}/>Back</button>
                   <button onClick={()=>setWizardStep(3)} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2.5 rounded-xl font-medium">
-                    Next — {labels.materials} & Confirm <ChevronRight size={15}/>
+                    Next - {labels.materials} & Confirm <ChevronRight size={15}/>
                   </button>
                 </div>
               </div>
@@ -2023,16 +1978,16 @@ export default function Jobs() {
                   <p className="font-semibold text-gray-700 mb-2">Confirm Details</p>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                     <div><span className="text-gray-500">Job:</span> <span className="font-medium">{details.name}</span></div>
-                    <div><span className="text-gray-500">Customer:</span> <span className="font-medium">{details.customer||'—'}</span></div>
+                    <div><span className="text-gray-500">Customer:</span> <span className="font-medium">{details.customer||'-'}</span></div>
                     <div><span className="text-gray-500">Schedule:</span> <span className="font-medium capitalize">{details.start_mode.replace(/_/g,' ')}</span></div>
                     <div><span className="text-gray-500">Priority:</span> <span className={`px-2 py-0.5 rounded-full font-medium border ${priorityColour[details.priority]??''}`}>{details.priority}</span></div>
                     <div><span className="text-gray-500">Lock:</span> <span className="font-medium">{details.start_mode === 'flexible' ? 'Flexible (scheduler can move)' : 'Locked (fixed date)'}</span></div>
                   </div>
                   {selectedEmps.length>0 && <p className="text-xs text-green-700 mt-1">· {selectedEmps.length} employee(s) will be assigned</p>}
                   {selectedMachines.length>0 && <p className="text-xs text-green-700">· {selectedMachines.length} machine(s) will be assigned</p>}
-                  {rawMats.length>0 && <p className="text-xs text-orange-700">· {rawMats.length} raw material(s) — ₹{matTotal(rawMats).toLocaleString('en-IN')}</p>}
+                  {rawMats.length>0 && <p className="text-xs text-orange-700">· {rawMats.length} raw material(s) - ₹{matTotal(rawMats).toLocaleString('en-IN')}</p>}
                   {selectedEmps.length===0&&selectedMachines.length===0 && (
-                    <p className="text-xs text-yellow-600 flex items-center gap-1 mt-1"><AlertTriangle size={11}/>No resources selected — can assign later.</p>
+                    <p className="text-xs text-yellow-600 flex items-center gap-1 mt-1"><AlertTriangle size={11}/>No resources selected - can assign later.</p>
                   )}
                 </div>
                 <div className="flex gap-2">
@@ -2049,7 +2004,7 @@ export default function Jobs() {
       )}
 
 
-      {/* ══ ASSIGN DRAWER ══════════════════════════════════ */}
+      {/* -- ASSIGN DRAWER ---------------------------------- */}
       {assignJob && (
         <div className="fixed inset-0 bg-black/40 z-50 flex justify-end">
           <div className="bg-white w-full max-w-lg h-full shadow-2xl flex flex-col">
@@ -2182,12 +2137,12 @@ export default function Jobs() {
         </div>
       )}
 
-      {/* ══ EDIT MODAL ══════════════════════════════════════ */}
+      {/* -- EDIT MODAL -------------------------------------- */}
       {editJob && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h3 className="font-bold text-gray-800">Edit Job — {jobDisplayId(editJob, jobPrefix)}</h3>
+              <h3 className="font-bold text-gray-800">Edit Job - {jobDisplayId(editJob, jobPrefix)}</h3>
               <button onClick={()=>setEditJob(null)}><X size={18} className="text-gray-400 hover:text-gray-600"/></button>
             </div>
             <div className="p-6 space-y-4">
@@ -2358,7 +2313,7 @@ export default function Jobs() {
         </div>
       )}
 
-      {/* ══ JOB REPORT / PDF EXPORT MODAL ══════════════════ */}
+      {/* -- JOB REPORT / PDF EXPORT MODAL ------------------ */}
       {pdfJob && (() => {
         const job = pdfJob
         const rawTotal  = matTotal(job.raw_materials || [])
@@ -2378,7 +2333,7 @@ export default function Jobs() {
               {/* Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 no-print">
                 <div>
-                  <h3 className="font-bold text-gray-800">Job Report — {displayId}</h3>
+                  <h3 className="font-bold text-gray-800">Job Report - {displayId}</h3>
                   <p className="text-xs text-gray-400 mt-0.5">Preview before printing</p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -2424,7 +2379,7 @@ export default function Jobs() {
                   <div className={`rounded-xl border p-3 text-center ${overrunPct != null && overrunPct > 10 ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'}`}>
                     <p className="text-xs text-gray-400 mb-1">Actual Hours</p>
                     <p className={`text-sm font-semibold ${overrunPct != null && overrunPct > 10 ? 'text-orange-700' : 'text-green-700'}`}>
-                      {job.actual_hours != null ? `${job.actual_hours}h` : '—'}
+                      {job.actual_hours != null ? `${job.actual_hours}h` : '-'}
                       {estHours != null && <span className="text-xs font-normal text-gray-400 ml-1">/ est. {estHours}h</span>}
                     </p>
                     {overrunPct != null && overrunPct > 10 && (
@@ -2438,11 +2393,11 @@ export default function Jobs() {
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Cost Summary</p>
                   <div className="overflow-hidden rounded-xl border border-gray-200 divide-y divide-gray-100">
                     {[
-                      ['Order Value', job.order_value != null ? `₹${job.order_value.toLocaleString('en-IN')}` : '—', ''],
+                      ['Order Value', job.order_value != null ? `₹${job.order_value.toLocaleString('en-IN')}` : '-', ''],
                       [labels.materials, `₹${rawTotal.toLocaleString('en-IN')}`, 'text-red-500'],
                       ['Misc / Overhead', `₹${(job.misc_cost??0).toLocaleString('en-IN')}`, 'text-red-400'],
                       ['Total Cost', `₹${totalCost.toLocaleString('en-IN')}`, 'text-red-600 font-black'],
-                      ['Profit', profit != null ? `${profit>=0?'+':''}₹${Math.abs(profit).toLocaleString('en-IN')}` : '—', profit != null ? (profit>=0 ? 'text-green-600 font-black' : 'text-red-600 font-black') : ''],
+                      ['Profit', profit != null ? `${profit>=0?'+':''}₹${Math.abs(profit).toLocaleString('en-IN')}` : '-', profit != null ? (profit>=0 ? 'text-green-600 font-black' : 'text-red-600 font-black') : ''],
                     ].map(([label, value, cls]) => (
                       <div key={label} className="flex justify-between px-4 py-2 text-sm">
                         <span className="text-gray-500">{label}</span>
@@ -2540,7 +2495,7 @@ export default function Jobs() {
                         <span className="text-gray-400">Payment</span>
                         <span className={`font-semibold ${job.payment_status==='Paid'?'text-green-600':job.payment_status==='Partial'?'text-amber-600':'text-red-500'}`}>
                           {job.payment_status}
-                          {job.payment_amount != null && ` — ₹${job.payment_amount.toLocaleString('en-IN')}`}
+                          {job.payment_amount != null && ` - ₹${job.payment_amount.toLocaleString('en-IN')}`}
                         </span>
                       </div>
                       {job.payment_date && (
@@ -2580,3 +2535,4 @@ export default function Jobs() {
     </div>
   )
 }
+

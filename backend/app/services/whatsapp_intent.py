@@ -1,92 +1,37 @@
 """
-```python
-"""
-FILE PURPOSE
-This file implements intent detection for the WhatsApp Copilot feature (v5-whatsapp branch).
-It analyzes incoming user messages to identify when users want to perform write operations
-(like marking employees absent or updating job statuses) and extracts the necessary parameters
-for those actions. This serves as the critical bridge between AI conversation and the confirmation
-state machine, ensuring all database modifications go through proper owner approval before execution.
+FILE:    whatsapp_intent.py
+PATH:    backend/app/services/whatsapp_intent.py
+PURPOSE: Scans the AI's response text to detect write intents (mark absent,
+         update job status, etc.) and extracts the parameters needed to
+         execute them after owner confirmation.
 
-WHAT THIS FILE DOES — step by step
-1. Defines keyword lists for different intent types (absent, maintenance, job status updates)
-2. Provides helper functions to extract employee names and resolve relative dates from messages
-3. Performs database lookups to convert extracted names into employee IDs
-4. Scans user messages against keyword patterns to detect write intents
-5. Returns structured action data (ActionType + parameters) for the confirmation workflow
-6. Falls back gracefully when names don't match database records or parameters are incomplete
+         This is the GLUE between the AI and the confirmation state machine.
 
-KEY FUNCTIONS / CLASSES / COMPONENTS
+         Flow:
+           1. AI responds to "Rajan aaj nahi aaya"
+           2. This module scans the AI response for absent-marking intent
+           3. If intent found — returns (ActionType, params) so the router
+              can store a pending action and send confirmation prompt
+           4. If no write intent — returns None, normal conversation continues
 
-Name         : _resolve_date
-Type         : function (private helper)
-Purpose      : Converts relative date references like "aaj" (today) or "kal" (tomorrow) into 
-               YYYY-MM-DD format strings. Defaults to today's date if no date keywords found.
-Parameters   : user_message (str) - the raw user message text, converted to lowercase
-Returns      : str - date in YYYY-MM-DD format for database storage
-Calls        : datetime.date.today(), timedelta() from Python standard library
-DB/API       : None - pure function with no external calls
-Side effects : None - reads system date but doesn't modify anything
+         WHY KEYWORD MATCHING (not AI tool calling):
+           We use simple keyword matching rather than asking the AI to output
+           structured JSON because:
+           a) The AI already responded in natural language — we don't want a
+              second AI call for every message (latency + cost)
+           b) Keyword matching on the USER message (not AI response) is more
+              reliable — user intent is in their words, not the AI's summary
+           c) The confirmation state machine handles edge cases — even if we
+              occasionally false-positive, the owner must confirm before any
+              DB write happens. Safety net is always there.
 
-Name         : _extract_employee_name
-Type         : function (private helper)  
-Purpose      : Attempts to identify employee names in user messages by looking for capitalized
-               words that aren't common Hindi/English keywords. Uses best-effort heuristics
-               since the confirmation prompt will show the extracted name for owner verification.
-Parameters   : user_message (str) - raw user message text with original capitalization preserved
-Returns      : str|None - extracted employee name or None if no likely name found
-Calls        : re.sub() for punctuation cleaning, string methods for capitalization checks
-DB/API       : None - pure text processing function
-Side effects : None - only analyzes text without external modifications
+BRANCH:  v5-whatsapp
+VERSION: v5.1
+CREATED: 2026-03-29
 
-Name         : _find_employee_id
-Type         : function (private helper)
-Purpose      : Performs database lookup to find employee ID and full name using case-insensitive
-               partial name matching. Scoped to tenant for security and filters out inactive employees.
-               Returns first match if multiple employees share similar names.
-Parameters   : name (str) - partial or full employee name to search for
-               tenant_id (int) - tenant scope for the database query  
-               db (Session) - sync SQLAlchemy session for database access
-Returns      : tuple[int|None, str|None] - (employee_id, full_name) if found, (None, None) if not
-Calls        : app.models.employee.Employee ORM model for database queries
-DB/API       : SELECT query on employees table with tenant_id filter and ILIKE name matching
-Side effects : Database read operation - no writes or modifications
-
-Name         : detect_write_intent
-Type         : function (main entry point)
-Purpose      : Main intent detection engine that scans user messages for write operations requiring
-               confirmation. Currently handles absent marking, maintenance requests, and job status
-               updates. Called before AI response generation to catch actionable user requests.
-Parameters   : user_message (str) - raw user message text with original case
-               tenant_id (int) - tenant scope for database lookups
-               db (Session) - sync SQLAlchemy session for employee/machine/job queries
-Returns      : tuple[ActionType|None, dict|None] - (action_type, parameters) if intent detected, 
-               (None, None) for read-only conversations requiring no confirmation
-Calls        : _extract_employee_name(), _find_employee_id(), _resolve_date() helper functions
-DB/API       : Indirect database queries through helper functions for employee lookups
-Side effects : Database read operations for ID resolution - no writes during detection phase
-
-WHO CALLS THIS FILE
-- backend/app/routers/whatsapp_router.py imports detect_write_intent for message processing
-- backend/app/services/whatsapp_bridge.py may call this during message flow orchestration
-- backend/app/services/whatsapp_actions.py works with ActionType enum defined here
-
-IMPORTS EXPLAINED
-- logging: Provides module-level logger for debugging intent detection and name matching results
-- re: Regular expressions for cleaning punctuation from extracted employee names during processing  
-- datetime.date, timedelta: Date arithmetic for resolving "aaj"/"kal" to actual YYYY-MM-DD dates
-- sqlalchemy.orm.Session: Database session type annotation for tenant-scoped employee lookups
-- app.services.whatsapp_actions.ActionType: Enum defining available action types for confirmation workflow
-
-INTERN NOTES
-- Easiest thing to break: Adding new keywords without testing against actual user messages - Hindi/English mixing creates edge cases that simple string matching misses
-- Non-obvious design decision: Uses keyword matching instead of AI tool calling to avoid double AI calls per message (latency + cost), plus user intent is clearer in their original words than AI summaries
-- Most common mistake: Forgetting tenant_id filtering in database lookups when adding new intent types - this creates security vulnerabilities across tenant boundaries  
-- Implements design principle #2: All database queries include tenant scoping through _find_employee_id helper function
-- If this file behaves unexpectedly: Check keyword lists for missing phrases, verify database has active employees with matching names, and ensure ActionType enum matches expected return values
-- v5-whatsapp merge consideration: This entire file is WhatsApp-specific and should not be merged to v4-dev - it depends on v5-only models like PhoneTenantMap and WhatsAppConversation
-"""
-```
+DEPENDENCIES:
+  app/services/whatsapp_actions.py — ActionType enum
+  app/database.py                  — SessionLocal for DB lookups (employee name → id)
 """
 
 import logging

@@ -1,25 +1,7 @@
-/**
- * frontend/src/pages/Checker.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * The availability checker page. Lets users select a job and see a computed
- * availability report — which employees and machines are free, which are busy,
- * and what conflicts exist. Uses the resource availability endpoint introduced
- * in v3.9.4. Provides a visual breakdown of allocation percentages and blocking
- * jobs for each assigned resource.
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as a protected route
- * - frontend/src/pages/Jobs.tsx — may link to checker for specific jobs
- *
- * INTERN NOTES
- * - Calls GET /api/jobs/{id}/resource-availability via getResourceAvailability()
- *   from api_resource_availability.ts.
- * - Design Principle 5: amber status (partial) means the resource has capacity
- *   remaining but is partially committed. Red (unavailable) means fully committed.
- *   These are NOT the same as scheduling conflicts.
- */
+// frontend/src/pages/Checker.tsx
+// Resource availability checker for a specific job.
+// Shows free/busy/partial status per employee and machine.
+
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '../api/client'
@@ -116,13 +98,13 @@ export default function Checker() {
       <div>
         <h2 className="text-xl font-bold text-gray-800">Availability Checker</h2>
         <p className="text-sm text-gray-500 mt-0.5">
-          Select a job and run a full feasibility check — no data is changed.
+          Select a job and run a full feasibility check - no data is changed.
         </p>
       </div>
 
       {/* Job selector panel */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-        <h3 className="font-semibold text-gray-700 text-sm">Step 1 — Select a Job</h3>
+        <h3 className="font-semibold text-gray-700 text-sm">Step 1 - Select a Job</h3>
 
         {/* Search */}
         <div className="relative">
@@ -168,7 +150,7 @@ export default function Checker() {
           className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-medium text-sm py-3 rounded-xl transition-colors">
           {checking
             ? <><Loader2 className="animate-spin" size={16}/>Running check...</>
-            : <><Gauge size={16}/>Run Availability Check{selectedJob ? ` — ${selectedJob.name}` : ''}</>
+            : <><Gauge size={16}/>Run Availability Check{selectedJob ? ` - ${selectedJob.name}` : ''}</>
           }
         </button>
       </div>
@@ -203,8 +185,8 @@ export default function Checker() {
             </div>
             <p className={`text-xs mt-2 ${colours.text} opacity-80`}>
               {result.feasible
-                ? 'All skill requirements can be met — ready for assignment.'
-                : `${result.conflicts.length} conflict${result.conflicts.length !== 1 ? 's' : ''} found — resolve before assigning.`
+                ? 'All skill requirements can be met - ready for assignment.'
+                : `${result.conflicts.length} conflict${result.conflicts.length !== 1 ? 's' : ''} found - resolve before assigning.`
               }
             </p>
           </div>
@@ -296,7 +278,7 @@ export default function Checker() {
                       {!met && (
                         <div className="bg-red-50 border-t border-red-100 px-4 py-2 text-xs text-red-600 flex items-center gap-1.5">
                           <XCircle size={12}/>
-                          Need {needed} but only {availEmpIds.length} available —
+                          Need {needed} but only {availEmpIds.length} available -
                           short by {needed - availEmpIds.length} person{needed - availEmpIds.length !== 1 ? 's' : ''}
                         </div>
                       )}

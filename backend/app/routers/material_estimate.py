@@ -1,82 +1,20 @@
 """
-```python
-"""
-backend/app/routers/material_estimate.py
+backend/app/routers/material_estimate.py — v3.9.8
 
-FILE PURPOSE
-This FastAPI router provides material consumption estimation for manufacturing jobs by analyzing historical data from completed jobs of the same type. Introduced in v3.9.8 as a prerequisite for the AI Copilot's "how much material do I need?" feature (v3.9.9), it sits in the business logic layer between the frontend job planning interface and the database, calculating estimates that the AI will later narrate to users. The file implements design principle #1: the engine computes, AI only narrates - this router does all the mathematical estimation work so the LLM can focus purely on explaining the results.
+GET /api/jobs/{job_id}/material-estimate
 
-WHAT THIS FILE DOES — step by step
-1. Defines confidence level calculation functions that categorize estimate reliability based on sample size of historical jobs
-2. Implements core estimation logic that calculates average material consumption rates from past completed jobs
-3. Provides a GET endpoint that receives a job ID, validates the job exists and belongs to the current user's tenant
-4. Queries the database for historical completed jobs of the same job_type, filtering by tenant_id for security
-5. Processes raw_materials JSON data from those historical jobs to calculate per-unit consumption rates
-6. Scales those rates by the target job's quantity to produce material quantity estimates
-7. Returns a comprehensive response including estimates, confidence levels, explanatory notes, and metadata about the jobs used in calculations
+Finds all past completed jobs of the same job_type, calculates average
+material consumption per unit, and returns an estimate for the current
+job based on its quantity.
 
-KEY FUNCTIONS / CLASSES / COMPONENTS
+Prerequisite for AI Copilot "how much material do I need?" feature (v3.9.9).
+Engine does the computation. AI only narrates.
 
-Name         : _confidence
-Type         : function
-Purpose      : Determines confidence level string based on the number of historical jobs found. Uses fixed thresholds: 3+ jobs = "high", 2 jobs = "medium", 1 job = "low", 0 jobs = "none". This provides a standardized way to communicate estimate reliability to the frontend and AI Copilot.
-Parameters   : sample_size (int) - number of past jobs used for estimation
-Returns      : str - one of "high", "medium", "low", or "none" confidence levels
-Calls        : None - pure function with no external dependencies
-DB/API       : None - performs no database queries or API calls
-Side effects : None - pure calculation function
-
-Name         : _confidence_note
-Type         : function
-Purpose      : Generates human-readable explanatory text about estimate confidence and limitations. Creates context-aware messages that explain to users why an estimate might be unreliable, helping them make informed decisions about the material planning suggestions.
-Parameters   : sample_size (int) - number of past jobs found, job_type (str) - the job type being estimated for context
-Returns      : str - explanatory message about estimate reliability and sample size limitations
-Calls        : None - pure string formatting function
-DB/API       : None - performs no database queries or API calls
-Side effects : None - pure text generation function
-
-Name         : _estimate_materials
-Type         : function
-Purpose      : Core estimation algorithm that processes historical job data to calculate material consumption estimates. For each material type found in past jobs, it calculates the average consumption rate per unit of production, then scales that rate by the target job's quantity to predict needed materials.
-Parameters   : past_jobs (List[Job]) - list of completed Job model instances with raw_materials data, target_quantity (float) - quantity of units the target job will produce
-Returns      : List[dict] - list of material estimates, each dict containing material name, estimated quantity, unit, average rate per unit, and sample size
-Calls        : None - processes data structures in memory without external calls
-DB/API       : None - works with already-loaded Job model instances
-Side effects : None - pure calculation function that doesn't modify input data
-
-Name         : get_material_estimate
-Type         : FastAPI endpoint
-Purpose      : Main API endpoint that orchestrates the entire material estimation process. Validates user permissions and job access, loads historical data, and coordinates the estimation calculation. Handles multiple error cases gracefully, returning informative responses when estimation isn't possible due to missing job_type or quantity data.
-Parameters   : job_id (int) - ID of the job to estimate materials for, db (Session) - SQLAlchemy database session injected by FastAPI, current_user (User) - authenticated user model injected by auth dependency
-Returns      : dict - comprehensive estimation response including job metadata, confidence assessment, material estimates array, and list of historical jobs used in calculation
-Calls        : _confidence(), _confidence_note(), _estimate_materials(), plus database queries on Job model
-DB/API       : Queries Job table twice: once to load target job, once to find historical completed jobs of same job_type within tenant
-Side effects : None - read-only operation that doesn't modify any data
-
-WHO CALLS THIS FILE
-- frontend/src/api/api_jobs.ts (or similar job API client) - frontend job management interfaces call this endpoint to display material estimates
-- backend/app/main.py - registers this router with the FastAPI application under /api/ prefix
-- backend/app/services/ai_service.py - AI Copilot likely calls this endpoint internally to get estimation data before narrating results to users
-- Future WhatsApp Copilot services in v5-whatsapp branch - will call this endpoint when users ask "how much material do I need?" via WhatsApp
-
-IMPORTS EXPLAINED
-- typing.List, Optional - type hints for function parameters and return values, enabling static type checking and IDE support
-- fastapi.APIRouter, Depends, HTTPException - core FastAPI components for defining REST endpoints with dependency injection and error handling
-- sqlalchemy.orm.Session - database session type for SQLAlchemy ORM queries, injected via dependency system
-- app.database.get_db - dependency function that provides database session instances to endpoints
-- app.models.job.Job - SQLAlchemy ORM model representing manufacturing jobs, needed to query historical job data
-- app.core.dependencies.get_current_user - authentication dependency that validates JWT tokens and provides current User model
-- app.models.auth.User - SQLAlchemy ORM model for authenticated users, used for tenant-based access control
-
-INTERN NOTES
-- Easiest thing to break: forgetting tenant_id filtering in database queries - this would leak material data between different companies and is a critical security vulnerability
-- Non-obvious design decision: the algorithm uses the most recent unit type when materials have inconsistent units across jobs, rather than trying to convert between units, because unit conversion would require external knowledge the system doesn't have
-- Most common mistake: assuming all jobs have raw_materials data populated - many jobs might have empty or null raw_materials arrays, so always check for existence and non-empty data before processing
-- Design principle implemented: #1 (Engine computes, AI only narrates) - this router performs all mathematical calculations so the AI Copilot can focus on explaining results rather than computing them
-- What to check if behaving unexpectedly: verify that historical jobs have populated raw_materials JSON arrays and non-zero quantity values, as empty data will result in "no estimates available" responses even when jobs exist
-- Not applicable to v5-whatsapp merge considerations - this file exists in v4-dev and should merge cleanly into v5-whatsapp without conflicts
-"""
-```
+Confidence levels:
+  high    — 3 or more past jobs found
+  medium  — exactly 2 past jobs found
+  low     — only 1 past job found
+  none    — no past jobs found (returns empty estimate)
 """
 
 from __future__ import annotations

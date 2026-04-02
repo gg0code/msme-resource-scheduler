@@ -1,34 +1,7 @@
-/**
- * frontend/src/pages/Employees.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * Employee management page. Lists all employees with expandable rows showing
- * skills, assignments, and unavailability periods. Supports create, edit, delete,
- * bulk CSV/XLSX import, and leave period management. Uses industry labels throughout.
- * Plan limit enforcement via usePlanLimits() and LimitedButton/PlanLimitBanner.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Fetches employees via useEmployees() from hooks_index.ts (['employees'] key).
- * 2. Renders header with CsvImport widget and LimitedButton for "Add Employee".
- * 3. PlanLimitBanner shows amber warning when free plan limit (10 employees) is reached.
- * 4. Renders employee table with expand/collapse per row.
- * 5. Expanded row: shows EmployeeSkill list, job assignments, UnavailabilityPanel.
- * 6. Edit modal: inline form for updating employee fields including skills.
- * 7. Delete: calls useDeleteEmployee() which invalidates ['employees'] + ['dashboard'].
- * 8. CoachMark wraps the Add Employee button for onboarding tour.
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as /employees route (protected)
- *
- * INTERN NOTES
- * - The ['employees'] query key is used by GettingStarted.tsx for onboarding detection.
- * - Plan limits: free plan allows 10 employees. usePlanLimits() fetches from
- *   /dashboard/plan-limits (no /api/ prefix).
- * - UnavailabilityPanel inside expanded rows manages leaves independently via its
- *   own ['emp-leaves', id] query key.
- * - Design Principle 2: all queries are automatically tenant-scoped via JWT.
- 
+// frontend/src/pages/Employees.tsx
+// Employee management: list, create, edit, delete, skills, leaves, CSV import.
+// Plan limit enforcement via usePlanLimits().
+
 import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -104,7 +77,7 @@ const emptyForm = () => ({
 
 type SortKey = 'full_name' | 'base_availability_pct' | 'department' | 'hourly_rate' | 'status'
 
-// ── Expandable assignment sub-row ──────────────────────
+// -- Expandable assignment sub-row ----------------------
 function AssignmentRows({ employeeId }: { employeeId: number }) {
   const labels = useLabels()
   const qc = useQueryClient()
@@ -161,7 +134,7 @@ function AssignmentRows({ employeeId }: { employeeId: number }) {
                 {assignments.map(a => (
                   <tr key={a.assignment_id} className="hover:bg-blue-100/40 transition-colors">
                     <td className="py-2 pl-1 pr-4 font-medium text-gray-800">{a.job_name}</td>
-                    <td className="py-2 pr-4 text-gray-500">{a.customer ?? '—'}</td>
+                    <td className="py-2 pr-4 text-gray-500">{a.customer ?? '-'}</td>
                     <td className="py-2 pr-4 text-gray-600">
                       <span className="flex items-center gap-1"><CalendarDays size={11} className="text-gray-400"/>{a.start_date}</span>
                     </td>
@@ -206,7 +179,7 @@ function AssignmentRows({ employeeId }: { employeeId: number }) {
   )
 }
 
-// ══════════════════════════════════════════════════════
+// ------------------------------------------------------
 export default function Employees() {
   const qc = useQueryClient()
   const flags = useFeatureFlags() 
@@ -451,7 +424,7 @@ export default function Employees() {
 
                         {/* Department */}
                         <td className="px-4 py-3 text-gray-700">
-                          {emp.department ?? <span className="text-gray-300 italic text-xs">—</span>}
+                          {emp.department ?? <span className="text-gray-300 italic text-xs">-</span>}
                         </td>
 
                         {/* Skills */}
@@ -482,7 +455,7 @@ export default function Employees() {
                                   </div>
                                 )}
                               </div>
-                            : <span className="text-gray-300 text-xs italic">—</span>
+                            : <span className="text-gray-300 text-xs italic">-</span>
                           }
                         </td>
 

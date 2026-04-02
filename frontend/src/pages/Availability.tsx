@@ -1,29 +1,7 @@
-/**
- * frontend/src/pages/Availability.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * The availability override management page. Shows a calendar or table view of
- * employee and machine availability overrides — leaves, maintenance periods, and
- * custom availability percentage changes. Lets schedulers and proprietors add
- * overrides that the availability engine reads when computing resource availability.
- *
- * WHAT THIS FILE DOES
- * Fetches availability overrides from /api/availability/, lets users add new
- * overrides (employee or machine, date range, percentage, reason), and delete
- * existing ones. Uses TanStack Query for data management.
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as a protected route
- *
- * INTERN NOTES
- * - Availability overrides differ from UnavailabilityPanel (which manages leaves/
- *   downtimes). Overrides set a specific percentage (0-100%) for a date range.
- *   Leaves and downtimes always set 0% (fully unavailable).
- * - Design Principle 2: tenant scoping automatic via JWT.
- * - Design Principle 5: skill gaps and availability conflicts are different things.
- *   This page manages availability data — not skill requirements.
- */
+// frontend/src/pages/Availability.tsx
+// Availability override management page.
+// Add/delete employee and machine availability overrides.
+
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
@@ -224,7 +202,7 @@ export default function Availability() {
               {filtered.map(o => (
                 <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium text-gray-800">
-                    {o.employee_id ? getEmpName(o.employee_id) : o.machine_id ? getMachName(o.machine_id) : '—'}
+                    {o.employee_id ? getEmpName(o.employee_id) : o.machine_id ? getMachName(o.machine_id) : '-'}
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${o.employee_id ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
@@ -238,7 +216,7 @@ export default function Availability() {
                       {o.availability_pct}%
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{o.reason ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{o.reason ?? '-'}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
                       <button onClick={()=>openEdit(o)} className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-800 border border-blue-200 rounded-md px-2 py-1"><Pencil size={11}/>Edit</button>
@@ -277,7 +255,7 @@ export default function Availability() {
             </div>
             <div className="p-6 space-y-4">
 
-              {/* Type selector — only show on create */}
+              {/* Type selector - only show on create */}
               {!editingOvr && (
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-2">Override Type</label>
@@ -302,7 +280,7 @@ export default function Availability() {
                   <label className="block text-xs font-medium text-gray-600 mb-1">Employee *</label>
                   <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={form.employee_id} onChange={e=>setForm({...form,employee_id:e.target.value})}>
-                    <option value="">— Select {labels.employee.toLowerCase()} —</option>
+                    <option value="">- Select {labels.employee.toLowerCase()} -</option>
                     {employees.map(e=><option key={e.id} value={e.id}>{e.full_name} {e.department?`(${e.department})`:''}</option>)}
                   </select>
                 </div>
@@ -314,7 +292,7 @@ export default function Availability() {
                   <label className="block text-xs font-medium text-gray-600 mb-1">Machine *</label>
                   <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={form.machine_id} onChange={e=>setForm({...form,machine_id:e.target.value})}>
-                    <option value="">— Select {labels.machine.toLowerCase()} —</option>
+                    <option value="">- Select {labels.machine.toLowerCase()} -</option>
                     {machines.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
                 </div>
@@ -372,7 +350,7 @@ export default function Availability() {
                   </span>
                 </div>
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
-                  <span>0% — Full leave</span><span>50% — Half day</span><span>100% — Full availability</span>
+                  <span>0% - Full leave</span><span>50% - Half day</span><span>100% - Full availability</span>
                 </div>
               </div>
 

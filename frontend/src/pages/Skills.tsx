@@ -1,33 +1,7 @@
-/**
- * frontend/src/pages/Skills.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * The Skills catalogue management page. Lists all skills for the tenant and lets
- * proprietors add new skills via an inline form or bulk-import via CSV. Uses
- * IndustryContext labels so the page title and copy match the tenant's industry.
- * Protected to proprietor role only in App.tsx. All skill data fetched via TanStack
- * Query with ['skills'] cache key — the same key used by GettingStarted.tsx to
- * detect onboarding completion.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Fetches skills list via useQuery(['skills']).
- * 2. Renders header with Add Skill button (wrapped in CoachMark for onboarding).
- * 3. Renders CsvImport widget for bulk CSV import.
- * 4. Inline create form: name, category (generic/premium), description.
- * 5. Submits via useMutation POST /api/skills/, invalidates ['skills'] on success.
- * 6. Renders skills table with name, category badge, description, active status.
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as /skills (proprietor-only route)
- *
- * INTERN NOTES
- * - The ['skills'] query key is critical — GettingStarted.tsx checks this key to
- *   auto-complete the "Add Skills" onboarding step. Never change it.
- * - This page is proprietor-only at the route level (App.tsx ProtectedRoute).
- *   The API also enforces this server-side.
- * - Design Principle 2: tenant scoping is automatic — apiClient sends the JWT.
- */
+// frontend/src/pages/Skills.tsx
+// Skills catalogue. Proprietor-only. List, create, CSV import.
+// Query key [skills] used by GettingStarted for onboarding detection.
+
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
@@ -181,7 +155,7 @@ export default function Skills() {
                       {skill.is_premium ? 'Premium' : 'Generic'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-500">{skill.description ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-500">{skill.description ?? '-'}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${skill.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
                       {skill.is_active ? 'Active' : 'Inactive'}

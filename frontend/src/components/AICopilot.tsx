@@ -1,152 +1,6 @@
-/**
- * frontend/src/components/AICopilot.tsx — v3.2 / v3.9.9
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * The AI chat panel that slides in from the right side of the screen. It is the
- * frontend face of the AI Copilot feature — a conversational interface that lets
- * factory owners ask questions about their jobs, employees, machines, and production
- * data in plain language. Introduced in v3.2, extended in v3.9.9 with intent detection
- * and structured data pre-fetching. Sits in the shared components layer; rendered
- * by Layout.tsx when flags.ai_copilot is true and the user clicks the floating AI button.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Detects the current page from useLocation() and builds page-aware suggestion chips.
- * 2. On open: calls GET /api/ai/greeting for a proactive shop floor summary, and
- *    GET /api/ai/usage to fetch daily query count and remaining quota.
- * 3. Renders a sliding panel (translate-x-full → translate-x-0) with two tabs:
- *    Chat and Tools (50 pre-built prompts).
- * 4. Chat tab: shows a context bar (current page), suggestion chips, message history,
- *    typing indicator, and a text input with send button.
- * 5. Tools tab: shows category filter pills and a grid of 50 clickable prompt buttons
- *    (loaded from ../data/aiTools.ts, industry-label aware).
- * 6. On every message send: runs intent detection (material estimate vs schedule
- *    suggestion), if intent found tries to extract a job name and pre-fetches
- *    structured data from the appropriate endpoint.
- * 7. Sends the conversation history + page context + structured data to POST /api/ai/chat.
- * 8. Handles 429 (Groq rate limit vs our own plan limit), 503/502 (AI unavailable),
- *    and generic errors with friendly user-facing messages — never shows raw errors.
- * 9. Updates usage bar after every successful response.
- * 10. Shows LimitReached screen with upgrade prompt when daily quota is exhausted.
- *
- * KEY FUNCTIONS / CLASSES / COMPONENTS
- *
- * Name         : AICopilot (default export)
- * Type         : React component
- * Purpose      : The main AI chat panel. Manages conversation state, intent detection,
- *                structured data pre-fetching, API calls, and all rendering.
- * Parameters   : isOpen: boolean — controls slide-in/out animation
- *                onClose: () => void — called when user clicks X or backdrop
- * Returns      : JSX.Element — fixed sliding panel + optional mobile backdrop
- * Calls        : apiClient.get('/api/ai/greeting'), apiClient.get('/api/ai/usage'),
- *                apiClient.get('/api/jobs/'), apiClient.get('/api/jobs/{id}/material-estimate'),
- *                apiClient.get('/api/jobs/{id}/schedule-suggestions'),
- *                apiClient.post('/api/ai/chat')
- * DB/API       : See Calls above — 6 different endpoints
- * Side effects : Scrolls message list to bottom on new messages, focuses input on open
- *
- * Name         : detectIntent
- * Type         : internal function
- * Purpose      : Scans a user message for patterns indicating a material estimate or
- *                schedule suggestion question. Used to decide whether to pre-fetch
- *                structured data before calling the AI (Design Principle 1).
- * Parameters   : text: string — raw user message
- * Returns      : 'material' | 'schedule' | null
- * Calls        : MATERIAL_PATTERNS and SCHEDULE_PATTERNS regex arrays
- * DB/API       : none
- * Side effects : none — pure function
- *
- * Name         : extractJobName
- * Type         : internal function
- * Purpose      : Extracts a job name from a user message using four regex patterns:
- *                quoted names, "for <Name>", "schedule <Name>", "need for <Name>".
- *                Used to find the job to pre-fetch data for.
- * Parameters   : text: string
- * Returns      : string | null — extracted job name or null if not found
- * Calls        : nothing
- * DB/API       : none
- * Side effects : none — pure function
- *
- * Name         : getPageSuggestions
- * Type         : internal function
- * Purpose      : Returns 3 context-aware suggestion chips for the current page.
- *                Uses industry labels (useLabels) so suggestions say "Orders" not
- *                "Jobs" on field_service industry, etc.
- * Parameters   : pageContext: string, labels: ReturnType<typeof useLabels>
- * Returns      : { icon: string; text: string }[]
- * Calls        : nothing
- * DB/API       : none
- * Side effects : none — pure function
- *
- * Name         : UsageBar
- * Type         : React component (internal)
- * Purpose      : Renders the daily query usage progress bar at the top of the panel.
- *                Green below 70%, amber 70-90%, red above 90%. Shows remaining count
- *                when below 10% remaining.
- * Parameters   : usage: Usage | null
- * Returns      : JSX.Element | null
- * Calls        : nothing
- * DB/API       : none
- * Side effects : none
- *
- * Name         : LimitReached
- * Type         : React component (internal)
- * Purpose      : Full-panel replacement shown when daily query limit is exhausted.
- *                Shows plan name, limit, and an upgrade prompt with Pro/Enterprise options.
- * Parameters   : usage: Usage
- * Returns      : JSX.Element
- * Calls        : nothing
- * DB/API       : none
- * Side effects : none
- *
- * Name         : MessageBubble
- * Type         : React component (internal)
- * Purpose      : Renders a single chat message. User messages appear right-aligned
- *                with blue gradient background. Assistant messages appear left-aligned
- *                with gray background. Supports basic markdown via fmt() helper
- *                (**bold**, \n → <br/>, ₹ amounts in monospace).
- * Parameters   : message: Message
- * Returns      : JSX.Element
- * Calls        : fmt() helper
- * DB/API       : none
- * Side effects : none
- *
- * WHO CALLS THIS FILE
- * - frontend/src/components/Layout.tsx — renders AICopilot when flags.ai_copilot
- *   is true, passes isOpen state and onClose callback
- *
- * IMPORTS EXPLAINED
- * - useState, useRef, useEffect from 'react': Conversation state, input ref for
- *   focus, messages end ref for scroll, usage state, tab state.
- * - useLocation from 'react-router-dom': Gets current URL path to determine page
- *   context for suggestions and the context bar label.
- * - X, Send, Bot, Sparkles, ChevronRight, Zap, MessageSquare from 'lucide-react':
- *   Icons for close, send, AI avatar, context bar, suggestion arrows, tabs.
- * - getAITools, AI_TOOL_CATEGORIES from '../data/aiTools': The 50 pre-built prompts
- *   and their category definitions, with industry-label substitution.
- * - apiClient from '../api/client': Authenticated Axios instance for all API calls.
- * - useLabels from '../context/IndustryContext': Industry-specific label substitutions
- *   so suggestions and tool prompts use the right terminology per industry.
- *
- * INTERN NOTES
- * - Design Principle 1: AICopilot pre-fetches structured data (material estimates,
- *   schedule suggestions) and passes it to the backend as structured_data. The AI
- *   only narrates — it never computes the numbers itself.
- * - The 429 error handler distinguishes between Groq upstream rate limits ("groq",
- *   "token limit", "capacity" in detail string) and our own plan limits ("daily",
- *   "queries"). They show different messages. Both checks are by string matching on
- *   the backend error detail — if the backend error wording changes, update here.
- * - dangerouslySetInnerHTML is used in MessageBubble for the fmt() output. The input
- *   is AI-generated text that has been through fmt() — not user input. This is
- *   acceptable but be aware if user content ever flows through fmt() directly.
- * - The eslint-disable comment on the isOpen useEffect is intentional — fetchGreeting
- *   should only fire once when the panel first opens, not every time isOpen changes.
- *   Adding fetchGreeting to deps would cause it to re-run on every close/reopen.
- * - Console.log statements with [v3.9.9] prefix are intentional debug logs for the
- *   intent detection feature. They can be removed once the feature is stable.
- * - If the greeting always shows the static fallback: check that GET /api/ai/greeting
- *   is registered in main.py and that the tenant has active jobs to summarise.
- */
+// frontend/src/components/AICopilot.tsx - v3.2
+// Sliding AI chat panel. Chat tab + Tools tab (50 prompts).
+// Feature flagged (flags.ai_copilot). Intent detection in v3.9.9.
 
 import { useState, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -207,8 +61,9 @@ function fmt(text: string) {
   return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>').replace(/₹([\d,]+)/g, '<span style="font-family:monospace;font-weight:600">₹$1</span>')
 }
 
-// ── v3.9.9 Intent detection + data pre-fetch ─────────────────────────────────
+// -- v3.9.9 Intent detection + data pre-fetch ---------------------------------
 
+// Patterns that indicate a material estimate question
 const MATERIAL_PATTERNS = [
   /how much material/i,
   /material.*need/i,
@@ -219,6 +74,7 @@ const MATERIAL_PATTERNS = [
   /consumable/i,
 ]
 
+// Patterns that indicate a schedule suggestion question
 const SCHEDULE_PATTERNS = [
   /when.*schedule/i,
   /best.*date/i,
@@ -230,13 +86,18 @@ const SCHEDULE_PATTERNS = [
   /good slot/i,
 ]
 
+// Extract job name from message - looks for quoted names or "for <JobName>"
 function extractJobName(text: string): string | null {
+  // Check for quoted name first: "Box Run Gamma" or 'Box Run Gamma'
   const quoted = text.match(/["']([^"']+)["']/)
   if (quoted) return quoted[1]
+  // Check for "for <JobName>" pattern
   const forMatch = text.match(/for\s+([A-Za-z0-9][^?.,!]+)/i)
   if (forMatch) return forMatch[1].trim()
+  // Check for "schedule <JobName>" pattern
   const schedMatch = text.match(/schedule\s+([A-Za-z0-9][^?.,!]+)/i)
   if (schedMatch) return schedMatch[1].trim()
+  // Check for "need for <JobName>" pattern
   const needMatch = text.match(/need.*?for\s+([A-Za-z0-9][^?.,!]+)/i)
   if (needMatch) return needMatch[1].trim()
   return null
@@ -277,8 +138,8 @@ function LimitReached({ usage }: { usage: Usage }) {
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 w-full">
         <p className="text-xs font-semibold text-blue-800 mb-2">Upgrade your plan</p>
         <div className="space-y-1 text-xs text-blue-700">
-          <p>✅ Pro — 500 queries/day</p>
-          <p>✅ Enterprise — Unlimited</p>
+          <p>✅ Pro - 500 queries/day</p>
+          <p>✅ Enterprise - Unlimited</p>
         </div>
         <button className="mt-3 w-full py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors">Upgrade Plan</button>
       </div>
@@ -344,6 +205,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
   useEffect(() => {
     if (isOpen) {
+      // V3.9 - fetch proactive greeting only if conversation hasn't started
       if (messages.length === 1 && messages[0].role === 'assistant') {
         fetchGreeting()
       }
@@ -364,10 +226,11 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
     } catch (err: unknown) {
       const detail = (err as {response?:{data?:{detail?:string}}})?.response?.data?.detail ?? ''
       const isGroqLimit = detail.toLowerCase().includes('groq') || detail.toLowerCase().includes('capacity')
+      // Fallback to static greeting - never show a raw error on open
       setMessages([{
         role: 'assistant' as const,
         content: isGroqLimit
-          ? `Namaste! 👋 I'm your AI Copilot.\n\nThe AI service is momentarily busy — you can still use **Tools** for pre-built queries, or try chatting again in a moment.`
+          ? `Namaste! 👋 I'm your AI Copilot.\n\nThe AI service is momentarily busy - you can still use **Tools** for pre-built queries, or try chatting again in a moment.`
           : `Namaste! 👋 I'm your AI Copilot.\n\nUse suggestions below or switch to **Tools** for 50 pre-built queries.`,
         timestamp: new Date(),
       }])
@@ -393,29 +256,39 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
     if (tab === 'tools') setTab('chat')
 
     try {
+      // v3.9.9 - intent detection: pre-fetch structured data before calling AI
       let structuredData: Record<string, unknown> | null = null
       const intent = detectIntent(text)
+      console.log('[v3.9.9] intent:', intent, '| text:', text)
 
       if (intent) {
+        // Try to find a job ID from recent messages or page context
+        // First look for a job name in the question, then search jobs list
         const jobName = extractJobName(text)
+        console.log('[v3.9.9] jobName extracted:', jobName)
         if (jobName) {
           try {
+            // Search for job by name in the cached jobs list
             const jobsRes = await apiClient.get('/api/jobs/')
             const jobs: { id: number; name: string }[] = jobsRes.data
             const match = jobs.find(j =>
               j.name.toLowerCase().includes(jobName.toLowerCase()) ||
               jobName.toLowerCase().includes(j.name.toLowerCase())
             )
+            console.log('[v3.9.9] job match:', match)
             if (match) {
               if (intent === 'material') {
+                console.log('[v3.9.9] fetching material-estimate for job', match.id)
                 const dataRes = await apiClient.get(`/api/jobs/${match.id}/material-estimate`)
                 structuredData = { _type: 'material_estimate', ...dataRes.data }
               } else if (intent === 'schedule') {
+                console.log('[v3.9.9] fetching schedule-suggestions for job', match.id)
                 const dataRes = await apiClient.get(`/api/jobs/${match.id}/schedule-suggestions`)
                 structuredData = { _type: 'schedule_suggestions', ...dataRes.data }
               }
             }
           } catch (fetchErr: unknown) {
+            // Log fetch error so we can debug - AI will answer from general knowledge
             console.warn('[v3.9.9] structured data fetch failed:', fetchErr)
           }
         }
@@ -437,17 +310,18 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
       } : prev)
 
     } catch (err: unknown) {
-      const status  = (err as {response?:{status?:number}})?.response?.status
-      const detail  = (err as {response?:{data?:{detail?:string}}})?.response?.data?.detail ?? ''
+      const status  = err?.response?.status
+      const detail  = err?.response?.data?.detail ?? ''
 
       if (status === 429) {
+        // Two types of 429 - our own plan limit, or Groq upstream rate limit
         const isGroqLimit = detail.toLowerCase().includes('groq') || detail.toLowerCase().includes('token limit') || detail.toLowerCase().includes('capacity')
         const isOurLimit  = detail.toLowerCase().includes('daily') || detail.toLowerCase().includes('queries')
 
         if (isGroqLimit) {
           setMessages(prev => [...prev, {
             role: 'assistant',
-            content: '⏳ The AI service is momentarily busy — it will be back in a few minutes.\n\nThis happens occasionally when usage is high. Please try again shortly.',
+            content: '⏳ The AI service is momentarily busy - it will be back in a few minutes.\n\nThis happens occasionally when usage is high. Please try again shortly.',
             timestamp: new Date(),
           }])
         } else if (isOurLimit) {
@@ -476,6 +350,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
         return
       }
 
+      // Generic fallback for any other error
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: 'Something went wrong on my end. Please try again.',
@@ -522,6 +397,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
           </button>
         </div>
 
+        {/* Limit reached */}
         {isLimitReached && tab === 'chat' ? <LimitReached usage={usage} /> :
 
         tab === 'chat' ? (
@@ -602,7 +478,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
             </div>
             {isLimitReached && (
               <div className="px-3 py-2 bg-red-50 border-t border-red-200 shrink-0">
-                <p className="text-xs text-red-600 text-center font-medium">Daily limit reached — upgrade to continue</p>
+                <p className="text-xs text-red-600 text-center font-medium">Daily limit reached - upgrade to continue</p>
               </div>
             )}
           </div>
@@ -611,3 +487,4 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
     </>
   )
 }
+

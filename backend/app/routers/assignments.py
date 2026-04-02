@@ -1,122 +1,16 @@
 """
-```python
-"""
-FILE PURPOSE
+routers/assignments.py — V3.7.1
+Added: JWT auth, tenant_id scoping on all endpoints + passed to availability engine
+  POST /api/assignments/                        — scheduler+
+  GET  /api/assignments/check/{job_id}          — any authenticated user
+  GET  /api/assignments/employee/{employee_id}  — any authenticated user
+  GET  /api/assignments/machine/{machine_id}    — any authenticated user
 
-This file defines FastAPI endpoints for resource assignment management in the ZetaOps Copilot 
-scheduling system. It handles assigning employees and machines to jobs, checking resource 
-availability, and preventing overbooking conflicts. Introduced in V3.7.1 on the v4-dev branch, 
-it sits in the API layer and bridges the frontend assignment UI with the backend assignment 
-service and availability engine, enforcing tenant scoping and role-based access control.
-
-WHAT THIS FILE DOES — step by step
-
-1. Imports FastAPI dependencies, database models, and business logic services
-2. Creates an APIRouter instance to register assignment-related endpoints
-3. Defines AssignRequest Pydantic model for resource assignment request validation
-4. Implements _check_machine_overbooking() helper to detect scheduling conflicts
-5. Exposes POST /api/assignments/ for creating new resource assignments with conflict prevention
-6. Exposes GET /api/assignments/check/{job_id} for checking job resource availability
-7. Exposes GET /api/assignments/employee/{employee_id} for retrieving employee assignments (incomplete)
-8. Exposes GET /api/assignments/machine/{machine_id} for retrieving machine assignments (incomplete)
-
-KEY FUNCTIONS / CLASSES / COMPONENTS
-
-Name         : AssignRequest
-Type         : Pydantic model class  
-Purpose      : Validates incoming resource assignment requests from the frontend. Ensures job_id 
-               is provided and employee_ids/machine_ids are properly formatted lists. Used for 
-               request body parsing in the assignment creation endpoint.
-Parameters   : job_id (int), employee_ids (List[int], optional), machine_ids (List[int], optional)
-Returns      : Validated data structure for assignment operations
-Calls        : None (Pydantic model)
-DB/API       : None
-Side effects : None
-
-Name         : _check_machine_overbooking
-Type         : function
-Purpose      : Prevents machine overbooking by checking if any requested machines are already 
-               assigned to other jobs with overlapping date ranges. Returns detailed conflict 
-               information including specific job names and dates. Critical for maintaining 
-               scheduling integrity and providing clear error messages to users.
-Parameters   : db (Session) - database session, job_id (int) - job being assigned, 
-               machine_ids (List[int]) - machines to check, tenant_id (int) - tenant scope
-Returns      : List of conflict dictionaries with machine_name, clashing_job_name, 
-               clashing_start, clashing_end fields
-Calls        : SQLAlchemy queries on Job, JobAssignment, Machine models
-DB/API       : Queries jobs and assignments tables with tenant filtering
-Side effects : None (read-only)
-
-Name         : create_assignment  
-Type         : FastAPI endpoint (POST /api/assignments/)
-Purpose      : Creates new resource assignments for jobs after validating machine availability 
-               and preventing overbooking conflicts. Enforces scheduler+ role permissions and 
-               tenant scoping. Returns success confirmation or detailed conflict errors.
-Parameters   : payload (AssignRequest) - assignment data, db (Session) - database session, 
-               current_user (User) - authenticated user from JWT
-Returns      : Success message with assignment details or HTTP 409 with conflict information
-Calls        : _check_machine_overbooking(), assign_resources() from assignment_service
-DB/API       : Database queries through assignment service
-Side effects : Creates JobAssignment records in database
-
-Name         : check_job_availability
-Type         : FastAPI endpoint (GET /api/assignments/check/{job_id})
-Purpose      : Comprehensive availability check for a specific job, returning all machines, 
-               employees, skill requirements, and current assignments within tenant scope. 
-               Provides detailed busy reasons for unavailable resources. Used by frontend 
-               assignment UI to show available options.
-Parameters   : job_id (int) - job to check, db (Session) - database session, 
-               current_user (User) - authenticated user
-Returns      : Detailed availability report with feasibility score, conflicts, and resource lists
-Calls        : check_availability() from availability_engine, various availability helper functions
-DB/API       : Extensive queries on Job, Machine, Employee, JobAssignment, AvailabilityOverride tables
-Side effects : None (read-only)
-
-Name         : get_employee_assignments
-Type         : FastAPI endpoint (GET /api/assignments/employee/{employee_id}) 
-Purpose      : Retrieves all job assignments for a specific employee (INCOMPLETE IMPLEMENTATION). 
-               Intended to show employee workload and scheduling conflicts. Currently only validates 
-               employee existence within tenant scope.
-Parameters   : employee_id (int) - employee to query, db (Session) - database session, 
-               current_user (User) - authenticated user
-Returns      : Currently incomplete - should return employee assignment history
-Calls        : Employee model query
-DB/API       : Employee table query with tenant filtering  
-Side effects : None (incomplete endpoint)
-
-WHO CALLS THIS FILE
-
-- frontend/src/pages/ScheduleView.tsx - calls assignment creation and availability check endpoints
-- frontend/src/components/ResourceAssignmentModal.tsx - uses availability check for resource selection
-- frontend/src/api/api_assignments.ts - Axios wrapper functions that call these endpoints
-- backend/app/main.py - registers this router with /api/assignments prefix
-
-IMPORTS EXPLAINED
-
-- FastAPI, Depends, HTTPException, status - FastAPI framework components for endpoint definition and HTTP responses
-- Session, selectinload - SQLAlchemy database session and eager loading for query optimization  
-- BaseModel - Pydantic base class for request/response validation schemas
-- List - Python typing for list type hints in function signatures
-- date - Python datetime module for date manipulation and comparison
-- get_db - Database session dependency injection from core dependencies
-- get_current_user, require_role - Authentication and authorization dependencies for JWT validation
-- User - SQLAlchemy User model for authenticated user data
-- assign_resources, AssignmentError - Business logic service for resource assignment operations
-- availability_engine functions - Core availability checking logic with tenant scoping
-- Job, JobAssignment, JobSkillRequirement - SQLAlchemy models for job and assignment data
-- Employee, Machine - SQLAlchemy models for resource data
-- AvailabilityOverride - SQLAlchemy model for custom availability rules
-
-INTERN NOTES
-
-• Easiest thing to break: Forgetting tenant_id filtering in database queries - this creates security vulnerabilities where users can see other tenants' data
-• Non-obvious design decision: Machine overbooking check runs before assignment service call to provide specific conflict details rather than generic errors  
-• Most common mistake: Not calling .date() on datetime fields when comparing dates, which can cause timezone-related bugs in scheduling logic
-• This file implements design principles #2 (tenant scoping on ALL queries) and #4 (/api/ prefix on routes) and #8 (role-based access control)
-• If this file behaves unexpectedly: Check that JWT tokens are valid, tenant_id is properly set, and job dates are correctly formatted in the database
-• N/A - this is v4-dev production code, not WhatsApp-specific functionality
-"""
-```
+V3.7.1 — Pain Point 4 + 1 fix:
+  - Overbooking check: before saving, query existing assignments for each machine
+    in the same date window. If a clash is found, return a warm conflict message
+    that names the clashing job specifically.
+  - Machine clash message now says which job is clashing, not just "conflict".
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status

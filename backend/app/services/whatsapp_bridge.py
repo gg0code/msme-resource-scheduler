@@ -1,107 +1,61 @@
 """
-```python
-"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FILE PURPOSE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILE:    whatsapp_bridge.py
+PATH:    backend/app/services/whatsapp_bridge.py
+PURPOSE: The single connection point between the WhatsApp channel and the AI backend.
+         Today this calls run_ai_chat() in ai_service.py directly.
+         When Factory GPT is ready, only this file changes — a new class is written
+         and one line is updated at the bottom. Nothing else in the WhatsApp
+         codebase needs to change.
 
-This file is the single abstraction layer between the WhatsApp messaging channel and 
-the AI backend systems. It acts as a "power socket" - the WhatsApp code plugs into 
-this socket, but what generates the AI responses behind the wall can change without 
-affecting any WhatsApp code. Introduced in v5-whatsapp branch as part of the Factory 
-GPT preparation. Currently wraps Groq/LLaMA calls but designed for seamless swap to 
-Factory GPT Supervisor Agent by changing one line.
+         Think of this file as a power socket. The WhatsApp code plugs into the socket.
+         What generates the power (Groq today, Factory GPT tomorrow) is behind the wall.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WHAT THIS FILE DOES — step by step
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BRANCH:  v5-whatsapp
+VERSION: v5.1
+CREATED: 2026-03
+UPDATED: 2026-03-29 — v5.1 fix: WhatsApp instructions injected via structured_data
+                       instead of a second system message. Two system messages caused
+                       Groq tool call validation to fail (tool not in request.tools).
 
-1. Defines AIChannelBridge Protocol - the contract every AI backend must implement
-2. Provides _build_whatsapp_context() to create language-specific instruction blocks
-3. Provides _inject_whatsapp_context() to prepend instructions to first user message
-4. Implements GroqDirectBridge class that wraps ai_service.run_ai_chat()
-5. Handles sync/async mismatch using asyncio.run_in_executor() thread pool
-6. Exports active_bridge singleton - the one object all WhatsApp code uses
-7. Includes template comments for future SupervisorAgentBridge implementation
+DEPENDENCIES:
+  app/services/ai_service.py  — run_ai_chat() is the current AI backend being wrapped.
+                                NOTE: run_ai_chat() is a SYNC function that takes a
+                                sync SQLAlchemy Session. We run it in a thread pool
+                                executor to avoid blocking the async FastAPI event loop.
+  app/agents/supervisor.py    — SupervisorAgent will be the future swap-in (Factory GPT).
+                                This file does not exist yet — placeholder reference only.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-KEY FUNCTIONS / CLASSES / COMPONENTS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPORTANT — SYNC vs ASYNC:
+  run_ai_chat() in ai_service.py is a synchronous function (uses sync Session).
+  Our WhatsApp router is async (uses AsyncSession).
+  We bridge this gap using asyncio.get_running_loop().run_in_executor() which runs
+  the sync function in a thread pool without blocking the async event loop.
+  When Factory GPT arrives, its Supervisor Agent will be natively async —
+  the executor wrapper will be removed from SupervisorAgentBridge.
 
-_build_whatsapp_context()
-    Name         : _build_whatsapp_context
-    Type         : Private utility function
-    Purpose      : Creates a context instruction block to control AI behaviour for 
-                   WhatsApp responses. Selects appropriate language instructions 
-                   (Hindi/Hinglish/English) and adds mobile-friendly formatting rules.
-    Parameters   : language (str) - detected language ('hindi', 'hinglish', 'english')
-    Returns      : String block with [WHATSAPP CONTEXT] wrapper containing behavioral 
-                   instructions to prepend to user messages
-    Calls        : Nothing - pure string building function
-    DB/API       : None
-    Side effects : None - pure function
+IMPORTANT — WHY NO SECOND SYSTEM MESSAGE:
+  Groq's tool calling requires exactly ONE system message at position 0.
+  If we prepend a second {"role": "system"} message, Groq's tool call
+  validation fails with "tool was not in request.tools" error.
+  Fix: WhatsApp behavioural instructions are injected as a hidden [CONTEXT]
+  block prepended to the FIRST user message. This keeps one system message
+  while still controlling language and formatting behaviour.
 
-_inject_whatsapp_context()
-    Name         : _inject_whatsapp_context  
-    Type         : Private utility function
-    Purpose      : Injects WhatsApp behavioral instructions into the first user message
-                   in a conversation. Avoids adding second system message which breaks
-                   Groq tool calling validation. Makes shallow copy to avoid mutations.
-    Parameters   : messages (list[dict]) - conversation history with role/content dicts
-                   language (str) - detected language for instruction selection
-    Returns      : New list with context block prepended to first user message content
-    Calls        : _build_whatsapp_context() to get the instruction block
-    DB/API       : None  
-    Side effects : None - creates new list, doesn't mutate input
+SWAP POINT (Factory GPT):
+  When Factory GPT Supervisor Agent is ready:
+    1. Write SupervisorAgentBridge class below (template at bottom of file)
+    2. Change the last line: active_bridge = SupervisorAgentBridge()
+    3. Done. No other file in the WhatsApp codebase needs to change.
 
-AIChannelBridge
-    Name         : AIChannelBridge
-    Type         : Protocol (typing contract)
-    Purpose      : Defines the interface contract that every AI backend bridge must 
-                   implement. Ensures WhatsApp code can call any AI system uniformly
-                   through process_message() method. Uses @runtime_checkable for 
-                   isinstance() validation.
-    Parameters   : N/A - Protocol definition only
-    Returns      : N/A - defines interface, doesn't implement
-    Calls        : Nothing - interface definition only
-    DB/API       : Specifies that implementations receive Session and tenant_id
-    Side effects : None - contract definition only
-
-GroqDirectBridge
-    Name         : GroqDirectBridge  
-    Type         : Class implementing AIChannelBridge
-    Purpose      : Current MVP implementation that wraps ai_service.run_ai_chat() calls.
-                   Handles sync/async mismatch by running sync AI calls in thread pool
-                   executor. Injects WhatsApp context before calling AI. Will be replaced
-                   (not modified) when Factory GPT is ready.
-    Parameters   : None for class init
-    Returns      : Instance that implements process_message() async method
-    Calls        : _inject_whatsapp_context(), ai_service.run_ai_chat()
-    DB/API       : Passes Session to run_ai_chat() which makes Groq API calls
-    Side effects : None at bridge level - DB writes happen in whatsapp_actions.py
-
-GroqDirectBridge.process_message()
-    Name         : process_message
-    Type         : Async method of GroqDirectBridge class
-    Purpose      : Main entry point for AI processing. Injects WhatsApp context into
-                   messages, then calls sync run_ai_chat() via thread pool executor
-                   to avoid blocking FastAPI event loop. Returns raw AI response.
-    Parameters   : messages (list[dict]) - conversation history with role/content
-                   db (Session) - sync SQLAlchemy session for AI service
-                   tenant_id (int) - tenant making request for DB isolation
-                   industry_type (str) - tenant industry for AI context
-                   language (str) - detected language for response formatting
-    Returns      : String containing raw AI response (may have markdown formatting)
-    Calls        : _inject_whatsapp_context(), asyncio.get_running_loop(), 
-                   loop.run_in_executor(), ai_service.run_ai_chat()
-    DB/API       : Indirectly makes Groq API calls via run_ai_chat() in thread pool
-    Side effects : None - response processing happens in caller (whatsapp router)
-
-active_bridge
-    Name         : active_bridge
-    Type         : Global singleton variable
-    Purpose      : The single instance that all WhatsApp code imports and uses for AI
-                   calls. Currently set to GroqDirectBridge(). To swap AI backends,
+USAGE:
+  from app.services.whatsapp_bridge import active_bridge
+  response = await active_bridge.process_message(
+      messages=[{"role": "user", "content": "aaj ka schedule kya hai"}],
+      db=db,
+      tenant_id=1,
+      industry_type="printing",
+      language="hinglish"
+  )
 """
 
 import asyncio

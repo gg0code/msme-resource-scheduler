@@ -1,93 +1,6 @@
-/**
- * frontend/src/components/common/CsvImport.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * A reusable import widget that lets users bulk-upload employees, machines, or skills
- * from CSV or XLSX files. Also provides a template download button so users can get a
- * pre-formatted file with the correct column headers. Used on the Employees, Machines,
- * and Skills pages. Introduced alongside the CSV import feature and updated to support
- * XLSX and unavailability columns. Sits in components/common/ — shared across multiple
- * resource pages.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Accepts a resource prop ('employees' | 'machines' | 'skills') and onSuccess callback.
- * 2. Renders a Template dropdown button with CSV and XLSX options (XLSX not available
- *    for skills — only employees and machines have XLSX templates).
- * 3. Renders an Import CSV/Excel button that opens a hidden file input.
- * 4. On file select: validates extension (.csv or .xlsx), uploads as FormData to
- *    /import/{resource}, shows a result modal with imported/failed counts and row errors.
- * 5. On success (rows_imported > 0): calls onSuccess() so the parent page refetches data.
- * 6. Template download: fetches from /api/import/template/{resource} or
- *    /api/import/template-xlsx/{resource} as a blob, triggers browser file download.
- * 7. Clicking outside the template dropdown closes it via a full-screen invisible div.
- *
- * KEY FUNCTIONS / CLASSES / COMPONENTS
- *
- * Name         : CsvImport (default export)
- * Type         : React component
- * Purpose      : Import widget with template download + file upload + result modal.
- *                Handles the full import flow for employees, machines, and skills.
- * Parameters   : resource: 'employees' | 'machines' | 'skills'
- *                onSuccess: () => void — called when at least one row was imported
- * Returns      : JSX.Element — two buttons + optional result modal
- * Calls        : apiClient.get (template download), apiClient.post (file upload)
- * DB/API       : GET /api/import/template/{resource}
- *                GET /api/import/template-xlsx/{resource}
- *                POST /import/{resource} (note: no /api/ prefix — check backend routing)
- * Side effects : triggers browser file download, calls onSuccess() on import
- *
- * Name         : downloadTemplate
- * Type         : async function (internal)
- * Purpose      : Downloads CSV or XLSX template as a browser file download.
- *                Uses URL.createObjectURL + anchor click pattern.
- * Parameters   : format: 'csv' | 'xlsx'
- * Returns      : void (triggers download as side effect)
- * Calls        : apiClient.get with responseType: 'blob'
- * DB/API       : GET /api/import/template/{resource} or template-xlsx/{resource}
- * Side effects : browser file download
- *
- * Name         : handleFileChange
- * Type         : async function (internal)
- * Purpose      : Handles file input change. Validates extension, uploads as FormData,
- *                sets result state for the modal. Calls onSuccess if rows were imported.
- * Parameters   : e: React.ChangeEvent<HTMLInputElement>
- * Returns      : void
- * Calls        : apiClient.post
- * DB/API       : POST /import/{resource}
- * Side effects : sets uploading, result, error state; calls onSuccess; clears file input
- *
- * WHO CALLS THIS FILE
- * - frontend/src/pages/Employees.tsx
- * - frontend/src/pages/Machines.tsx
- * - frontend/src/pages/Skills.tsx
- *
- * IMPORTS EXPLAINED
- * - useRef, useState from 'react': fileRef for hidden input, state for upload/result/error.
- * - Upload, Download, CheckCircle2, XCircle, AlertTriangle, X, Loader2, FileText,
- *   ChevronDown from 'lucide-react': Icons for buttons, result modal, and template dropdown.
- * - apiClient from '../../api/client': Authenticated Axios instance for all API calls.
- * - useLabels from '../../context/IndustryContext': Industry-aware resource names for
- *   the modal title (e.g. "Import Workers" instead of "Import Employees").
- * - ImportResult from '../../types/types_index': TypeScript type for the import response
- *   { rows_imported, rows_failed, errors[] }.
- *
- * INTERN NOTES
- * - The POST upload URL is /import/{resource} WITHOUT the /api/ prefix. This differs
- *   from all other API calls. Check backend main.py to confirm how the import router
- *   is registered — if it changes, update the URL here.
- * - XLSX template is only available for employees and machines. Skills only supports CSV.
- *   The XLSX option is conditionally hidden when resource === 'skills'.
- * - The template dropdown close-on-outside-click uses a full-screen z-10 div behind the
- *   dropdown. This is simpler than a useEffect with document.addEventListener but means
- *   the div blocks clicks on the page while the dropdown is open. Keep showTemplates
- *   false by default to avoid this.
- * - Design Principle 2: Tenant scoping happens server-side — the JWT identifies the tenant.
- *   This component never sends tenant_id.
- * - If import succeeds but onSuccess() is not refetching: check that the parent page
- *   is using the correct TanStack Query key and that invalidateQueries is called in
- *   the parent's onSuccess handler, or that the parent is using refetch().
- */
+// frontend/src/components/common/CsvImport.tsx
+// CSV and XLSX bulk import widget. Template download + file upload + result modal.
+// Used on Employees, Machines, Skills pages.
 
 import { useRef, useState } from 'react'
 import { Upload, Download, CheckCircle2, XCircle, AlertTriangle, X, Loader2, FileText, ChevronDown } from 'lucide-react'
@@ -150,7 +63,7 @@ export default function CsvImport({ resource, onSuccess }: Props) {
       if (res.data.rows_imported > 0) onSuccess()
     } catch (err: unknown) {
       const msg = (err as {response?:{data?:{detail?:string}}})?.response?.data?.detail
-      setError(msg ?? 'Upload failed — check file format')
+      setError(msg ?? 'Upload failed - check file format')
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -208,7 +121,7 @@ export default function CsvImport({ resource, onSuccess }: Props) {
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
               <div className="flex items-center gap-2">
                 <FileText size={16} className="text-blue-500"/>
-                <h3 className="font-bold text-gray-800">Import {LABELS[resource]} — Result</h3>
+                <h3 className="font-bold text-gray-800">Import {LABELS[resource]} - Result</h3>
               </div>
               <button onClick={() => { setResult(null); setError('') }}>
                 <X size={18} className="text-gray-400 hover:text-gray-600"/>

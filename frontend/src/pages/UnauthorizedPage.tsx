@@ -1,21 +1,6 @@
-/**
- * frontend/src/pages/UnauthorizedPage.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * Shown when a logged-in user tries to access a route their role cannot access.
- * Redirected here by ProtectedRoute when the user is authenticated but their role
- * is not in the allowed roles list. Simple full-screen error page with back button.
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as /unauthorized route
- * - frontend/src/auth/ProtectedRoute.tsx — redirects here on role mismatch
- *
- * INTERN NOTES
- * - Reads user.role from useAuth() to display current role in the error message.
- * - Design Principle 8: access control happens in ProtectedRoute. This page only
- *   displays the error — it never makes access decisions.
- */
+// frontend/src/pages/UnauthorizedPage.tsx
+// Shown when user role does not have access to the requested route.
+
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 

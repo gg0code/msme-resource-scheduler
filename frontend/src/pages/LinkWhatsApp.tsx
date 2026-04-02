@@ -1,50 +1,25 @@
-/**
- * frontend/src/pages/LinkWhatsApp.tsx
- * Branch: v5-whatsapp (v4-dev has this file but it is only meaningful on v5)
- *
- * FILE PURPOSE
- * The WhatsApp phone number linking page. Factory owners visit this page to link
- * their WhatsApp number to their ZetaOps account. The linked number is used by the
- * WhatsApp Copilot (v5) to identify which tenant is messaging when an inbound
- * WhatsApp message arrives. Creates a PhoneTenantMap record on the backend.
- * Gated behind flags.whatsapp in Layout.tsx — only visible when the feature is enabled.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Fetches existing linked phone (if any) from the backend.
- * 2. Renders a phone number input in E.164 format (+91XXXXXXXXXX).
- * 3. On submit: POSTs to the phone linking endpoint.
- * 4. Shows QR code or confirmation after linking.
- * 5. Explains consent — the factory owner must reply HAAN on WhatsApp to consent
- *    to conversation logging for Factory GPT training.
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as /whatsapp route (protected)
- *
- * INTERN NOTES
- * - Design Principle 9: this page is v5-whatsapp only. On v4-dev, the route
- *   exists but the nav item is hidden by flags.whatsapp=false.
- * - Phone numbers must be in E.164 format (+919876543210). The backend validates this.
- * - Consent is tracked server-side in PhoneTenantMap.consent_given. This page
- *   explains consent but does not set it — the owner sets it by replying HAAN.
- */
+// frontend/src/pages/LinkWhatsApp.tsx
+// WhatsApp phone number linking page (v5-whatsapp).
+// Links owner phone to ZetaOps account for WhatsApp Copilot.
+
 import { useEffect, useState, type FormEvent } from 'react'
 import { MessageCircle, Phone, Trash2, Plus, CheckCircle, AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { tokenStore } from '../api/client'
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// -- Constants -----------------------------------------------------------------
 const API_BASE        = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 const LINK_URL        = `${API_BASE}/api/v1/whatsapp/link-phone`
 const LINKED_LIST_URL = `${API_BASE}/api/v1/whatsapp/linked-phones`
 
 // Roles a phone number can have in the factory
 const PHONE_ROLE_OPTIONS = [
-  { value: 'owner',     label: 'Owner',     desc: 'Full access — schedule, alerts, actions' },
+  { value: 'owner',     label: 'Owner',     desc: 'Full access - schedule, alerts, actions' },
   { value: 'manager',   label: 'Manager',   desc: 'View schedule, mark attendance'          },
   { value: 'operator',  label: 'Operator',  desc: 'View own assignments only'               },
 ]
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// -- Types ---------------------------------------------------------------------
 interface LinkedPhone {
   id:           number
   phone_number: string
@@ -54,7 +29,7 @@ interface LinkedPhone {
   consent_given: boolean
 }
 
-// ── Helper — build auth header from token store ───────────────────────────────
+// -- Helper - build auth header from token store -------------------------------
 function authHeaders(): Record<string, string> {
   const token = tokenStore.get()
   return token
@@ -62,7 +37,7 @@ function authHeaders(): Record<string, string> {
     : { 'Content-Type': 'application/json' }
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// -- Main Component ------------------------------------------------------------
 export default function LinkWhatsApp() {
   const { user } = useAuth()
 
@@ -79,13 +54,13 @@ export default function LinkWhatsApp() {
   const [successMsg,  setSuccessMsg]  = useState<string | null>(null)
   const [errorMsg,    setErrorMsg]    = useState<string | null>(null)
 
-  // ── Load existing linked phones on mount ────────────────────────────────────
+  // -- Load existing linked phones on mount ------------------------------------
   useEffect(() => {
     fetchLinkedPhones()
   }, [])
 
   /**
-   * fetchLinkedPhones — GET /api/v1/whatsapp/linked-phones
+   * fetchLinkedPhones - GET /api/v1/whatsapp/linked-phones
    * Loads all phone numbers linked to this tenant.
    * Side effect: sets linkedPhones state.
    */
@@ -99,7 +74,7 @@ export default function LinkWhatsApp() {
       setLinkedPhones(data.phones ?? [])
     } catch (err: unknown) {
       const _errMsg = err instanceof Error ? err.message : 'Unknown error'
-      // Non-fatal — show empty list, user can still link
+      // Non-fatal - show empty list, user can still link
       console.error('[LinkWhatsApp] fetchLinkedPhones failed:', err.message)
       setLinkedPhones([])
     } finally {
@@ -108,7 +83,7 @@ export default function LinkWhatsApp() {
   }
 
   /**
-   * handleLink — POST /api/v1/whatsapp/link-phone
+   * handleLink - POST /api/v1/whatsapp/link-phone
    * Submits form to link a new phone number.
    * Args: form submit event
    * Side effects: refreshes linked phones list, clears form on success.
@@ -118,7 +93,7 @@ export default function LinkWhatsApp() {
     setErrorMsg(null)
     setSuccessMsg(null)
 
-    // Basic phone validation — must start with + and have 10-15 digits
+    // Basic phone validation - must start with + and have 10-15 digits
     const cleaned = phone.replace(/\s/g, '')
     if (!/^\+\d{10,15}$/.test(cleaned)) {
       setErrorMsg('Phone number must be in international format, e.g. +919876543210')
@@ -165,7 +140,7 @@ export default function LinkWhatsApp() {
   }
 
   /**
-   * handleDeactivate — PATCH /api/v1/whatsapp/linked-phones/:id/deactivate
+   * handleDeactivate - PATCH /api/v1/whatsapp/linked-phones/:id/deactivate
    * Deactivates a linked phone without deleting it.
    * Args: phone record id
    * Side effects: refreshes linked phones list.
@@ -185,12 +160,12 @@ export default function LinkWhatsApp() {
     }
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // -- Render -----------------------------------------------------------------
   return (
     <div className="min-h-full bg-gray-50 p-6">
       <div className="max-w-2xl mx-auto space-y-6">
 
-        {/* ── Page header ─────────────────────────────────────────────────── */}
+        {/* -- Page header --------------------------------------------------- */}
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-green-500 flex items-center justify-center shrink-0">
             <MessageCircle size={20} className="text-white" />
@@ -203,16 +178,16 @@ export default function LinkWhatsApp() {
           </div>
         </div>
 
-        {/* ── How it works callout ─────────────────────────────────────────── */}
+        {/* -- How it works callout ------------------------------------------- */}
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex gap-3">
           <ShieldCheck size={18} className="text-green-600 shrink-0 mt-0.5" />
           <div className="text-sm text-green-800 space-y-1">
             <p className="font-semibold">How it works</p>
-            <p>Once linked, send any message to your ZetaOps WhatsApp number to chat with the AI Copilot — ask for today's schedule, mark someone absent, or check machine status. All in Hindi, English, or Hinglish.</p>
+            <p>Once linked, send any message to your ZetaOps WhatsApp number to chat with the AI Copilot - ask for today's schedule, mark someone absent, or check machine status. All in Hindi, English, or Hinglish.</p>
           </div>
         </div>
 
-        {/* ── Link new phone form ──────────────────────────────────────────── */}
+        {/* -- Link new phone form -------------------------------------------- */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
           <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <Plus size={16} className="text-blue-500" />
@@ -320,7 +295,7 @@ export default function LinkWhatsApp() {
           </form>
         </div>
 
-        {/* ── Linked phones list ───────────────────────────────────────────── */}
+        {/* -- Linked phones list --------------------------------------------- */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
           <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <Phone size={16} className="text-gray-500" />
@@ -365,7 +340,7 @@ export default function LinkWhatsApp() {
                     <div className="text-xs text-gray-400 mt-0.5 truncate">{p.display_name}</div>
                   </div>
 
-                  {/* Deactivate button — only if active */}
+                  {/* Deactivate button - only if active */}
                   {p.is_active && (
                     <button
                       onClick={() => handleDeactivate(p.id)}
@@ -381,10 +356,10 @@ export default function LinkWhatsApp() {
           )}
         </div>
 
-        {/* ── Test hint for dev ────────────────────────────────────────────── */}
+        {/* -- Test hint for dev ---------------------------------------------- */}
         {import.meta.env.DEV && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-xs text-yellow-800">
-            <p className="font-semibold mb-1">🛠 Dev mode — simulator tip</p>
+            <p className="font-semibold mb-1">🛠 Dev mode - simulator tip</p>
             <p>Test the linked number via: <code className="bg-yellow-100 px-1 rounded">POST /api/v1/whatsapp/simulate</code> with <code className="bg-yellow-100 px-1 rounded">{`{"phone": "+91...", "message": "aaj ka schedule", "type": "text"}`}</code></p>
           </div>
         )}

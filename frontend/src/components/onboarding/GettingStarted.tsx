@@ -1,80 +1,6 @@
-/**
- * frontend/src/components/onboarding/GettingStarted.tsx — v4.1
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * A persistent collapsible checklist panel shown to new users in the bottom-left corner.
- * Guides them through 8 onboarding steps in logical order: add skills → employees →
- * machines → create job → assign resources → run scheduler → check dashboard → try AI.
- * Auto-detects completion by reading TanStack Query cache. Persists dismissed and manual
- * completion state per-user in localStorage. Auto-dismisses 5 seconds after all steps
- * are complete. Uses industry labels so step text matches the tenant's industry.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. On mount: reads dismissed state from localStorage for current user.
- * 2. If not dismissed: polls TanStack Query cache every 3s to check completion.
- * 3. isComplete(step): checks localStorage for manual done flag OR checks if the
- *    matching TanStack Query cache key has at least one item.
- * 4. Renders a header bar (brand colour, progress count, collapse/dismiss buttons).
- * 5. Renders a progress bar showing percentage complete.
- * 6. Renders step list: each step has a check icon, label, description, and "Go →" button.
- * 7. "Go →" navigates to the step's route. For manual steps, also marks as done.
- * 8. When all steps are done: shows a celebration state, then auto-dismisses in 5s.
- * 9. handleReset(): clears all localStorage keys and resets the onboarding tour.
- *
- * KEY FUNCTIONS / CLASSES / COMPONENTS
- *
- * Name         : GettingStarted (default export)
- * Type         : React component
- * Purpose      : Onboarding checklist panel shown until all 8 steps are complete
- *                or user dismisses it.
- * Parameters   : none (uses auth context and query cache internally)
- * Returns      : JSX.Element | null (null when dismissed or no user)
- * Calls        : useAuth, useLabels, useQueryClient, useNavigate, useOnboarding
- * DB/API       : none directly — reads TanStack Query cache populated by other components
- * Side effects : reads/writes localStorage (dismissed flag, manual done flags),
- *                navigates on step click, calls resetTour on reset
- *
- * WHO CALLS THIS FILE
- * - frontend/src/components/Layout.tsx — rendered as a fixed overlay
- * - frontend/src/components/onboarding/index.ts — re-exports it
- *
- * IMPORTS EXPLAINED
- * - useState, useEffect from 'react': collapsed/dismissed state, polling timer.
- * - useNavigate from 'react-router-dom': navigates to step routes on "Go →" click.
- * - useQueryClient from '@tanstack/react-query': reads cache to auto-detect completion.
- * - CheckCircle2, Circle, ChevronDown, ChevronUp, X, Rocket, RotateCcw from 'lucide-react':
- *   step check icons, collapse arrows, dismiss X, rocket header icon, reset icon.
- * - useAuth from '../../auth/AuthContext': user.id for localStorage key namespacing.
- * - useLabels from '../../context/IndustryContext': industry-aware step text.
- * - useOnboarding from './OnboardingContext': resetTour for the Restart button.
- *
- * INTERN NOTES
- * - Auto-completion detection uses TanStack Query cache keys: 'skills', 'employees',
- *   'machines', 'jobs', 'schedule-entries'. These must match the queryKey used by
- *   the corresponding page components exactly — if a page changes its queryKey,
- *   update the checkKey here.
- * - The 3-second polling interval (setInterval) only runs while the panel is open
- *   and not collapsed. It is cleared on cleanup to prevent memory leaks.
- * - Manual steps (assign, dashboard, ai) cannot be auto-detected. They are marked
- *   done by clicking "Go →", which stores gs_done_{userId}_{stepId} in localStorage.
- * - Brand colour is applied via CSS variable var(--brand-primary) — the header bar
- *   and progress bar match the current industry theme automatically.
- * - Design Principle 8: the 'ai' step requires flags.ai_copilot to be useful.
- *   The step always shows regardless of flag state — this is intentional (the flag
- *   may be enabled by the time the user gets to this step).
- */
-
-//
-// Persistent getting started checklist for first-time users.
-// Shows a collapsible panel with logical onboarding steps.
-// Auto-detects completion by checking TanStack Query cache.
-// Persists dismissed/completed state per user in localStorage.
-//
-// Steps follow the logical order:
-//   1. Add Skills → 2. Add Employees → 3. Add Machines →
-//   4. Create first Job → 5. Assign resources → 6. Run Auto-Schedule →
-//   7. Check Dashboard → 8. Try AI Copilot
+// frontend/src/components/onboarding/GettingStarted.tsx - v4.1
+// Persistent 8-step onboarding checklist panel (bottom-left corner).
+// Auto-detects completion via TanStack Query cache.
 
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -84,7 +10,7 @@ import { useAuth } from '../../auth/AuthContext'
 import { useLabels } from '../../context/IndustryContext'
 import { useOnboarding } from './OnboardingContext'
 
-// ── Storage helpers ───────────────────────────────────────────────────────────
+// -- Storage helpers -----------------------------------------------------------
 
 function dismissedKey(userId: number) { return `gs_dismissed_${userId}` }
 function isDismissed(userId: number) {
@@ -97,7 +23,7 @@ function clearDismissed(userId: number) {
   try { localStorage.removeItem(dismissedKey(userId)) } catch {}
 }
 
-// ── Step definition ───────────────────────────────────────────────────────────
+// -- Step definition -----------------------------------------------------------
 
 interface Step {
   id:          string
@@ -107,7 +33,7 @@ interface Step {
   checkKey:    string | null   // TanStack Query key to check for data
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// -- Component -----------------------------------------------------------------
 
 export default function GettingStarted() {
   const { user }      = useAuth()
@@ -118,7 +44,7 @@ export default function GettingStarted() {
 
   const [collapsed,  setCollapsed]  = useState(false)
   const [dismissed,  setDismissedState] = useState(false)
-  const [, setTick] = useState(0)   // write-only — forces re-render to recheck cache
+  const [, setTick] = useState(0)   // write-only - forces re-render to recheck cache
 
   // Load dismissed state on mount
   useEffect(() => {
@@ -162,7 +88,7 @@ export default function GettingStarted() {
       id: 'assign', route: '/jobs',
       label: `Assign resources to a ${labels.job}`,
       description: `Link ${labels.employees.toLowerCase()} and ${labels.machines.toLowerCase()} to your ${labels.job.toLowerCase()}.`,
-      checkKey: null,   // manual check — hard to auto-detect
+      checkKey: null,   // manual check - hard to auto-detect
     },
     {
       id: 'schedule', route: '/jobs',
@@ -186,7 +112,7 @@ export default function GettingStarted() {
 
   // Auto-detect completion from query cache
   function isComplete(step: Step): boolean {
-    // Manual steps — check localStorage
+    // Manual steps - check localStorage
     const manualKey = `gs_done_${user?.id}_${step.id}`
     try { if (localStorage.getItem(manualKey) === '1') return true } catch {}
 

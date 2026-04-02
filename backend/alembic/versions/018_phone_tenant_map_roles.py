@@ -1,56 +1,39 @@
 """
-ZetaOps Copilot Database Migration 018: Phone Tenant Map Roles
-==============================================================
+MIGRATION: 018_phone_tenant_map_roles
+PATH:      backend/alembic/versions/018_phone_tenant_map_roles.py
+PURPOSE:   Adds display_name and phone_role columns to phone_tenant_map.
 
-FILE PURPOSE
-This is an Alembic database migration file that adds role-based access control columns to the WhatsApp phone number mapping table. It was introduced in the v5-whatsapp branch for the WhatsApp Copilot feature, adding display_name and phone_role columns to track which family member or employee is sending WhatsApp commands. This migration sits in the database schema evolution chain at position 018, building upon migration 017 which created the original phone_tenant_map table.
+           display_name — human-readable label for who this phone belongs to.
+                          e.g. "Rajesh (Owner)", "Amit (Son)", "Priya (Partner)"
+                          Shows in logs and analytics so you know which family
+                          member is sending commands, not just the phone number.
 
-WHAT THIS FILE DOES — step by step
-1. Defines Alembic migration metadata (revision 018, depends on 017)
-2. Provides an upgrade() function that adds two new columns to phone_tenant_map table
-3. Adds display_name column (nullable string) to store human-readable labels like "Rajesh (Owner)"
-4. Adds phone_role column (non-null string, defaults to "owner") for future role-based access control
-5. Provides a downgrade() function that removes both columns if rollback is needed
-6. Includes extensive documentation about collision risks with Factory GPT branch migrations
+           phone_role   — reserved for future role-based access control.
+                          Currently not enforced — all roles have equal access.
+                          Values: 'owner', 'manager', 'viewer'
+                          Will be enforced in v5.7 when RBAC is added.
 
-KEY FUNCTIONS / CLASSES / COMPONENTS
+           Why separate migration:
+           Migration 017 created the table. Adding columns via ALTER TABLE
+           in a separate migration is safer than modifying 017 — it means
+           the DB can be rolled back to 017 state if needed.
 
-Name         : upgrade
-Type         : function
-Purpose      : Executes the forward migration by adding display_name and phone_role columns to the phone_tenant_map table. This allows the WhatsApp system to track which specific person (not just phone number) is sending commands, and sets up infrastructure for future role-based permissions.
-Parameters   : None
-Returns      : None
-Calls        : op.add_column() from Alembic operations
-DB/API       : Executes ALTER TABLE SQL statements on phone_tenant_map table
-Side effects : Permanently modifies the database schema by adding two new columns
+BRANCH:    v5-whatsapp
+VERSION:   v5.0
+CREATED:   2026-03
 
-Name         : downgrade
-Type         : function
-Purpose      : Reverses the migration by removing the display_name and phone_role columns from phone_tenant_map table. This is used when rolling back to previous database states during development or deployment issues.
-Parameters   : None
-Returns      : None
-Calls        : op.drop_column() from Alembic operations
-DB/API       : Executes ALTER TABLE SQL statements to drop columns from phone_tenant_map table
-Side effects : Permanently removes columns and any data stored in them from the database
+TABLES MODIFIED:
+  phone_tenant_map  — adds display_name and phone_role columns
 
-WHO CALLS THIS FILE
-This file is executed by the Alembic migration system when running:
-- `alembic upgrade head` (calls upgrade function)
-- `alembic downgrade -1` (calls downgrade function)
-- Database initialization scripts during deployment
-- Developer database setup commands
+ROLLBACK:
+  Drops display_name and phone_role columns from phone_tenant_map.
+  Safe to run — no data dependencies on these columns yet.
 
-IMPORTS EXPLAINED
-- `from alembic import op`: Provides database operation functions like add_column and drop_column for schema changes
-- `import sqlalchemy as sa`: Provides SQLAlchemy data types (String, Column) needed to define the new database columns
-
-INTERN NOTES
-- Easiest thing to break: Modifying the revision number or down_revision creates migration chain conflicts that prevent database upgrades
-- Non-obvious design decision: phone_role defaults to "owner" but isn't enforced yet - this allows gradual rollout of RBAC without breaking existing WhatsApp integrations
-- Most common mistake: Forgetting that display_name is nullable while phone_role is not - new code must handle null display_name values gracefully
-- Design principle #2: This implements tenant scoping infrastructure - phone_role will eventually enforce per-tenant permission boundaries
-- What to check if behaving unexpectedly: Verify migration 017 ran successfully first, and check if you're on the correct git branch (v5-whatsapp vs v4-dev)
-- v5-whatsapp merge note: This migration number conflicts with Factory GPT branch - must be renumbered to 024+ during merge to avoid Alembic revision collisions
+COLLISION NOTE:
+  Factory GPT branch plans migrations 017-022.
+  This migration uses 018 — also in the collision range.
+  When merging v5-whatsapp into main alongside Factory GPT,
+  renumber to 024 or higher. Tracked in V4_ALERTS.md.
 """
 
 from alembic import op
