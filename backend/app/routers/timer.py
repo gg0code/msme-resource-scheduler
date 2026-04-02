@@ -1,25 +1,8 @@
-"""
-routers/timer.py — V2.0
-
-Job lifecycle (timer) endpoints. All state transitions go through here.
-Registered in main.py as /api/timer
-
-Endpoints:
-  POST /api/timer/{job_id}/start    — idle    → running  (sets actual_start_at)
-  POST /api/timer/{job_id}/pause    — running → paused
-  POST /api/timer/{job_id}/resume   — paused  → running  (accumulates paused_seconds)
-  POST /api/timer/{job_id}/stop     — any     → stopped  (early stop, releases resources)
-  GET  /api/timer/{job_id}/summary  — returns cost preview for End Job modal
-  POST /api/timer/{job_id}/end      — any running/paused → completed (releases resources)
-
-Access: scheduler+ for all actions
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime
 
 from app.database import get_db
 from app.core.dependencies import get_current_user, require_role
@@ -37,7 +20,7 @@ from app.services.availability_engine import check_availability
 router = APIRouter()
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# -- Schemas -------------------------------------------------------------------
 
 class EndJobPayload(BaseModel):
     """Payload for POST /end — user can update resources before finalising."""
@@ -49,7 +32,7 @@ class OutagePayload(BaseModel):
     reason: Optional[str] = None
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# -- Helpers -------------------------------------------------------------------
 
 def _get_job_or_404(db: Session, job_id: int, tenant_id: int) -> Job:
     job = db.query(Job).filter(
@@ -166,7 +149,7 @@ def _job_summary(db: Session, job: Job) -> dict:
     }
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+# -- Routes --------------------------------------------------------------------
 
 @router.post("/{job_id}/start")
 def start_job(
@@ -201,7 +184,7 @@ def start_job(
     except Exception:
         pass  # If engine fails, allow start
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     job.actual_start_at = now
     job.timer_status = "running"
     job.status = "In Progress"
@@ -223,7 +206,7 @@ def pause_job(
     if job.timer_status != "running":
         raise HTTPException(status_code=400, detail="Job is not running")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     job.timer_status = "paused"
     job.timer_log = _log_event(job, "pause", now)
 
@@ -243,7 +226,7 @@ def resume_job(
     if job.timer_status != "paused":
         raise HTTPException(status_code=400, detail="Job is not paused")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     # Accumulate paused duration
     log = list(job.timer_log or [])
@@ -276,7 +259,7 @@ def stop_job(
     if job.timer_status not in ("running", "paused", "idle"):
         raise HTTPException(status_code=400, detail="Job cannot be stopped in its current state")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     # If paused, accumulate final pause duration
     if job.timer_status == "paused":
@@ -310,7 +293,7 @@ def get_job_summary(
     """
     job = _get_job_or_404(db, job_id, current_user.tenant_id)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     hours = _actual_hours(job, now)
 
     # Current assignments
@@ -375,7 +358,7 @@ def end_job(
             detail="Job must be running or paused to end it",
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     # Accumulate final pause if paused
     if job.timer_status == "paused":
@@ -424,7 +407,7 @@ def log_outage(
     if job.timer_status not in ("running", "paused"):
         raise HTTPException(status_code=400, detail="Job must be running or paused to log outage")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     log = list(job.timer_log or [])
 
     if payload.action == "start":

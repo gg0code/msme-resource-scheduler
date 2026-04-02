@@ -1,46 +1,13 @@
-"""
-MIGRATION: 017_phone_tenant_map
-PATH:      backend/app/db/migrations/017_phone_tenant_map.py
-PURPOSE:   Creates two tables needed by the WhatsApp Copilot feature:
-
-           1. phone_tenant_map — links a WhatsApp phone number to a ZetaOps
-              tenant and user. This is how the system knows which factory
-              is messaging when a WhatsApp message arrives.
-
-           2. whatsapp_conversations — logs every message sent and received.
-              This is the Factory GPT training dataset. Every conversation
-              from the 90-day pilot becomes fine-tuning data for a
-              domain-specific Hindi/Hinglish factory AI model.
-
-BRANCH:    v5-whatsapp
-VERSION:   v5.0
-CREATED:   2026-03
-
-TABLES CREATED:
-  phone_tenant_map        — phone number to tenant/user mapping + consent tracking
-  whatsapp_conversations  — full conversation log for Factory GPT training dataset
-
-COLLISION WARNING:
-  Factory GPT branch plans migrations 017-022 for its own tables.
-  If merging v5-whatsapp into main alongside Factory GPT, renumber
-  this migration to 023 or higher. Tracked in V4_ALERTS.md.
-
-ROLLBACK:
-  Remove whatsapp_conversations table first (it has no dependants).
-  Then remove phone_tenant_map table.
-  Alembic downgrade handles this via the downgrade() function below.
-"""
-
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
 
 # ---------------------------------------------------------------------------
-# Alembic revision identifiers — do not change these manually
+# Alembic revision identifiers - do not change these manually
 # ---------------------------------------------------------------------------
 
-# Unique ID for this migration — Alembic uses this to track which
+# Unique ID for this migration - Alembic uses this to track which
 # migrations have been applied to the database
 revision = "017"
 
@@ -48,7 +15,7 @@ revision = "017"
 # 016 is the last migration from v4.0.9 (the base we branched from).
 down_revision = "016"
 
-# Standard Alembic fields — leave as-is
+# Standard Alembic fields - leave as-is
 branch_labels = None
 depends_on = None
 
@@ -75,7 +42,7 @@ def upgrade() -> None:
     op.create_table(
         "phone_tenant_map",
 
-        # Primary key — standard auto-increment integer ID
+        # Primary key - standard auto-increment integer ID
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
 
         # The WhatsApp phone number in E.164 format: +919876543210
@@ -146,7 +113,7 @@ def upgrade() -> None:
             comment="Updated every time a message arrives from this phone"
         ),
 
-        # Consent tracking — REQUIRED for Factory GPT training data use.
+        # Consent tracking - REQUIRED for Factory GPT training data use.
         # If consent_given is False, conversations are NOT logged to
         # whatsapp_conversations table.
         # Owner gives consent by replying HAAN to the first welcome message.
@@ -165,7 +132,7 @@ def upgrade() -> None:
             comment="Timestamp of when consent was given"
         ),
 
-        # Alert preferences — JSON object storing which alert types are ON/OFF.
+        # Alert preferences - JSON object storing which alert types are ON/OFF.
         # Default is all alerts ON for the pilot.
         # Example: {"morning_briefing": true, "job_delay": true,
         #           "machine_down": true, "conflict": false}
@@ -179,7 +146,7 @@ def upgrade() -> None:
         ),
     )
 
-    # Index on phone_number — this is the lookup key on every inbound message.
+    # Index on phone_number - this is the lookup key on every inbound message.
     # Without this index, every WhatsApp message triggers a full table scan.
     op.create_index(
         "idx_phone_tenant_map_phone",
@@ -188,7 +155,7 @@ def upgrade() -> None:
         unique=True  # Enforces uniqueness at DB level as well as column constraint
     )
 
-    # Index on tenant_id — used when loading all phones for a tenant
+    # Index on tenant_id - used when loading all phones for a tenant
     # (e.g. when sending proactive alerts to all users of a factory)
     op.create_index(
         "idx_phone_tenant_map_tenant",
@@ -213,7 +180,7 @@ def upgrade() -> None:
 
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
 
-        # Which factory this conversation belongs to — for multi-tenant isolation
+        # Which factory this conversation belongs to - for multi-tenant isolation
         sa.Column(
             "tenant_id",
             sa.Integer,
@@ -221,7 +188,7 @@ def upgrade() -> None:
             comment="Factory that sent/received this message"
         ),
 
-        # The phone number — links back to phone_tenant_map
+        # The phone number - links back to phone_tenant_map
         sa.Column(
             "phone_number",
             sa.String(20),
@@ -248,7 +215,7 @@ def upgrade() -> None:
             comment="Message text. Voice notes stored as '[Voice] transcribed text'"
         ),
 
-        # How the message arrived — text typed, voice note, or outbound alert
+        # How the message arrived - text typed, voice note, or outbound alert
         # 'text'  = owner typed a message
         # 'voice' = owner sent a voice note (content is transcription)
         # 'alert' = proactive alert sent by ZetaOps (no user input)
@@ -260,7 +227,7 @@ def upgrade() -> None:
             comment="'text', 'voice', or 'alert'"
         ),
 
-        # Language detection result — used for training data filtering.
+        # Language detection result - used for training data filtering.
         # 'hindi'    = Devanagari script
         # 'hinglish' = Hindi words in Latin script mixed with English
         # 'english'  = Full English
@@ -272,7 +239,7 @@ def upgrade() -> None:
             comment="'hindi', 'hinglish', 'english', or NULL if not detected"
         ),
 
-        # Industry vertical at time of message — for training data segmentation.
+        # Industry vertical at time of message - for training data segmentation.
         # Copied from phone_tenant_map.industry_type at write time.
         sa.Column(
             "industry_type",
@@ -291,7 +258,7 @@ def upgrade() -> None:
             comment="Groups messages in same conversation. Matches Redis session key."
         ),
 
-        # Consent flag — copied from phone_tenant_map at write time.
+        # Consent flag - copied from phone_tenant_map at write time.
         # A row should NEVER exist here if consent_given was False.
         # This column is a safety double-check for the training pipeline.
         sa.Column(
@@ -312,14 +279,14 @@ def upgrade() -> None:
         ),
     )
 
-    # Index on tenant_id — for loading all conversations of a factory
+    # Index on tenant_id - for loading all conversations of a factory
     op.create_index(
         "idx_whatsapp_conv_tenant",
         "whatsapp_conversations",
         ["tenant_id"]
     )
 
-    # Index on phone_number + created_at — for loading conversation history
+    # Index on phone_number + created_at - for loading conversation history
     # in chronological order for a specific owner
     op.create_index(
         "idx_whatsapp_conv_phone_time",
@@ -327,7 +294,7 @@ def upgrade() -> None:
         ["phone_number", "created_at"]
     )
 
-    # Index on session_id — for reconstructing a full conversation
+    # Index on session_id - for reconstructing a full conversation
     # from individual message rows
     op.create_index(
         "idx_whatsapp_conv_session",
@@ -345,7 +312,7 @@ def downgrade() -> None:
     Only run this in development. Never run on production pilot data.
     """
 
-    # Drop whatsapp_conversations first — it has no tables depending on it.
+    # Drop whatsapp_conversations first - it has no tables depending on it.
     # Dropping phone_tenant_map first would fail if FK references existed.
     op.drop_index("idx_whatsapp_conv_session", table_name="whatsapp_conversations")
     op.drop_index("idx_whatsapp_conv_phone_time", table_name="whatsapp_conversations")

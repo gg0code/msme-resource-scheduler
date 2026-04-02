@@ -1,47 +1,3 @@
-"""
-FILE:    whatsapp_identity.py
-PATH:    backend/app/services/whatsapp_identity.py
-PURPOSE: Resolves an incoming WhatsApp phone number to a ZetaOps tenant
-         and user. This is the first thing that runs after signature
-         verification on every inbound message. If the phone number is
-         not registered, the message is rejected before touching the AI.
-
-         Think of this as the doorman — it checks who is knocking before
-         letting anyone into the system.
-
-         Three functions are provided:
-           resolve_identity()  — main lookup, called on every message
-           check_consent()     — checks if owner agreed to data logging
-           record_consent()    — called when owner replies HAAN (yes)
-
-BRANCH:  v5-whatsapp
-VERSION: v5.0
-CREATED: 2026-03
-
-DEPENDENCIES:
-  app/models/whatsapp.py  — PhoneTenantMap SQLAlchemy model
-  app/database.py         — AsyncSession database dependency
-  migration 017           — phone_tenant_map table must exist before
-                            this service can be used
-
-USAGE:
-  from app.services.whatsapp_identity import (
-      resolve_identity, check_consent, record_consent
-  )
-
-  # Resolve phone to tenant on every inbound message
-  identity = await resolve_identity(phone_number="+919876543210", db=db)
-  if identity is None:
-      return  # Phone not registered — reject silently
-
-  # Check consent before logging conversation
-  if identity.consent_given:
-      # safe to log to whatsapp_conversations table
-
-  # Record consent when owner replies HAAN
-  await record_consent(phone_number="+919876543210", db=db)
-"""
-
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import select, update
@@ -50,14 +6,14 @@ from sqlalchemy.sql import func
 from app.models.whatsapp import PhoneTenantMap
 
 # ---------------------------------------------------------------------------
-# Module logger — all log messages from this file are prefixed with
+# Module logger - all log messages from this file are prefixed with
 # the module name so they are easy to find when debugging
 # ---------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# DATA CLASS — what resolve_identity() returns
+# DATA CLASS - what resolve_identity() returns
 # ---------------------------------------------------------------------------
 # We return a simple object instead of the raw SQLAlchemy row.
 # This keeps the rest of the codebase decoupled from the DB model.
@@ -109,7 +65,7 @@ class IdentityResult:
         Shows display_name if set so logs show 'Amit' not just a phone number.
         """
         masked_phone = f"****{self.phone_number[-4:]}"
-        # Show display_name if set — makes logs much more readable
+        # Show display_name if set - makes logs much more readable
         name_part = f", name={self.display_name}" if self.display_name else ""
         return (
             f"IdentityResult(phone={masked_phone}, "
@@ -120,10 +76,10 @@ class IdentityResult:
 
 
 # ---------------------------------------------------------------------------
-# FUNCTION 1 — resolve_identity()
+# FUNCTION 1 - resolve_identity()
 # ---------------------------------------------------------------------------
 
-def resolve_identity(
+async def resolve_identity(
     phone_number: str,
     db: Session
 ) -> IdentityResult | None:
@@ -167,7 +123,7 @@ def resolve_identity(
         return None
 
     # Query phone_tenant_map for this phone number.
-    # We only return ACTIVE mappings — is_active=False means the owner
+    # We only return ACTIVE mappings - is_active=False means the owner
     # has unlinked their number via the LinkWhatsApp.tsx page.
     lookup_query = (
         select(PhoneTenantMap)
@@ -177,14 +133,14 @@ def resolve_identity(
         )
     )
 
-    query_result = db.execute(lookup_query)
+    query_result =  db.execute(lookup_query)
 
     # scalars().first() returns the first matching row as a Python object,
     # or None if no rows matched the WHERE conditions.
     phone_mapping = query_result.scalars().first()
 
     # If no mapping found, this phone is not registered with any ZetaOps tenant.
-    # This is a normal case — someone might accidentally message the wrong number.
+    # This is a normal case - someone might accidentally message the wrong number.
     if phone_mapping is None:
         logger.info(
             f"Phone ****{phone_number[-4:]} not found in phone_tenant_map. "
@@ -195,7 +151,7 @@ def resolve_identity(
 
     # Update last_seen_at to track when this owner last sent a message.
     # We use a direct UPDATE query instead of modifying the loaded object
-    # because it avoids a second DB round-trip (load → modify → save).
+    # because it avoids a second DB round-trip (load -> modify -> save).
     db.execute(
         update(PhoneTenantMap)
         .where(PhoneTenantMap.id == phone_mapping.id)
@@ -209,7 +165,7 @@ def resolve_identity(
         f"industry={phone_mapping.industry_type}"
     )
 
-    # Return a clean IdentityResult object — not the raw SQLAlchemy row.
+    # Return a clean IdentityResult object - not the raw SQLAlchemy row.
     # This decouples all other services from the DB model structure.
     # If columns are renamed in the DB, only this return statement changes.
     return IdentityResult(
@@ -226,10 +182,10 @@ def resolve_identity(
 
 
 # ---------------------------------------------------------------------------
-# FUNCTION 2 — check_consent()
+# FUNCTION 2 - check_consent()
 # ---------------------------------------------------------------------------
 
-def check_consent(
+async def check_consent(
     phone_number: str,
     db: Session
 ) -> bool:
@@ -254,7 +210,7 @@ def check_consent(
         None — read-only query. Does not modify any data.
     """
 
-    # Query only the consent_given column — no need to load the full row.
+    # Query only the consent_given column - no need to load the full row.
     # This is more efficient than loading the entire PhoneTenantMap object.
     consent_query = (
         select(PhoneTenantMap.consent_given)
@@ -264,13 +220,13 @@ def check_consent(
         )
     )
 
-    result = db.execute(consent_query)
+    result = await db.execute(consent_query)
 
     # scalar_one_or_none() returns a single value (not a row object),
     # or None if no matching row was found.
-    consent_value = result.scalars().first()
+    consent_value = result.scalar_one_or_none()
 
-    # Treat a missing row as no consent — the safest default.
+    # Treat a missing row as no consent - the safest default.
     # We must never log data without confirmed consent.
     if consent_value is None:
         return False
@@ -279,10 +235,10 @@ def check_consent(
 
 
 # ---------------------------------------------------------------------------
-# FUNCTION 3 — record_consent()
+# FUNCTION 3 - record_consent()
 # ---------------------------------------------------------------------------
 
-def record_consent(
+async def record_consent(
     phone_number: str,
     db: Session
 ) -> bool:
@@ -314,7 +270,7 @@ def record_consent(
     """
 
     # First verify the mapping exists and is active before updating.
-    # We query only the id column — we just need to confirm existence.
+    # We query only the id column - we just need to confirm existence.
     check_query = (
         select(PhoneTenantMap.id)
         .where(
@@ -323,11 +279,11 @@ def record_consent(
         )
     )
 
-    result = db.execute(check_query)
+    result = await db.execute(check_query)
     mapping_id = result.scalar_one_or_none()
 
     # If no active mapping found, we cannot record consent.
-    # Log a warning — this indicates something unexpected happened in the flow.
+    # Log a warning - this indicates something unexpected happened in the flow.
     if mapping_id is None:
         logger.warning(
             f"Cannot record consent — phone ****{phone_number[-4:]} "
@@ -337,8 +293,8 @@ def record_consent(
         return False
 
     # Update both the consent flag and the timestamp in a single query.
-    # consent_at records exactly when consent was given — for compliance audit.
-    db.execute(
+    # consent_at records exactly when consent was given - for compliance audit.
+    await db.execute(
         update(PhoneTenantMap)
         .where(PhoneTenantMap.id == mapping_id)
         .values(
@@ -346,7 +302,7 @@ def record_consent(
             consent_at=func.now()
         )
     )
-    db.commit()
+    await db.commit()
 
     logger.info(
         f"Consent recorded for phone ****{phone_number[-4:]}. "

@@ -1,6 +1,8 @@
-// frontend/src/pages/GanttPage.tsx
-// Production timeline (Gantt chart). Feature flagged (flags.gantt).
-// Read-only - all edits go through Jobs.tsx.
+// src/pages/GanttPage.tsx - V2.1
+// Added: Day / Week / Month zoom toggle
+// Day view  : 30px per day (detailed)
+// Week view : 10px per day (~3x zoom out)
+// Month view:  4px per day (~7x zoom out, full picture)
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { fetchGanttData } from '../api/api_gantt'

@@ -1,6 +1,3 @@
-// frontend/src/api/api_employees.ts
-// Employee CRUD, skill assignment, and CSV import API calls.
-
 import apiClient from './client'
 import type { Employee, ImportResult } from '../types/types_index'
 

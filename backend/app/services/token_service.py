@@ -1,19 +1,9 @@
-"""
-app/services/token_service.py — Block 2 V3.0
-Signed JWT tokens for QR scan execution.
-
-Expiry logic (Option C):
-  expires = min(job.end_date + 1 day, print_time + 7 days)
-  If no end_date: print_time + 7 days
-"""
-
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
-from app.config import settings
 
-# Secret key — in production move to settings/env var
-SCAN_TOKEN_SECRET = settings.SECRET_KEY  # uses main app secret key
+# Secret key - in production move to settings/env var
+SCAN_TOKEN_SECRET = "msme-scan-secret-change-in-production"
 SCAN_TOKEN_ALGORITHM = "HS256"
 MAX_TOKEN_DAYS = 7
 

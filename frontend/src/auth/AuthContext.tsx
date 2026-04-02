@@ -1,6 +1,8 @@
 // frontend/src/auth/AuthContext.tsx
-// Auth state, login, logout, register, token refresh.
-// Provides useAuth() hook to all components.
+//
+// Access token stored in React state (memory) - never localStorage.
+// Refresh token lives in httpOnly cookie (set by backend).
+// On page reload, /auth/refresh is called automatically to restore session.
 
 import {
   createContext,

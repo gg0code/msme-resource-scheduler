@@ -1,12 +1,11 @@
 """
-models/job.py — J1.2
-Added: delivery_date, invoice_number, invoice_date, payment_status,
-       payment_amount, payment_date, actual_hours
+models/job.py — V1.1
+Added tenant_id to Job, JobSkillRequirement, JobAssignment.
 """
 
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text, JSON, Boolean
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
-from datetime import datetime, timezone
+from datetime import datetime
 from app.database import Base
 
 
@@ -14,7 +13,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id          = Column(Integer, primary_key=True, index=True)
-    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)  # V1.1
     name        = Column(String(200), nullable=False)
     customer    = Column(String(150), nullable=True)
     description = Column(Text, nullable=True)
@@ -35,42 +34,18 @@ class Job(Base):
     paused_seconds  = Column(Integer, nullable=False, default=0)
     timer_log       = Column(JSON, nullable=True)
 
-    # ── J1.1 Scheduling fields ──────────────────────────────────────────────
-    # start_mode: 'right_away' | 'pick_a_date' | 'flexible'
-    # right_away  → start_date locked to today, job is auto-locked
-    # pick_a_date → start_date user-chosen, job is auto-locked
-    # flexible    → scheduler may place job between earliest_date and latest_date
-    start_mode    = Column(String(20), nullable=False, default="pick_a_date")
-    is_locked     = Column(Boolean, nullable=False, default=False)
-    has_conflict  = Column(Boolean, nullable=False, default=False)
-    earliest_date = Column(Date, nullable=True)
-    latest_date   = Column(Date, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # ── v3.9.6 Material Estimation prerequisites ────────────────────────────
-    job_type  = Column(String(100), nullable=True)   # e.g. "Corrugated Box", "Label"
-    quantity  = Column(Float, nullable=True)         # units to produce
-
-    # ── J1.2 Delivery, Invoice & Actuals ────────────────────────────────────
-    delivery_date  = Column(Date, nullable=True)         # customer delivery deadline
-    invoice_number = Column(String(50), nullable=True)
-    invoice_date   = Column(Date, nullable=True)
-    payment_status = Column(String(20), nullable=True, default='Unpaid')  # Unpaid|Partial|Paid
-    payment_amount = Column(Float, nullable=True)
-    payment_date   = Column(Date, nullable=True)
-    actual_hours   = Column(Float, nullable=True)        # stored on job end
-
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-
-    skill_requirements = relationship("JobSkillRequirement", back_populates="job", cascade="all, delete-orphan", lazy="select")
-    assignments        = relationship("JobAssignment", back_populates="job", cascade="all, delete-orphan", lazy="select")
+    skill_requirements = relationship("JobSkillRequirement", back_populates="job", cascade="all, delete-orphan")
+    assignments        = relationship("JobAssignment", back_populates="job", cascade="all, delete-orphan")
 
 
 class JobSkillRequirement(Base):
     __tablename__ = "job_skill_requirements"
 
     id                 = Column(Integer, primary_key=True, index=True)
-    tenant_id          = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    tenant_id          = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)  # V1.1
     job_id             = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     skill_id           = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False)
     min_skill_level    = Column(String(20), nullable=False, default="Generic")
@@ -84,13 +59,12 @@ class JobAssignment(Base):
     __tablename__ = "job_assignments"
 
     id          = Column(Integer, primary_key=True, index=True)
-    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)  # V1.1
     job_id      = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True)
     machine_id  = Column(Integer, ForeignKey("machines.id", ondelete="SET NULL"), nullable=True)
-    assigned_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    allocation_pct = Column(Integer, nullable=True, default=100)  # % of time this resource is allocated
+    assigned_at = Column(DateTime, default=datetime.utcnow)
 
-    job      = relationship("Job", back_populates="assignments", lazy="select")
-    employee = relationship("Employee", back_populates="assignments", lazy="select")
-    machine  = relationship("Machine", back_populates="assignments", lazy="select")
+    job      = relationship("Job", back_populates="assignments")
+    employee = relationship("Employee", back_populates="assignments")
+    machine  = relationship("Machine", back_populates="assignments")

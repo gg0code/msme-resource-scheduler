@@ -1,16 +1,3 @@
-"""
-app/routers/scan.py — V3.7
-Token generation and scan execution endpoints.
-
-Endpoints:
-  POST /api/jobs/{job_id}/scan-tokens   — generate all tokens for a job (auth required)
-  POST /api/scan/execute                — execute a scan action (no auth, token-based)
-  GET  /api/scan/verify                 — verify token and return metadata (no auth)
-
-V3.7: feature flag guard on token generation — returns warm message if qr_scan flag is False.
-      verify and execute endpoints are NOT guarded — a printed QR card must always be scannable.
-"""
-
 from datetime import datetime, timezone
 from typing import List
 
@@ -19,14 +6,14 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.dependencies import get_current_user
+from app.routers.auth import get_current_user
 from app.services.token_service import create_scan_token, verify_scan_token
 from app.utils.feature_guard import require_feature
 
 router = APIRouter()
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# -- Schemas -------------------------------------------------------------------
 
 class StepTokenPair(BaseModel):
     step_id:      int
@@ -77,7 +64,7 @@ class ScanVerifyResponse(BaseModel):
     reason:     str | None = None
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# -- Helpers -------------------------------------------------------------------
 
 def _get_job(db: Session, job_id: int, tenant_id: int):
     from app.models.job import Job  # avoid circular import
@@ -96,7 +83,7 @@ def _get_step(db: Session, step_id: int, tenant_id: int):
     return step
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# -- Endpoints -----------------------------------------------------------------
 
 @router.post(
     "/jobs/{job_id}/scan-tokens",
@@ -109,7 +96,7 @@ def generate_job_tokens(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # V3.7 — feature flag guard (token generation only — execute/verify always allowed)
+    # V3.7 - feature flag guard (token generation only - execute/verify always allowed)
     guard = require_feature("qr_scan")
     if guard:
         return guard
@@ -183,7 +170,7 @@ def generate_job_tokens(
     summary="Verify a scan token and return step metadata (no auth)",
 )
 def verify_token(token: str, db: Session = Depends(get_db)):
-    # NOTE: No feature guard here — a printed QR card must always be verifiable
+    # NOTE: No feature guard here - a printed QR card must always be verifiable
     try:
         payload = verify_scan_token(token)
     except ValueError as e:
@@ -245,7 +232,7 @@ def verify_token(token: str, db: Session = Depends(get_db)):
     summary="Execute a scan action — start or complete a step (no auth)",
 )
 def execute_scan(body: ScanExecuteRequest, db: Session = Depends(get_db)):
-    # NOTE: No feature guard here — a printed QR card must always be executable
+    # NOTE: No feature guard here - a printed QR card must always be executable
     from app.models.job_steps import JobStep
     from app.models.job import Job
 

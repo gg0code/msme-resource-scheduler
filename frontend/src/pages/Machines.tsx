@@ -1,6 +1,5 @@
-// frontend/src/pages/Machines.tsx
-// Machine management: list, create, edit, delete, skill reqs, downtime, CSV import.
-// Plan limit enforcement via usePlanLimits().
+// src/pages/Machines.tsx - table layout (matching Employees page)
+// Expandable rows show assigned jobs with Remove button.
 
 import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'

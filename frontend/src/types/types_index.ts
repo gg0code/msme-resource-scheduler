@@ -1,7 +1,14 @@
-// frontend/src/types/types_index.ts
+// src/types/types_index.ts
+// -----------------------------------------------------------------------------
 // Single source of truth for all shared domain interfaces.
-// Job, Employee, Machine, Skill, Dashboard, ImportResult, JobStep etc.
-// Rules: T | null (never undefined), no implicit any.
+// Industry config types live in src/config/industries/types.ts - do not
+// duplicate them here. Import from there if needed.
+//
+// Rules:
+//   - All optional fields use T | null (never undefined) - matches FastAPI JSON
+//   - Arrays that may be missing from API use optional ?: [] pattern
+//   - No implicit any - every field explicitly typed
+// -----------------------------------------------------------------------------
 
 // -- Skills -------------------------------------------------------------------
 

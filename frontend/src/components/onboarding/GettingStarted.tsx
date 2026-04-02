@@ -1,6 +1,14 @@
-// frontend/src/components/onboarding/GettingStarted.tsx - v4.1
-// Persistent 8-step onboarding checklist panel (bottom-left corner).
-// Auto-detects completion via TanStack Query cache.
+// src/components/onboarding/GettingStarted.tsx - v4.1
+//
+// Persistent getting started checklist for first-time users.
+// Shows a collapsible panel with logical onboarding steps.
+// Auto-detects completion by checking TanStack Query cache.
+// Persists dismissed/completed state per user in localStorage.
+//
+// Steps follow the logical order:
+//   1. Add Skills → 2. Add Employees → 3. Add Machines →
+//   4. Create first Job → 5. Assign resources → 6. Run Auto-Schedule →
+//   7. Check Dashboard → 8. Try AI Copilot
 
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'

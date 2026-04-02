@@ -1,6 +1,5 @@
-// frontend/src/pages/RegisterPage.tsx
-// New tenant registration with industry selector.
-// industry_type drives all labels and themes for the account lifetime.
+// src/pages/RegisterPage.tsx - v4.0.1
+// Added: industry picker step before workspace creation
 
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'

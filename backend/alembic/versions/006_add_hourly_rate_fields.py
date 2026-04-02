@@ -1,15 +1,3 @@
-"""006_add_hourly_rate_fields
-
-Add hourly_rate to employees and machines tables.
-Employee and Machine models already have hourly_rate as nullable columns
-in V1.1 but the DB column may not exist if migration was skipped.
-This migration ensures the column exists safely.
-
-Revision ID: 006
-Revises: 005
-Create Date: 2025-01-01
-"""
-
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.engine.reflection import Inspector
@@ -39,12 +27,12 @@ def upgrade():
     if not _column_exists("machines", "hourly_rate"):
         op.add_column("machines", sa.Column("hourly_rate", sa.Float(), nullable=True, server_default="0.0"))
 
-    # jobs.misc_cost already exists in V1.0 schema — skip if present
+    # jobs.misc_cost already exists in V1.0 schema - skip if present
     if not _column_exists("jobs", "misc_cost"):
         op.add_column("jobs", sa.Column("misc_cost", sa.Float(), nullable=True, server_default="0.0"))
 
 
 def downgrade():
     # Only drop if they were added by this migration
-    # Safe to leave — these are additive columns
+    # Safe to leave - these are additive columns
     pass

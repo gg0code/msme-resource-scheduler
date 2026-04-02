@@ -1,7 +1,14 @@
-// frontend/src/pages/Jobs.tsx
-// Main job management page (~2500 lines). Full lifecycle:
-// create, edit, assign, steps, timer, print, scheduler, AI.
-// Each major section starts with a -- SectionName -- comment.
+// src/pages/Jobs.tsx - J1.1
+// New features:
+//   · Start Mode selector: Right Away / Pick a Date / Flexible (earliest+latest)
+//   · Lock / Unlock toggle per job (locked = protected from auto-scheduler)
+//   · Job ID display: "#106" or "ABC-106" if tenant has job_id_prefix
+//   · Conflict badge on row (red ⚠ icon, tooltip)
+//   · Priority colour chips: Critical=Red, High=Orange, Medium=Yellow, Low=Gray
+//   · Start button disabled + tooltip when has_conflict = true
+//   · Auto-Scheduler button (runs on UNLOCKED jobs, prioritises Critical→High→order_value)
+//   · Customer grouping toggle
+//   · All previous V2 features preserved
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'

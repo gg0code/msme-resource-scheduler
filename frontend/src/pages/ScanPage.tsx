@@ -1,6 +1,9 @@
-// frontend/src/pages/ScanPage.tsx - Block 2 v3.1
-// Mobile QR scan page. NO AUTH. Uses native fetch() not apiClient.
-// Route: /scan?token=... Reads VITE_API_URL env var.
+/**
+ * ScanPage.tsx - Block 2 V3.1
+ * Mobile-first QR scan execution page.
+ * Route: /scan?token=...
+ * No login required. No navbar.
+ */
 
 import { useEffect, useState, type CSSProperties } from 'react'
 import { useSearchParams } from 'react-router-dom'

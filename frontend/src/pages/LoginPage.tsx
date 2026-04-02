@@ -1,5 +1,6 @@
-// frontend/src/pages/LoginPage.tsx - v3.7.3
-// Sign-in page. Calls AuthContext.login(). Role selector is cosmetic only.
+// src/pages/LoginPage.tsx - V3.7.3
+// Fixed: now uses AuthContext.login() instead of direct apiClient call
+// This ensures the in-memory tokenStore is populated and ProtectedRoute works correctly
 
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'

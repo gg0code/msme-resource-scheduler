@@ -1,6 +1,5 @@
-// frontend/src/components/common/CsvImport.tsx
-// CSV and XLSX bulk import widget. Template download + file upload + result modal.
-// Used on Employees, Machines, Skills pages.
+// components/common/CsvImport.tsx
+// Supports CSV and XLSX import with unavailability columns in templates.
 
 import { useRef, useState } from 'react'
 import { Upload, Download, CheckCircle2, XCircle, AlertTriangle, X, Loader2, FileText, ChevronDown } from 'lucide-react'

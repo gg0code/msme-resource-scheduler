@@ -1,6 +1,5 @@
-// frontend/src/config/industries/fabrication.ts - v4.0.2
-// Fabrication Capacity Planner config for metal fabrication industry.
-// job=Work Order, employee=Fabricator, machine=Work Center
+// src/config/industries/fabrication.ts - v4.0.2
+// Fabrication Capacity Planner - Metal Fabrication industry configuration
 
 import type { IndustryConfig } from './types'
 

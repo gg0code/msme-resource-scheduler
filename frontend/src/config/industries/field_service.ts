@@ -1,6 +1,5 @@
-// frontend/src/config/industries/field_service.ts - v4.0.2
-// Field Service Planner config for field service/maintenance industry.
-// job=Service Job, employee=Technician, machine=Vehicle/Tool
+// src/config/industries/field_service.ts - v4.0.2
+// Field Service Planner - Field Service / Maintenance industry configuration
 
 import type { IndustryConfig } from './types'
 

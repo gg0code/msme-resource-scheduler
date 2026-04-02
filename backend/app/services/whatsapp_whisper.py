@@ -1,55 +1,3 @@
-"""
-FILE:    whatsapp_whisper.py
-PATH:    backend/app/services/whatsapp_whisper.py
-PURPOSE: Voice note transcription for WhatsApp Copilot.
-
-         When a factory owner sends a voice note instead of typing,
-         this service downloads the audio and transcribes it to text
-         using Groq's Whisper API (whisper-large-v3 model).
-
-         The transcribed text is then passed into the normal message
-         pipeline exactly as if the owner had typed it — no special
-         handling needed downstream.
-
-         Flow:
-           1. Meta webhook receives audio message
-           2. _extract_message_from_payload() detects type=audio
-           3. transcribe_voice_note() is called with the media_id
-           4. Audio file downloaded from Meta API using media_id
-           5. Audio sent to Groq Whisper API for transcription
-           6. Transcribed text returned as plain string
-           7. Router prefixes with [Voice] and passes to AI pipeline
-
-         Supported audio formats from WhatsApp:
-           - .ogg (Opus codec) — WhatsApp default
-           - .mp3, .mp4, .wav, .m4a — also accepted by Whisper
-
-         Cost: FREE — uses existing GROQ_API_KEY, no new accounts needed.
-         Groq Whisper free tier: 28,800 seconds/day (~8 hours of audio).
-         A typical factory voice note is 10-30 seconds.
-         Pilot scale (5 factories, 50 voice notes/day) = ~25 minutes/day.
-         Well within free tier.
-
-BRANCH:  v5-whatsapp
-VERSION: v5.2
-CREATED: 2026-03-30
-
-DEPENDENCIES:
-  groq==0.9.0              — already installed, supports audio transcription
-  httpx==0.27.0            — already installed, used to download audio from Meta
-  app/config.py            — GROQ_API_KEY, WHATSAPP_APP_SECRET
-  app/config.py            — WHATSAPP_MOCK_MODE for dev mode bypass
-
-NOTES:
-  - In mock mode (WHATSAPP_MOCK_MODE=True), transcription is skipped and
-    a placeholder text is returned. This lets us test the pipeline without
-    real audio files.
-  - Meta audio download requires a valid access token. In development,
-    the simulator endpoint accepts a pre-transcribed text directly.
-  - Audio files are downloaded to memory (BytesIO) — never written to disk.
-    This avoids temp file cleanup issues and is safer for multi-tenant use.
-"""
-
 import io
 import logging
 
@@ -67,17 +15,17 @@ logger = logging.getLogger(__name__)
 # CONSTANTS
 # ---------------------------------------------------------------------------
 
-# Groq Whisper model — best quality, free on Groq
+# Groq Whisper model - best quality, free on Groq
 WHISPER_MODEL = "whisper-large-v3"
 
 # Meta Graph API base URL for downloading media
 META_MEDIA_URL = "https://graph.facebook.com/v18.0"
 
-# Maximum audio file size to download — 10MB safety limit
+# Maximum audio file size to download - 10MB safety limit
 # WhatsApp limits voice notes to 16MB but we keep a lower limit
 MAX_AUDIO_BYTES = 10 * 1024 * 1024  # 10MB
 
-# Filename sent to Groq — it uses the extension to detect format
+# Filename sent to Groq - it uses the extension to detect format
 # WhatsApp sends .ogg files by default
 DEFAULT_AUDIO_FILENAME = "voice_note.ogg"
 
@@ -116,7 +64,7 @@ async def transcribe_voice_note(
         Audio data held in memory (BytesIO) — never written to disk.
     """
 
-    # Mock mode — skip real API calls during development
+    # Mock mode - skip real API calls during development
     if settings.WHATSAPP_MOCK_MODE:
         logger.info(
             f"[MOCK WHISPER] Skipping real transcription for media_id={media_id}. "
@@ -257,7 +205,7 @@ async def _download_meta_audio(
                 )
                 return None
 
-            # Safety check — reject files that are too large
+            # Safety check - reject files that are too large
             audio_bytes = audio_response.content
             if len(audio_bytes) > MAX_AUDIO_BYTES:
                 logger.error(
@@ -323,17 +271,17 @@ async def _transcribe_with_groq(
         return None
 
     try:
-        # Groq SDK is synchronous — wrap in thread pool to avoid blocking
+        # Groq SDK is synchronous - wrap in thread pool to avoid blocking
         # FastAPI's async event loop (same pattern as run_ai_chat())
         import asyncio
 
-        loop = asyncio.get_running_loop()
+        loop = asyncio.get_event_loop()
 
         def _call_groq_sync() -> str:
             """Run Groq Whisper synchronously in thread pool."""
             client = Groq(api_key=settings.GROQ_API_KEY)
 
-            # Wrap bytes in BytesIO — Groq SDK accepts file-like objects
+            # Wrap bytes in BytesIO - Groq SDK accepts file-like objects
             # Tuple format: (filename, file_object, mime_type)
             audio_file = (filename, io.BytesIO(audio_bytes), "audio/ogg")
 
@@ -348,7 +296,7 @@ async def _transcribe_with_groq(
             # response_format="text" returns a string directly
             return transcription if isinstance(transcription, str) else str(transcription)
 
-        # Run sync Groq call in thread pool — same pattern as run_ai_chat()
+        # Run sync Groq call in thread pool - same pattern as run_ai_chat()
         transcribed_text = await loop.run_in_executor(None, _call_groq_sync)
 
         return transcribed_text.strip() if transcribed_text else None

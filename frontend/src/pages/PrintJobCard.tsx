@@ -1,6 +1,9 @@
-// frontend/src/pages/PrintJobCard.tsx
-// Print-optimised job card with QR codes per step.
-// No layout, no auth required to scan. Auto-triggers window.print().
+/**
+ * PrintJobCard.tsx - V3.4
+ * - Completed/Cancelled jobs: print card without QR (shows completion summary)
+ * - Active jobs with steps: print card with QR codes per step
+ * Route: /jobs/:jobId/print  (auth required, no sidebar)
+ */
 
 import { useEffect, useState, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'

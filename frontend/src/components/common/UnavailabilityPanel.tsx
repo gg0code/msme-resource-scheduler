@@ -1,5 +1,6 @@
-// frontend/src/components/common/UnavailabilityPanel.tsx
-// Leave/downtime period management panel shown in expanded employee/machine rows.
+// src/components/common/UnavailabilityPanel.tsx
+// Reusable panel shown in expanded employee/machine rows.
+// Shows existing unavailability periods and a form to add new ones.
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'

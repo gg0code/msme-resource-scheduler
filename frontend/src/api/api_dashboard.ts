@@ -1,6 +1,3 @@
-// frontend/src/api/api_dashboard.ts
-// Dashboard data fetching - GET /api/dashboard/
-
 import apiClient from './client'
 
 export interface CostBreakdown {

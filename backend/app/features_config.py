@@ -1,15 +1,15 @@
-# backend/app/features_config.py — V3.7
+# backend/app/features_config.py - V3.7
 #
 # Single source of truth for all feature visibility.
-# Flip a flag to True and restart the backend — that feature is live.
+# Flip a flag to True and restart the backend - that feature is live.
 # No code changes needed. No redeployment of logic.
 #
-# ── Version map ───────────────────────────────────────────────────────────────
-# V1  — all False        (Job Board — replace paper register)
-# V2  — scheduler, gantt → True    (The Planner — stop missing deadlines)
-# V3  — qr_scan, step_intelligence → True  (Shop Floor — workers know what to do)
-# V4  — csv_import, ai_copilot → True      (Full Platform)
-# ─────────────────────────────────────────────────────────────────────────────
+# Version map:
+# V1 - all False        (Job Board - replace paper register)
+# V2 - scheduler, gantt -> True    (The Planner - stop missing deadlines)
+# V3 - qr_scan, step_intelligence -> True  (Shop Floor - workers know what to do)
+# V4 - csv_import, ai_copilot -> True      (Full Platform)
+# V5 - whatsapp -> True                    (WhatsApp Copilot)
 
 FEATURE_FLAGS: dict[str, bool] = {
     "scheduler":          True,
@@ -18,5 +18,5 @@ FEATURE_FLAGS: dict[str, bool] = {
     "step_intelligence":  True,
     "csv_import":         True,
     "ai_copilot":         True,
-    "whatsapp":           True,  # v5-dev only — keep False on v3-dev
+    "whatsapp":           True,  # v5-whatsapp only - keep False on v4-dev
 }

@@ -1,5 +1,16 @@
-// frontend/src/components/EmptyState.tsx - v3.8
-// Reusable empty state with icon, title, description, optional action button.
+// src/components/EmptyState.tsx - V3.8
+//
+// Reusable empty state component shown when a page has no data.
+// Replaces silent blank tables with a friendly prompt and action button.
+//
+// Usage:
+//   <EmptyState
+//     icon={<Users size={32} />}
+//     title="No employees yet"
+//     description="Add your employees so you can assign them to jobs."
+//     actionLabel="Add First Employee"
+//     onAction={() => openCreate()}
+//   />
 
 import { type ReactNode } from 'react'
 

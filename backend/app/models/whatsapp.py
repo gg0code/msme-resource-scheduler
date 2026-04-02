@@ -1,37 +1,3 @@
-"""
-FILE:    whatsapp.py
-PATH:    backend/app/models/whatsapp.py
-PURPOSE: SQLAlchemy ORM models for the WhatsApp Copilot feature.
-         Defines two tables created in migration 017:
-
-         1. PhoneTenantMap  — maps a WhatsApp phone number to a ZetaOps
-            tenant and user. The doorway into the system for every
-            inbound WhatsApp message.
-
-         2. WhatsAppConversation — logs every message sent and received
-            during the 90-day pilot. This is the Factory GPT training
-            dataset. Each row is one message (user or assistant turn).
-
-BRANCH:  v5-whatsapp
-VERSION: v5.0
-CREATED: 2026-03
-
-DEPENDENCIES:
-  app/models/auth.py  — Tenant and User models (ForeignKey targets)
-  migration 017       — phone_tenant_map and whatsapp_conversations
-                        tables must exist before using these models
-
-NOTES:
-  - Follows the same column style as app/models/auth.py (text("now()"),
-    datetime.utcnow, Column/ForeignKey/relationship pattern).
-  - PhoneTenantMap.industry_type is a cached copy from Tenant.industry_type.
-    It is denormalised intentionally — avoids a join on every message.
-  - WhatsAppConversation has no ForeignKey to phone_tenant_map intentionally.
-    Conversations are append-only logs. If a phone is unlinked, the history
-    must remain intact for Factory GPT training purposes.
-"""
-
-
 from sqlalchemy import (
     Boolean, Column, DateTime, ForeignKey,
     Integer, String, Text, text
@@ -43,7 +9,7 @@ from app.database import Base
 
 
 # ---------------------------------------------------------------------------
-# MODEL 1 — PhoneTenantMap
+# MODEL 1 - PhoneTenantMap
 # ---------------------------------------------------------------------------
 
 class PhoneTenantMap(Base):
@@ -99,7 +65,7 @@ class PhoneTenantMap(Base):
         server_default="true"
     )
 
-    # Cached copy of tenant.industry_type — avoids joining tenants table
+    # Cached copy of tenant.industry_type - avoids joining tenants table
     # on every single inbound message. Updated when tenant changes industry.
     # Values: printing | manufacturing | fabrication | chemical | field_service
     industry_type = Column(String(50), nullable=True)
@@ -111,11 +77,11 @@ class PhoneTenantMap(Base):
         nullable=False
     )
 
-    # Updated on every inbound message — tracks last activity per owner.
+    # Updated on every inbound message - tracks last activity per owner.
     # Useful for pilot analytics: which factories are most active?
     last_seen_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Consent tracking — REQUIRED before logging conversations for Factory GPT.
+    # Consent tracking - REQUIRED before logging conversations for Factory GPT.
     # Set to True when owner replies HAAN to the first welcome message.
     # If False, whatsapp_conversations rows must NOT be written for this owner.
     consent_given = Column(
@@ -125,9 +91,9 @@ class PhoneTenantMap(Base):
         server_default="false"
     )
 
-    # Timestamp of when consent was given — for compliance audit trail
+    # Timestamp of when consent was given - for compliance audit trail
     consent_at = Column(DateTime(timezone=True), nullable=True)
-        # Who is this phone number — human readable label.
+        # Who is this phone number - human readable label.
     # Set by the owner when linking via LinkWhatsApp.tsx page.
     # Shows in logs so we know "Amit marked Ravi absent" not just a phone number.
     # Examples: "Rajesh (Owner)", "Amit (Son)", "Priya (Partner)", "Suresh (Manager)"
@@ -137,7 +103,7 @@ class PhoneTenantMap(Base):
         comment="Human label for this phone — who is messaging"
     )
 
-    # Role for future RBAC — not enforced during pilot.
+    # Role for future RBAC - not enforced during pilot.
     # All roles currently have identical access (owner-level).
     # Will be enforced in v5.7.
     # Values: 'owner' | 'manager' | 'viewer'
@@ -165,14 +131,14 @@ class PhoneTenantMap(Base):
 
 
 
-    # Relationships — lets us do phone_mapping.tenant.name etc.
+    # Relationships - lets us do phone_mapping.tenant.name etc.
     # These are read-only references, not cascade-delete owners.
     tenant = relationship("Tenant")
     user = relationship("User")
 
     def __repr__(self) -> str:
         """Safe string representation — masks phone number for logs."""
-        # Show only last 4 digits of phone — enough to identify, not enough to leak
+        # Show only last 4 digits of phone - enough to identify, not enough to leak
         masked = f"****{self.phone_number[-4:]}" if self.phone_number else "unknown"
         return (
             f"PhoneTenantMap(phone={masked}, "
@@ -182,7 +148,7 @@ class PhoneTenantMap(Base):
 
 
 # ---------------------------------------------------------------------------
-# MODEL 2 — WhatsAppConversation
+# MODEL 2 - WhatsAppConversation
 # ---------------------------------------------------------------------------
 
 class WhatsAppConversation(Base):
@@ -208,11 +174,11 @@ class WhatsAppConversation(Base):
 
     # Which factory this message belongs to.
     # Indexed for fast per-tenant conversation queries.
-    # No ForeignKey intentionally — conversations are permanent logs
+    # No ForeignKey intentionally - conversations are permanent logs
     # that must survive even if a tenant account is deleted.
     tenant_id = Column(Integer, nullable=False, index=True)
 
-    # The phone number — links back to phone_tenant_map logically
+    # The phone number - links back to phone_tenant_map logically
     # (not via FK) so history survives phone unlinking.
     phone_number = Column(String(20), nullable=False, index=True)
 
@@ -237,14 +203,14 @@ class WhatsAppConversation(Base):
         server_default="text"
     )
 
-    # Detected language of the message — for training data segmentation.
-    # 'hindi'    = Devanagari script (ΰ€†ΰ€œ ΰ€•ΰ€Ύ ΰ€Άΰ₯‡ΰ€Ήΰ€Ύΰ€―ΰ€Ύΰ€‚ ΰ€•ΰ₯ΰ€―ΰ€Ύ ΰ€Ήΰ₯ˆ)
+    # Detected language of the message - for training data segmentation.
+    # 'hindi'    = Devanagari script (    )
     # 'hinglish' = Hindi in Latin script mixed with English (aaj ka schedule)
     # 'english'  = Full English
     # NULL       = not yet detected (detection runs async after logging)
     language = Column(String(20), nullable=True)
 
-    # Industry type at time of message — copied from PhoneTenantMap.
+    # Industry type at time of message - copied from PhoneTenantMap.
     # Stored here so training data can be filtered by vertical
     # e.g. "give me all printing industry conversations"
     industry_type = Column(String(50), nullable=True)
@@ -254,7 +220,7 @@ class WhatsAppConversation(Base):
     # Matches the Redis session key used in whatsapp_session.py.
     session_id = Column(String(100), nullable=True, index=True)
 
-    # Safety double-check — copied from PhoneTenantMap.consent_given
+    # Safety double-check - copied from PhoneTenantMap.consent_given
     # at the time of writing. The training pipeline filters on this.
     # A row should NEVER exist here with consent_given=False.
     consent_given = Column(
@@ -274,7 +240,7 @@ class WhatsAppConversation(Base):
     def __repr__(self) -> str:
         """Safe string representation for logs."""
         masked = f"****{self.phone_number[-4:]}" if self.phone_number else "unknown"
-        # Truncate content to 50 chars — enough context, not a data leak
+        # Truncate content to 50 chars - enough context, not a data leak
         short_content = (self.content[:50] + "...") if len(self.content) > 50 else self.content
         return (
             f"WhatsAppConversation(phone={masked}, "

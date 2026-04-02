@@ -1,6 +1,3 @@
-// frontend/src/api/api_jobs.ts
-// Job CRUD, step management, scheduler integration API calls.
-
 import apiClient from './client'
 import type { Job } from '../types/types_index'
 

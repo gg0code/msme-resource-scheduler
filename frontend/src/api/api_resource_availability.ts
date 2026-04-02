@@ -1,5 +1,11 @@
-// frontend/src/api/api_resource_availability.ts
-// Resource availability check for job assignment.
+/**
+ * api_resource_availability.ts  (frontend/src/api/)
+ * API call function for GET /api/jobs/{jobId}/resource-availability.
+ * Returns real-time computed free capacity for every employee and machine
+ * assigned to a job, scoped to the job's specific date range.
+ * Used by the job side panel to replace static base_availability_pct sliders.
+ * Added in v3.9.4. The materials array is always empty until v3.9.5.
+ */
 
 import apiClient from './client'
 

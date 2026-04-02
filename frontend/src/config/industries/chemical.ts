@@ -1,6 +1,5 @@
-// frontend/src/config/industries/chemical.ts - v4.0.2
-// Process Batch Scheduler config for chemical/process industry.
-// job=Batch Order, employee=Operator, machine=Reactor, step=Phase
+// src/config/industries/chemical.ts - v4.0.2
+// Process Batch Scheduler - Chemical / Process Industry configuration
 
 import type { IndustryConfig } from './types'
 

@@ -1,24 +1,8 @@
-"""
-routers/steps.py — S1.0
-Step Intelligence: full CRUD for job steps + per-step resource assignment.
-
-Endpoints:
-  GET    /api/jobs/{job_id}/steps                            — list all steps for a job
-  POST   /api/jobs/{job_id}/steps                            — create step (appends at end)
-  PATCH  /api/jobs/{job_id}/steps/{step_id}                  — update step name/type/duration/notes
-  DELETE /api/jobs/{job_id}/steps/{step_id}                  — delete last step only, renumber
-  PATCH  /api/jobs/{job_id}/steps/{step_id}/status           — transition status with rule enforcement
-  GET    /api/jobs/{job_id}/steps/{step_id}/resources        — list step resources
-  POST   /api/jobs/{job_id}/steps/{step_id}/resources        — add resource to step
-  DELETE /api/jobs/{job_id}/steps/{step_id}/resources/{rid}  — remove resource from step
-  POST   /api/jobs/{job_id}/steps/{step_id}/use-job-resources — reset step to job-level resources
-"""
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import datetime
 
 from app.database import get_db
 from app.core.dependencies import get_current_user
@@ -31,7 +15,7 @@ from app.utils.feature_guard import require_feature
 
 router = APIRouter()
 
-# ── Valid transitions ─────────────────────────────────────────────────────────
+# -- Valid transitions ---------------------------------------------------------
 VALID_TRANSITIONS = {
     "locked":      [],                  # only system can unlock via previous step completing
     "ready":       ["in_progress"],
@@ -43,7 +27,7 @@ STEP_TYPES  = {"setup", "production", "inspection"}
 RES_TYPES   = {"employee", "machine", "material"}
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# -- Schemas -------------------------------------------------------------------
 class StepCreate(BaseModel):
     name: str
     step_type: str = "production"
@@ -67,7 +51,7 @@ class ResourceCreate(BaseModel):
     notes: Optional[str] = None
 
 
-# ── Serializers ───────────────────────────────────────────────────────────────
+# -- Serializers ---------------------------------------------------------------
 def resource_to_dict(r: StepResource, db: Session) -> dict:
     name = None
     if r.resource_type == "employee" and r.resource_id:
@@ -105,7 +89,7 @@ def step_to_dict(step: JobStep, db: Session) -> dict:
     }
 
 
-# ── Guard: job must belong to tenant ─────────────────────────────────────────
+# -- Guard: job must belong to tenant -----------------------------------------
 def _get_job(job_id: int, tenant_id: int, db: Session) -> Job:
     job = db.query(Job).filter(Job.id == job_id, Job.tenant_id == tenant_id).first()
     if not job:
@@ -123,7 +107,7 @@ def _get_step(step_id: int, job_id: int, tenant_id: int, db: Session) -> JobStep
     return step
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+# -- Routes --------------------------------------------------------------------
 
 @router.get("/jobs/{job_id}/steps")
 def list_steps(
@@ -131,7 +115,7 @@ def list_steps(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # V3.7 — feature flag guard
+    # V3.7 - feature flag guard
     guard = require_feature("step_intelligence")
     if guard:
         return guard
@@ -152,7 +136,7 @@ def create_step(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # V3.7 — feature flag guard
+    # V3.7 - feature flag guard
     guard = require_feature("step_intelligence")
     if guard:
         return guard
@@ -200,7 +184,7 @@ def update_step(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # V3.7 — feature flag guard
+    # V3.7 - feature flag guard
     guard = require_feature("step_intelligence")
     if guard:
         return guard
@@ -219,7 +203,7 @@ def update_step(
     if body.notes is not None:
         step.notes = body.notes
 
-    step.updated_at = datetime.now(timezone.utc)
+    step.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(step)
     return step_to_dict(step, db)
@@ -236,7 +220,7 @@ def delete_step(
     Only the last step (highest sequence_no) can be deleted.
     After deletion, remaining steps are renumbered gap-free.
     """
-    # V3.7 — feature flag guard
+    # V3.7 - feature flag guard
     guard = require_feature("step_intelligence")
     if guard:
         return guard
@@ -290,7 +274,7 @@ def update_step_status(
       - next step (sequence_no + 1) automatically becomes ready
       - if this was the last step, job status is set to Completed
     """
-    # V3.7 — feature flag guard
+    # V3.7 - feature flag guard
     guard = require_feature("step_intelligence")
     if guard:
         return guard
@@ -306,9 +290,9 @@ def update_step_status(
         )
 
     step.status = target
-    step.updated_at = datetime.now(timezone.utc)
+    step.updated_at = datetime.utcnow()
 
-    # When step completes → unlock next step
+    # When step completes -> unlock next step
     if target == "complete":
         next_step = (
             db.query(JobStep)
@@ -321,9 +305,9 @@ def update_step_status(
         )
         if next_step:
             next_step.status = "ready"
-            next_step.updated_at = datetime.now(timezone.utc)
+            next_step.updated_at = datetime.utcnow()
         else:
-            # No next step — this was the last step → complete the job
+            # No next step - this was the last step -> complete the job
             job = db.query(Job).filter(Job.id == job_id).first()
             if job and job.status not in ("Completed", "Cancelled"):
                 job.status = "Completed"
@@ -333,7 +317,7 @@ def update_step_status(
     return step_to_dict(step, db)
 
 
-# ── Step Resource endpoints ───────────────────────────────────────────────────
+# -- Step Resource endpoints ---------------------------------------------------
 
 @router.get("/jobs/{job_id}/steps/{step_id}/resources")
 def list_step_resources(
@@ -342,7 +326,7 @@ def list_step_resources(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # V3.7 — feature flag guard
+    # V3.7 - feature flag guard
     guard = require_feature("step_intelligence")
     if guard:
         return guard
@@ -358,7 +342,7 @@ def add_step_resource(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # V3.7 — feature flag guard
+    # V3.7 - feature flag guard
     guard = require_feature("step_intelligence")
     if guard:
         return guard
@@ -403,7 +387,7 @@ def add_step_resource(
 
     # Flip step to step-level resources
     step.use_job_resources = False
-    step.updated_at = datetime.now(timezone.utc)
+    step.updated_at = datetime.utcnow()
 
     db.commit()
     db.refresh(res)
@@ -433,7 +417,7 @@ def remove_step_resource(
     if remaining <= 1:  # the one we just deleted hasn't committed yet
         step.use_job_resources = True
 
-    step.updated_at = datetime.now(timezone.utc)
+    step.updated_at = datetime.utcnow()
     db.commit()
     return {"deleted": True, "resource_id": resource_id}
 
@@ -451,7 +435,7 @@ def reset_to_job_resources(
     # Delete all step-level resources
     db.query(StepResource).filter(StepResource.step_id == step.id).delete()
     step.use_job_resources = True
-    step.updated_at = datetime.now(timezone.utc)
+    step.updated_at = datetime.utcnow()
 
     db.commit()
     db.refresh(step)

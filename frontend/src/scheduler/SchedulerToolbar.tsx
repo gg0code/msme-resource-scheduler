@@ -1,6 +1,10 @@
-// frontend/src/scheduler/SchedulerToolbar.tsx
-// Auto-Schedule button in header bar. Feature flagged (flags.scheduler).
-// Shows status: active/warn/clean/locked. Displays run summary panel.
+// src/scheduler/SchedulerToolbar.tsx - Prompt 2 Part D
+//
+// States:
+//   active        → blue pulsing "Auto-Schedule" button + dirty banner
+//   warn          → amber "Review Conflicts (n)" button + conflict slide-panel
+//   greyed-clean  → disabled grey button, tooltip "Schedule is up to date."
+//   greyed-locked → disabled grey button, tooltip "All jobs are locked…"
 
 import { useState } from 'react'
 import {

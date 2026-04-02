@@ -1,5 +1,6 @@
-// frontend/src/components/ZeroZetaLogo.tsx
-// Brand logo component.
+// src/components/ZeroZetaLogo.tsx - v4.0.3
+// Inline SVG recreation of the ZeroZeta logo.
+// Used in sidebar, login, and register pages.
 
 interface ZeroZetaLogoProps {
   size?: 'sm' | 'md' | 'lg'

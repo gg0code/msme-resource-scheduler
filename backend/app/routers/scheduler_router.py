@@ -1,23 +1,6 @@
-"""
-backend/app/routers/scheduler_router.py — v3.9.5
-
-POST /api/scheduler/run
-  - Loads all jobs/steps/resources for tenant from Job, JobStep, Machine, Employee
-  - Builds locked_entries from existing schedule_entries for locked jobs
-  - Calls run_scheduler()
-  - Persists ScheduleEntry results (skips locked jobs)
-  - Returns SchedulerResult JSON
-
-GET /api/scheduler/entries
-  - Returns all schedule_entries for current tenant
-
-v3.9.5: loaders rewritten to read from Job/JobStep/Machine/Employee tables.
-        SchedJob / SchedStep / SchedResource are no longer used here.
-"""
-
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
@@ -31,7 +14,7 @@ from app.models.job import Job
 from app.models.job_steps import JobStep, StepResource
 from app.models.machine import Machine
 from app.models.employee import Employee
-from app.core.dependencies import get_current_user
+from app.routers.auth import get_current_user
 from app.scheduler.engine import (
     ConflictEntry, JobInput, LockedEntry,
     ResourceSlot, ScheduleEntry, SchedulerResult,
@@ -41,12 +24,12 @@ from app.utils.feature_guard import require_feature
 
 router = APIRouter()
 
-# ─── Shift defaults (Job model has no shift field) ───────────────────────────
+# --- Shift defaults (Job model has no shift field) ---------------------------
 
 _DEFAULT_SHIFT_START = time(8, 0)
 _DEFAULT_SHIFT_END   = time(17, 0)
 
-# ─── Priority normalisation ───────────────────────────────────────────────────
+# --- Priority normalisation ---------------------------------------------------
 # Job.priority uses Title case: Critical / High / Medium / Low
 # Engine expects lowercase:     critical / urgent / low
 
@@ -60,7 +43,7 @@ def _norm_priority(p: str) -> str:
     return mapping.get((p or "").lower(), "low")
 
 
-# ─── DB Model for persisted schedule entries ─────────────────────────────────
+# --- DB Model for persisted schedule entries ---------------------------------
 
 class ScheduleEntryModel(Base):
     __tablename__ = "schedule_entries"
@@ -73,10 +56,10 @@ class ScheduleEntryModel(Base):
     assigned_helper_ids  = Column(PG_ARRAY(Integer), nullable=False, default=[])
     scheduled_start      = Column(DateTime, nullable=False)
     scheduled_end        = Column(DateTime, nullable=False)
-    created_at           = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at           = Column(DateTime, default=datetime.utcnow)
 
 
-# ─── Pydantic response models ─────────────────────────────────────────────────
+# --- Pydantic response models -------------------------------------------------
 
 class ScheduleEntryOut(BaseModel):
     id:                   int
@@ -108,13 +91,13 @@ class RunSchedulerRequest(BaseModel):
     schedule_date: Optional[date] = None   # defaults to today
 
 
-# ─── Auth helper ─────────────────────────────────────────────────────────────
+# --- Auth helper -------------------------------------------------------------
 
 def _tenant(current_user=Depends(get_current_user)) -> int:
-    return current_user.tenant_id  # noqa: used as FastAPI Depends
+    return current_user.tenant_id
 
 
-# ─── Loaders ─────────────────────────────────────────────────────────────────
+# --- Loaders -----------------------------------------------------------------
 
 def _load_resources(db: Session, tenant_id: int) -> List[ResourceSlot]:
     """
@@ -168,7 +151,7 @@ def _load_jobs(db: Session, tenant_id: int) -> List[JobInput]:
             name=j.name,
             priority=_norm_priority(j.priority),
             expected_profit=j.tentative_profit,
-            # Engine needs a datetime deadline — use end_date at shift close
+            # Engine needs a datetime deadline - use end_date at shift close
             deadline=datetime(
                 j.end_date.year, j.end_date.month, j.end_date.day,
                 _DEFAULT_SHIFT_END.hour, _DEFAULT_SHIFT_END.minute,
@@ -301,7 +284,7 @@ def _load_locked_entries(db: Session, tenant_id: int) -> List[LockedEntry]:
     return locked
 
 
-# ─── Endpoints ───────────────────────────────────────────────────────────────
+# --- Endpoints ---------------------------------------------------------------
 
 @router.post("/scheduler/run")
 def run_scheduler_endpoint(
@@ -382,7 +365,7 @@ def run_scheduler_endpoint(
                 assigned_helper_ids=entry.assigned_helper_ids,
                 scheduled_start=entry.scheduled_start,
                 scheduled_end=entry.scheduled_end,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.utcnow(),
             ))
 
     return SchedulerResultOut(

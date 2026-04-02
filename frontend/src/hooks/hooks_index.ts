@@ -1,7 +1,4 @@
-// frontend/src/hooks/hooks_index.ts
-// Shared TanStack Query hooks: useEmployees, useMachines, useSkills,
-// useJobs, useDashboard, useDelete*, useAssignments.
-// NOTE: imports use api_employees etc (underscore prefix).
+// Shared React Query hooks - use these in pages instead of inline queryFn calls
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { employeesApi } from '../api/employees'

@@ -1,6 +1,11 @@
-// frontend/src/context/IndustryContext.tsx - v4.0.7
-// Loads industry config, applies theme-{industry} class to body.
-// Provides useIndustry() and useLabels() hooks.
+// src/context/IndustryContext.tsx - v4.0.7
+//
+// Loads the industry config and applies a theme class to <body>
+// so CSS variables in index.css take effect for full theme switching.
+//
+// Usage:
+//   const labels = useLabels()
+//   const { config } = useIndustry()
 
 import { createContext, useContext, useMemo, useEffect } from 'react'
 import type { ReactNode } from 'react'

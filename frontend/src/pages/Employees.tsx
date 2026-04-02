@@ -1,6 +1,4 @@
-// frontend/src/pages/Employees.tsx
-// Employee management: list, create, edit, delete, skills, leaves, CSV import.
-// Plan limit enforcement via usePlanLimits().
+// src/pages/Employees.tsx - table with expandable assignment rows
 
 import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'

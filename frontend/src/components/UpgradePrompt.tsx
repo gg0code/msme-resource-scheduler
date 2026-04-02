@@ -1,5 +1,11 @@
-// frontend/src/components/UpgradePrompt.tsx - v3.7
-// Feature gate modal with WhatsApp CTA for enabling gated features.
+// src/components/UpgradePrompt.tsx - V3.7
+//
+// Shown when a user tries to access a gated feature.
+// Warm, friendly tone. No error colour. No technical language.
+// WhatsApp CTA - converts better than "upgrade plan" for Indian MSME users.
+//
+// Usage:
+//   <UpgradePrompt feature="scheduler" onClose={() => setOpen(false)} />
 
 import { X, Lock } from 'lucide-react'
 

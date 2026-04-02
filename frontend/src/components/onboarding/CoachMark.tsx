@@ -1,6 +1,6 @@
-// frontend/src/components/onboarding/CoachMark.tsx
-// Guided coach mark popover. Only first unseen stop per page is active.
-// Calls markSeen() on dismiss via OnboardingContext.
+// src/components/onboarding/CoachMark.tsx
+// First-visit guided coach mark. Auto-shows on mount if the stop hasn't been seen.
+// Supports sequential page tours - only the first unseen stop on the page is active.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useOnboarding } from './OnboardingContext'

@@ -1,6 +1,14 @@
-// frontend/src/api/client.ts
-// Axios instance with JWT auth, token refresh, and tenant headers.
-// All API calls go through this instance.
+// src/api/client.ts - v4.0.9
+// -----------------------------------------------------------------------------
+// Axios instance used by all pages and api_*.ts files.
+// tokenStore is the single source of truth for the in-memory JWT.
+// AuthContext calls tokenStore.set() after login/refresh.
+//
+// Rules:
+//   - Token stored in memory only - never localStorage or cookies
+//   - On 401: silent refresh attempted once, then redirect to /login
+//   - All api_*.ts files import apiClient from this file only
+// -----------------------------------------------------------------------------
 
 import axios from 'axios'
 

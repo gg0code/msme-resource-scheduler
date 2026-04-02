@@ -1,6 +1,5 @@
-// frontend/src/config/industries/printing.ts - v4.0.2
-// PrintFlow Scheduler config. Default/fallback industry.
-// job=Job, employee=Operator, machine=Machine
+// src/config/industries/printing.ts - v4.0.2
+// PrintFlow Scheduler - Printing & Packaging industry configuration
 
 import type { IndustryConfig } from './types'
 

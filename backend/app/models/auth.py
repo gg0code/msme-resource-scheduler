@@ -1,8 +1,6 @@
-"""app/models/auth.py — V1.3
-Added: industry_type to Tenant (v4.0.1)
-"""
-from datetime import datetime, timezone
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, text, Date
+"""app/models/auth.py — Tenant, User, RefreshToken"""
+from datetime import datetime
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, text
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -15,21 +13,7 @@ class Tenant(Base):
     plan       = Column(String(20), nullable=False, default="free")
     is_active  = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
-
-    # AI usage tracking (migration 007)
-    ai_queries_today = Column(Integer, default=0, nullable=False, server_default='0')
-    ai_queries_date  = Column(Date, nullable=True)
-    ai_queries_limit = Column(Integer, default=50, nullable=False, server_default='50')
-    ai_tokens_today  = Column(Integer, default=0, nullable=False, server_default='0')
-
-    # Job ID prefix (migration 008)
-    job_id_prefix = Column(String(10), nullable=True)
-
-    # v4.0.1 — industry profile selected during registration
-    # Values: printing | manufacturing | fabrication | chemical | field_service
-    industry_type = Column(String(50), nullable=True, server_default='printing')
-
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=datetime.utcnow, nullable=False)
     users          = relationship("User", back_populates="tenant", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="tenant", cascade="all, delete-orphan")
 
@@ -43,7 +27,7 @@ class User(Base):
     role            = Column(String(20), nullable=False, default="viewer")
     is_active       = Column(Boolean, nullable=False, default=True)
     created_at      = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
-    updated_at      = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at      = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=datetime.utcnow, nullable=False)
     tenant         = relationship("Tenant", back_populates="users")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
 

@@ -1,6 +1,7 @@
-// frontend/src/components/AICopilot.tsx - v3.2
-// Sliding AI chat panel. Chat tab + Tools tab (50 prompts).
-// Feature flagged (flags.ai_copilot). Intent detection in v3.9.9.
+// src/components/AICopilot.tsx - V3.2
+// - Chat tab: page-aware suggestions + free text
+// - Tools tab: 50 pre-built prompts by category
+// - Usage bar: daily query counter, 90% warning, 100% block
 
 import { useState, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
