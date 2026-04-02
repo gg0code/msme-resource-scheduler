@@ -1,59 +1,34 @@
 """
-```python
-"""
-FILE PURPOSE
-This Alembic database migration file (revision 017) creates two tables essential for the WhatsApp Copilot feature introduced in v5.0 on the v5-whatsapp branch. It establishes the phone_tenant_map table that links WhatsApp phone numbers to ZetaOps tenants/users, and the whatsapp_conversations table that logs all messages for Factory GPT training data collection. This migration sits in the database layer and is executed by Alembic to modify the PostgreSQL schema, enabling the WhatsApp integration that allows factory owners to communicate with their ZetaOps system via WhatsApp messages in Hindi/Hinglish.
+MIGRATION: 017_phone_tenant_map
+PATH:      backend/app/db/migrations/017_phone_tenant_map.py
+PURPOSE:   Creates two tables needed by the WhatsApp Copilot feature:
 
-WHAT THIS FILE DOES — step by step
-1. Sets up Alembic revision metadata (revision="017", down_revision="016") to track migration sequencing
-2. Defines upgrade() function that creates the phone_tenant_map table with columns for phone number, tenant mapping, consent tracking, and alert preferences
-3. Creates database indexes on phone_tenant_map for fast lookups by phone_number and tenant_id
-4. Defines whatsapp_conversations table with columns for message content, role (user/assistant), language detection, and session grouping
-5. Creates database indexes on whatsapp_conversations for efficient querying by tenant, phone number, and timestamp
-6. Defines downgrade() function that drops both tables in reverse dependency order for migration rollbacks
-7. Uses PostgreSQL-specific JSONB data type for storing alert preferences as structured JSON data
+           1. phone_tenant_map — links a WhatsApp phone number to a ZetaOps
+              tenant and user. This is how the system knows which factory
+              is messaging when a WhatsApp message arrives.
 
-KEY FUNCTIONS / CLASSES / COMPONENTS
+           2. whatsapp_conversations — logs every message sent and received.
+              This is the Factory GPT training dataset. Every conversation
+              from the 90-day pilot becomes fine-tuning data for a
+              domain-specific Hindi/Hinglish factory AI model.
 
-Name         : upgrade
-Type         : function
-Purpose      : Creates both WhatsApp-related database tables and their indexes when migrating forward. This is the core function that Alembic calls when running "alembic upgrade head" to apply this migration to the database schema.
-Parameters   : None (Alembic migration signature)
-Returns      : None (modifies database schema directly)
-Calls        : op.create_table(), op.create_index() from Alembic operations
-DB/API       : Executes CREATE TABLE and CREATE INDEX SQL statements on PostgreSQL
-Side effects : Creates phone_tenant_map and whatsapp_conversations tables with all columns, constraints, and indexes
+BRANCH:    v5-whatsapp
+VERSION:   v5.0
+CREATED:   2026-03
 
-Name         : downgrade
-Type         : function  
-Purpose      : Removes both WhatsApp tables and their indexes when rolling back this migration. Handles the reverse operation safely by dropping tables in dependency order to avoid foreign key constraint violations.
-Parameters   : None (Alembic migration signature)
-Returns      : None (modifies database schema directly)
-Calls        : op.drop_index(), op.drop_table() from Alembic operations
-DB/API       : Executes DROP INDEX and DROP TABLE SQL statements on PostgreSQL
-Side effects : Completely removes phone_tenant_map and whatsapp_conversations tables and data
+TABLES CREATED:
+  phone_tenant_map        — phone number to tenant/user mapping + consent tracking
+  whatsapp_conversations  — full conversation log for Factory GPT training dataset
 
-WHO CALLS THIS FILE
-- Alembic migration system when running `alembic upgrade head` or `alembic upgrade 017`
-- Alembic rollback system when running `alembic downgrade 016` 
-- Docker container initialization scripts in deployment pipelines
-- Database setup scripts in backend/scripts/ for fresh installations
-- CI/CD pipelines that run database migrations during deployments
+COLLISION WARNING:
+  Factory GPT branch plans migrations 017-022 for its own tables.
+  If merging v5-whatsapp into main alongside Factory GPT, renumber
+  this migration to 023 or higher. Tracked in V4_ALERTS.md.
 
-IMPORTS EXPLAINED
-- `from alembic import op`: Provides database operation functions like create_table, create_index, drop_table for schema modifications
-- `import sqlalchemy as sa`: Core SQLAlchemy types and functions for defining column types, constraints, and database schema elements
-- `from sqlalchemy.dialects.postgresql import JSONB`: PostgreSQL-specific JSONB data type for storing structured JSON with indexing and query capabilities
-
-INTERN NOTES
-- Easiest thing to break: Changing revision numbers manually - Alembic tracks these precisely and manual changes corrupt the migration chain requiring database rebuilds
-- Non-obvious design decision: phone_tenant_map caches industry_type from tenant table to avoid expensive joins on every WhatsApp message since message volume is high and response time critical
-- Most common mistake: Forgetting that consent_given=False means NO rows should exist in whatsapp_conversations - the consent check happens before writing, not during querying
-- Design principle implemented: Principle #2 (tenant scoping) - both tables include tenant_id columns and will be filtered by tenant in all queries to maintain multi-tenant security
-- Check if behaving unexpectedly: Verify migration chain integrity with `alembic current` and `alembic history`, and ensure PostgreSQL has JSONB support enabled for alert_preferences column
-- v5-whatsapp merge warning: Factory GPT branch also plans migrations 017-022, so this must be renumbered to 023+ when merging to avoid revision conflicts that break the migration chain
-"""
-```
+ROLLBACK:
+  Remove whatsapp_conversations table first (it has no dependants).
+  Then remove phone_tenant_map table.
+  Alembic downgrade handles this via the downgrade() function below.
 """
 
 from alembic import op

@@ -1,50 +1,31 @@
-/**
- * frontend/src/pages/Dashboard.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * The main dashboard — the first page users see after login. Shows KPI cards
- * (active jobs, order book value, estimated profit, available resources), a jobs
- * status summary, upcoming jobs, and a live job list with cost breakdowns and
- * conflict indicators. Data fetches every 30 seconds automatically. The most
- * data-dense page in the application.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Fetches dashboard data via useDashboard() hook (auto-refetches every 30s).
- * 2. Renders 4 KPI cards using industry labels (kpiJobs, kpiOrderBook, kpiProfit).
- * 3. Renders jobs-by-status summary (Draft, Scheduled, In Progress, Completed).
- * 4. Renders upcoming jobs this week as a horizontal scroll list.
- * 5. Renders the full job list: each job shows timer controls, cost breakdown,
- *    conflict badge, assigned resources, and action buttons.
- * 6. Timer controls call timerApi (start/pause/resume/stop) and invalidate cache.
- * 7. End Job button opens EndJobModal for final cost confirmation.
- * 8. Industry-aware labels throughout (kpiJobs, kpiOrderBook, kpiProfit).
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as /dashboard route (protected)
- *
- * INTERN NOTES
- * - Dashboard fetches everything in one call (GET /api/dashboard/) — not separate
- *   calls per section. This keeps the dashboard fast. The backend aggregates all data.
- * - Design Principle 1: conflict detection, cost calculations, and status icons are
- *   all pre-computed by the backend. Dashboard only renders them.
- * - The 30-second refetch (refetchInterval in useDashboard) keeps the shop floor
- *   status live during the workday. Do not increase this interval.
- * - useDashboard() uses queryKey ['dashboard'] — delete mutations in hooks_index.ts
- *   invalidate this key so dashboard stays current after deletions.
- */
+// frontend/src/pages/Dashboard.tsx
+// Main dashboard: KPI cards, job list, timer controls, conflict badges.
+// Refetches every 30 seconds via useDashboard().
+
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
+
 import {
   Pause,
+  Play,
+  Square,
+  RotateCcw,
   AlertCircle,
   Loader2,
   Clock,
   CalendarDays,
   Zap,
   BriefcaseBusiness,
+  Factory,
+  Users,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react'
+
 import apiClient from '../api/client'
 import { useLabels } from '../context/IndustryContext'
 import { CoachMark } from '../components/onboarding'
@@ -54,14 +35,14 @@ import type { DashboardData, DashboardJob } from '../api/api_dashboard'
 import GettingStarted from '../components/onboarding/GettingStarted'
 import EmptyState from '../components/EmptyState'
 
-// ─── Poll interval ─────────────────────────────────────────────────────────
+// --- Poll interval ---------------------------------------------------------
 // Change this value to adjust how often dashboard checks for conflict resolution.
 // Unit: milliseconds. Default: 30 seconds.
 const POLL_INTERVAL_MS = 30_000
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
+// --- Helpers ---------------------------------------------------------------
 function fmt(n: number | null | undefined): string {
-  if (n == null) return '—'
+  if (n == null) return '-'
   return `₹${Math.round(n).toLocaleString('en-IN')}`
 }
 
@@ -84,7 +65,7 @@ const priorityColour: Record<string, string> = {
   Low: 'bg-gray-100 text-gray-600',
 }
 
-// ─── Status Icon ───────────────────────────────────────────────────────────
+// --- Status Icon -----------------------------------------------------------
 function StatusIcon({ icon }: { icon: string }) {
   if (icon === 'in_progress') {
     return (
@@ -108,7 +89,7 @@ function StatusIcon({ icon }: { icon: string }) {
   )
 }
 
-// ─── Cost Grid ─────────────────────────────────────────────────────────────
+// --- Cost Grid -------------------------------------------------------------
 function CostGrid({ job }: { job: DashboardJob }) {
   return (
     <div className="grid grid-cols-2 gap-2 mt-2">
@@ -157,7 +138,7 @@ function CostGrid({ job }: { job: DashboardJob }) {
   )
 }
 
-// ─── Job Card ──────────────────────────────────────────────────────────────
+// --- Job Card --------------------------------------------------------------
 interface JobCardProps {
   job: DashboardJob
   onAction: (jobId: number, action: 'start' | 'pause' | 'resume' | 'stop' | 'end') => void
@@ -221,7 +202,7 @@ function JobCard({ job, onAction, actionLoading }: JobCardProps) {
               {job.start_date} → {job.end_date}
             </p>
 
-            {/* Conflict warning — split skill gaps from scheduling conflicts */}
+            {/* Conflict warning - split skill gaps from scheduling conflicts */}
             {job.has_conflict && (() => {
               const reason = job.conflict_reasons[0] ?? ''
               const isSkillGap = reason.toLowerCase().includes('skill') ||
@@ -230,12 +211,12 @@ function JobCard({ job, onAction, actionLoading }: JobCardProps) {
               return isSkillGap ? (
                 <div className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5">
                   <AlertCircle size={12} className="mt-0.5 flex-shrink-0 text-amber-500" />
-                  <span>{reason || 'Skill gap — assign qualified staff'}</span>
+                  <span>{reason || 'Skill gap - assign qualified staff'}</span>
                 </div>
               ) : (
                 <div className="mt-1.5 flex items-start gap-1.5 text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1.5">
                   <AlertCircle size={12} className="mt-0.5 flex-shrink-0" />
-                  <span>{reason || 'Scheduling conflict — check resource assignments'}</span>
+                  <span>{reason || 'Scheduling conflict - check resource assignments'}</span>
                 </div>
               )
             })()}
@@ -382,7 +363,7 @@ function JobCard({ job, onAction, actionLoading }: JobCardProps) {
   )
 }
 
-// ─── Collapsible Section ───────────────────────────────────────────────────
+// --- Collapsible Section ---------------------------------------------------
 interface SectionProps {
   title: string
   count: number
@@ -515,7 +496,7 @@ export default function Dashboard() {
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-xl font-bold text-gray-800">Dashboard</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Live {labels.jobs.toLowerCase()} board — auto-refreshes every 30s</p>
+          <p className="text-sm text-gray-500 mt-0.5">Live {labels.jobs.toLowerCase()} board - auto-refreshes every 30s</p>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl px-5 py-3 flex items-center gap-5 text-sm shadow-sm">
           <div className="flex items-center gap-2 text-gray-700">
@@ -549,7 +530,7 @@ export default function Dashboard() {
       </CoachMark>
 
 
-        {/* Getting Started checklist — V3.8 */}
+        {/* Getting Started checklist - V3.8 */}
       <GettingStarted
         employeeCount={empCount}
         machineCount={machCount}
@@ -580,13 +561,13 @@ export default function Dashboard() {
           })
           const realConflictJobs = conflicted.filter(j => !skillGapJobs.includes(j))
 
-          // 🟡 Skill gaps — amber (action: assign qualified staff)
+          // 🟡 Skill gaps - amber (action: assign qualified staff)
           if (skillGapJobs.length) allAlerts.push({
             type: 'warning', emoji: '🟡',
-            msg: `${skillGapJobs.length} job${skillGapJobs.length > 1 ? 's have' : ' has'} skill gaps — assign qualified staff: ${skillGapJobs.slice(0,2).map(j => j.name).join(', ')}${skillGapJobs.length > 2 ? ` +${skillGapJobs.length - 2} more` : ''}`
+            msg: `${skillGapJobs.length} job${skillGapJobs.length > 1 ? 's have' : ' has'} skill gaps - assign qualified staff: ${skillGapJobs.slice(0,2).map(j => j.name).join(', ')}${skillGapJobs.length > 2 ? ` +${skillGapJobs.length - 2} more` : ''}`
           })
 
-          // 🔴 Real scheduling conflicts — red (action: change dates or reassign resource)
+          // 🔴 Real scheduling conflicts - red (action: change dates or reassign resource)
           if (realConflictJobs.length) allAlerts.push({
             type: 'error', emoji: '🔴',
             msg: `${realConflictJobs.length} job${realConflictJobs.length > 1 ? 's have' : ' has'} scheduling conflicts: ${realConflictJobs.slice(0,2).map(j => j.name).join(', ')}${realConflictJobs.length > 2 ? ` +${realConflictJobs.length - 2} more` : ''}`
@@ -628,13 +609,13 @@ export default function Dashboard() {
           const running = jobs.filter(j => j.timer_status === 'running')
           if (running.length === 0 && jobs.length > 0) allAlerts.push({
             type: 'warning', emoji: '😴',
-            msg: `No ${labels.jobs.toLowerCase()} currently running — floor is idle`
+            msg: `No ${labels.jobs.toLowerCase()} currently running - floor is idle`
           })
 
           // ✅ All clear
           if (allAlerts.length === 0) allAlerts.push({
             type: 'success', emoji: '✅',
-            msg: 'All clear — no alerts today!'
+            msg: 'All clear - no alerts today!'
           })
 
           const bgMap: Record<AlertType, string> = {
@@ -703,7 +684,7 @@ export default function Dashboard() {
         </CollapsibleSection>
       )}
 
-      {/* Jobs needing attention — split skill gaps from scheduling conflicts */}
+      {/* Jobs needing attention - split skill gaps from scheduling conflicts */}
       {conflictJobs.length > 0 && (() => {
         const skillGapSection = conflictJobs.filter(j => {
           const r = (j.conflict_reasons?.[0] ?? '').toLowerCase()
@@ -714,7 +695,7 @@ export default function Dashboard() {
           <>
             {skillGapSection.length > 0 && (
               <CollapsibleSection
-                title={`Needs Attention — Skill Gaps`}
+                title={`Needs Attention - Skill Gaps`}
                 count={skillGapSection.length}
                 colorClass="text-amber-600"
                 defaultOpen={true}
@@ -727,7 +708,7 @@ export default function Dashboard() {
             )}
             {realConflictSection.length > 0 && (
               <CollapsibleSection
-                title="Needs Attention — Scheduling Conflicts"
+                title="Needs Attention - Scheduling Conflicts"
                 count={realConflictSection.length}
                 colorClass="text-red-600"
                 defaultOpen={true}

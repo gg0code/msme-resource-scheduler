@@ -1,74 +1,5 @@
-/**
- * frontend/src/components/common/UnavailabilityPanel.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * A reusable panel for managing unavailability periods (leave for employees,
- * downtime for machines). Shown inside expanded rows on the Employees and Machines
- * pages. Lets users view existing periods, add new ones with a date + reason form,
- * and delete existing ones with a confirmation step. Uses TanStack Query for
- * fetching and mutation — no prop-drilling of data needed. The accent colour adapts
- * to blue (employee) or green (machine) based on the accentColor prop.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Derives the correct API path from resourceType and resourceId:
- *    /api/unavailability/employees/{id}/leaves or /machines/{id}/downtimes.
- * 2. Fetches existing periods with useQuery, renders them as date range rows.
- * 3. Shows an Add Period button that expands an inline form.
- * 4. Form: start date, end date, reason dropdown (employee or machine reasons),
- *    optional custom reason text input when "Other" is selected.
- * 5. Validates dates client-side (both required, end >= start).
- * 6. Submits via useMutation POST to the API path, invalidates query on success.
- * 7. Delete: clicking trash icon sets deletingId — shows inline Yes/No confirmation.
- *    Confirming fires DELETE mutation, clears deletingId on success.
- * 8. Formats dates as "14 Mar 2026" and computes day count between dates.
- *
- * KEY FUNCTIONS / CLASSES / COMPONENTS
- *
- * Name         : UnavailabilityPanel (default export)
- * Type         : React component
- * Purpose      : Manages leave/downtime periods for one employee or machine.
- *                Fetches, creates, and deletes periods. Adapts colour scheme
- *                based on accentColor prop.
- * Parameters   : resourceType: 'employee' | 'machine'
- *                resourceId: number — the employee or machine primary key
- *                accentColor?: 'blue' | 'green' — defaults to 'blue'
- * Returns      : JSX.Element — panel with list, add form, and delete confirmation
- * Calls        : apiClient.get (list), apiClient.post (add), apiClient.delete (remove)
- * DB/API       : GET /api/unavailability/{type}/{id}/leaves|downtimes
- *                POST /api/unavailability/{type}/{id}/leaves|downtimes
- *                DELETE /api/unavailability/{type}/{id}/leaves|downtimes/{periodId}
- * Side effects : invalidates TanStack Query cache on add/delete
- *
- * WHO CALLS THIS FILE
- * - frontend/src/pages/Employees.tsx — rendered in expanded employee row
- * - frontend/src/pages/Machines.tsx — rendered in expanded machine row
- *
- * IMPORTS EXPLAINED
- * - useState from 'react': form field state, showForm, deletingId, formError.
- * - useQuery, useMutation, useQueryClient from '@tanstack/react-query': data fetching,
- *   add/delete mutations, cache invalidation after changes.
- * - apiClient from '../../api/client': authenticated Axios instance.
- * - Plus, Trash2, Loader2, CalendarOff, X, Check, AlertCircle from 'lucide-react':
- *   icons for add button, delete, loading, calendar header, cancel, save, error.
- *
- * INTERN NOTES
- * - The query key uses the resourceId: ['emp-leaves', resourceId] or
- *   ['mach-downtimes', resourceId]. If two panels for the same resource are open
- *   simultaneously, they share the same cache entry — fine for read, but mutations
- *   invalidate correctly via the same key.
- * - The delete confirmation is inline (Yes/No buttons appear in place of the trash icon)
- *   rather than a modal. This is intentional — avoids a z-index fight with the
- *   expanded row and keeps the interaction fast.
- * - accentColor drives the entire colour scheme via the accent object. To add a third
- *   colour, add it to the accent mapping and the Props type.
- * - Design Principle 2: resourceId in the URL is already tenant-scoped by the backend
- *   (it verifies the resource belongs to the current tenant). Never pass tenant_id here.
- * - If periods are not loading: check that the backend /api/unavailability/ router is
- *   registered in main.py and that the JWT is valid.
- * - If add mutation fails with 422: the most common cause is end_date < start_date.
- *   The client validates this but the backend also enforces it.
- */
+// frontend/src/components/common/UnavailabilityPanel.tsx
+// Leave/downtime period management panel shown in expanded employee/machine rows.
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -85,7 +16,7 @@ interface Period {
 interface Props {
   resourceType: 'employee' | 'machine'
   resourceId: number
-  accentColor?: 'blue' | 'green'
+  accentColor?: 'blue' | 'green'   // blue for employee, green for machine
 }
 
 const EMPLOYEE_REASONS = [
@@ -166,6 +97,7 @@ export default function UnavailabilityPanel({ resourceType, resourceId, accentCo
 
   return (
     <div className={`${accent.bg} border-t ${accent.border} px-6 py-4`}>
+      {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <CalendarOff size={13} className={accent.icon}/>
@@ -187,6 +119,7 @@ export default function UnavailabilityPanel({ resourceType, resourceId, accentCo
         )}
       </div>
 
+      {/* Add form */}
       {showForm && (
         <div className="bg-white border border-gray-200 rounded-lg p-4 mb-3 space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -239,6 +172,7 @@ export default function UnavailabilityPanel({ resourceType, resourceId, accentCo
         </div>
       )}
 
+      {/* Periods list */}
       {isLoading ? (
         <div className="flex items-center gap-2 text-gray-400 text-xs py-2">
           <Loader2 size={12} className="animate-spin"/>Loading...
@@ -255,7 +189,7 @@ export default function UnavailabilityPanel({ resourceType, resourceId, accentCo
               <div className="flex items-center gap-3">
                 <div>
                   <span className="text-xs font-medium text-gray-800">
-                    {formatDate(p.start_date)} — {formatDate(p.end_date)}
+                    {formatDate(p.start_date)} - {formatDate(p.end_date)}
                   </span>
                   <span className="ml-2 text-xs text-gray-400">
                     ({dayCount(p.start_date, p.end_date)} day{dayCount(p.start_date, p.end_date) !== 1 ? 's' : ''})

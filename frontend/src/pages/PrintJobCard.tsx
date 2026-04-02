@@ -1,36 +1,7 @@
-/**
- * frontend/src/pages/PrintJobCard.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * Print-optimised job card page. Generates a printable document with QR codes for
- * each step of a job. Workers scan these QR codes on the shop floor to start and
- * complete steps via ScanPage. Accessed via /jobs/:jobId/print — requires auth
- * (protected route) but has no sidebar layout (special layout-less route in App.tsx).
- * Feature-flagged on the token generation side (qr_scan flag) but the page itself
- * always renders if the route is accessed directly.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Reads jobId from URL params.
- * 2. Calls POST /api/jobs/{jobId}/scan-tokens to generate signed JWT tokens for all steps.
- * 3. Renders a print-optimised layout: job header, customer, dates, priority.
- * 4. For each step: renders step name, type, duration, and two QR codes
- *    (Start QR and Complete QR) encoding the signed token URLs.
- * 5. Auto-triggers window.print() on load.
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as /jobs/:jobId/print (auth required, no layout)
- * - frontend/src/pages/Jobs.tsx — Print button opens this route in a new tab
- *
- * INTERN NOTES
- * - This page uses print CSS media queries — layout is optimised for A4 paper.
- *   Do not add interactive UI elements that would appear in the printed output.
- * - Token generation is gated by the qr_scan feature flag on the backend.
- *   If the flag is off, /api/jobs/{jobId}/scan-tokens returns a warm 200 dict
- *   (not an error) — the page handles this gracefully.
- * - Design Principle 10: the tokens generated here link to /scan which is always
- *   accessible without auth.
- */
+// frontend/src/pages/PrintJobCard.tsx
+// Print-optimised job card with QR codes per step.
+// No layout, no auth required to scan. Auto-triggers window.print().
+
 import { useEffect, useState, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
@@ -38,7 +9,7 @@ import apiClient from '../api/client'
 
 const SCAN_BASE = import.meta.env.VITE_SCAN_BASE_URL || window.location.origin
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// -- Types ---------------------------------------------------------------------
 
 interface JobDetail {
   id: number
@@ -74,7 +45,7 @@ interface JobTokens {
   steps: StepToken[]
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// -- Helpers -------------------------------------------------------------------
 
 const STEP_TYPE_ICON: Record<string, string> = {
   setup: '⚙️', production: '🔨', inspection: '🔍',
@@ -86,7 +57,7 @@ const PRIORITY_COLOR: Record<string, string> = {
 }
 
 function fmtDate(iso?: string) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
@@ -96,7 +67,7 @@ function fmtDuration(mins: number) {
   return m ? `${h}h ${m}min` : `${h}h`
 }
 
-// ── InfoRow helper ────────────────────────────────────────────────────────────
+// -- InfoRow helper ------------------------------------------------------------
 
 function InfoRow({ label, value, valueStyle, span }: {
   label: string; value: string;
@@ -117,15 +88,15 @@ function InfoRow({ label, value, valueStyle, span }: {
   )
 }
 
-// ── Completed card (no QR) ────────────────────────────────────────────────────
+// -- Completed card (no QR) ----------------------------------------------------
 
 function CompletedCard({ job, printedAt }: { job: JobDetail; printedAt: Date }) {
-  const employees = job.assigned_employees?.map(e => e.name).join(', ') || '—'
-  const machines  = job.assigned_machines?.map(m => m.name).join(', ') || '—'
+  const employees = job.assigned_employees?.map(e => e.name).join(', ') || '-'
+  const machines  = job.assigned_machines?.map(m => m.name).join(', ') || '-'
 
   return (
     <div style={s.page}>
-      {/* Header — dark green for completed */}
+      {/* Header - dark green for completed */}
       <div style={{ ...s.jobHeader, background: '#064e3b' }}>
         <div style={s.jobHeaderLeft}>
           <div style={s.jobId}>JOB CARD #{job.id} · COMPLETED</div>
@@ -155,8 +126,8 @@ function CompletedCard({ job, printedAt }: { job: JobDetail; printedAt: Date }) 
           valueStyle={{ color: '#065f46', fontWeight: 700 }} />
         <InfoRow label="Start Date"    value={fmtDate(job.start_date)} />
         <InfoRow label="End Date"      value={fmtDate(job.end_date)} />
-        <InfoRow label="Actual Hours"  value={job.actual_hours != null ? `${job.actual_hours}h` : '—'} />
-        <InfoRow label="Est. hrs/day"  value={job.estimated_hours_per_day != null ? `${job.estimated_hours_per_day}h/day` : '—'} />
+        <InfoRow label="Actual Hours"  value={job.actual_hours != null ? `${job.actual_hours}h` : '-'} />
+        <InfoRow label="Est. hrs/day"  value={job.estimated_hours_per_day != null ? `${job.estimated_hours_per_day}h/day` : '-'} />
         <InfoRow label="Employees" value={employees} span />
         <InfoRow label="Machines"  value={machines}  span />
         {job.notes && <InfoRow label="Notes" value={job.notes} span />}
@@ -185,7 +156,7 @@ function CompletedCard({ job, printedAt }: { job: JobDetail; printedAt: Date }) 
   )
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// -- Main component ------------------------------------------------------------
 
 export default function PrintJobCard() {
   const { jobId } = useParams<{ jobId: string }>()
@@ -245,11 +216,11 @@ export default function PrintJobCard() {
 
   return (
     <>
-      {/* ── Screen-only toolbar ── */}
+      {/* -- Screen-only toolbar -- */}
       <div style={s.toolbar} className="no-print">
         <button style={s.btnSecondary} onClick={() => navigate(-1)}>← Back</button>
         <span style={s.toolbarTitle}>
-          Job Card — {job.name}
+          Job Card - {job.name}
           {isCompleted && (
             <span style={{ marginLeft: '0.75rem', fontSize: '0.72rem',
               background: '#d1fae5', color: '#065f46',
@@ -266,10 +237,10 @@ export default function PrintJobCard() {
         </div>
       </div>
 
-      {/* ── Completed / Cancelled card (no QR) ── */}
+      {/* -- Completed / Cancelled card (no QR) -- */}
       {isCompleted && <CompletedCard job={job} printedAt={printedAt} />}
 
-      {/* ── Active job card with QR codes ── */}
+      {/* -- Active job card with QR codes -- */}
       {!isCompleted && data && (
         <div style={s.page}>
           {/* Job header */}
@@ -300,7 +271,7 @@ export default function PrintJobCard() {
             {data.steps.length === 0 && (
               <div style={{ textAlign: 'center', padding: '2rem', color: '#64748b',
                 background: '#f8fafc', borderRadius: '0.75rem', border: '1px dashed #e2e8f0' }}>
-                <p style={{ margin: 0, fontWeight: 600 }}>No steps defined — use job-level timer on the Jobs page</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>No steps defined - use job-level timer on the Jobs page</p>
               </div>
             )}
 
@@ -375,7 +346,7 @@ export default function PrintJobCard() {
   )
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
+// -- Styles --------------------------------------------------------------------
 const s: Record<string, CSSProperties> = {
   loadPage:      { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' },
   loadCard:      { background: '#fff', borderRadius: '1rem', padding: '2rem', textAlign: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' },

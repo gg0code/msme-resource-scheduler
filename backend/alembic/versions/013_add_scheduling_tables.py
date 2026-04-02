@@ -1,58 +1,14 @@
-"""
-```python
-"""
-FILE PURPOSE
-This is an Alembic database migration file that creates the foundational database tables for the step-based scheduling engine in ZetaOps Copilot. It was introduced in v4.0 to replace the legacy SchedJob-based system with a more granular Job/JobStep architecture. This migration sits in the backend database layer and defines the core data structures that the scheduler engine (backend/app/scheduler/engine.py) operates on. It creates five interconnected tables that model manufacturing jobs as sequences of steps, each requiring specific machines and helpers.
+"""010_add_scheduling_tables.py
 
-WHAT THIS FILE DOES — step by step
-1. Defines revision metadata linking this migration to "012" in the single-chain migration sequence
-2. Creates six PostgreSQL ENUM types for standardized values (resource types, priorities, shifts, statuses)
-3. Creates the sched_resources table to store machines and helpers with their working shifts
-4. Creates the sched_jobs table to store high-level job information with priorities and deadlines
-5. Creates the sched_steps table to store individual manufacturing steps within jobs
-6. Creates the sched_step_machines junction table to link steps with required machines
-7. Creates the sched_step_helpers junction table to link steps with required human helpers
-8. Adds appropriate indexes on tenant_id and foreign key columns for query performance
-9. Defines the downgrade() function to completely reverse all table and enum creations
+Alembic migration — adds step-based scheduling engine tables.
+Extends existing migration sequence (migrations 001–009 are existing).
 
-KEY FUNCTIONS / CLASSES / COMPONENTS
-Name         : upgrade
-Type         : function
-Purpose      : Executes the forward migration by creating all scheduling-related database tables and enums. This function runs when the database is upgraded to migration 013 and establishes the core data structure for the step-based scheduling system.
-Parameters   : None
-Returns      : None (void function that performs database DDL operations)
-Calls        : op.create_table(), op.create_index(), postgresql.ENUM.create() from Alembic
-DB/API       : Creates 5 tables (sched_resources, sched_jobs, sched_steps, sched_step_machines, sched_step_helpers) and 6 ENUM types in PostgreSQL
-Side effects : Permanently modifies the database schema by adding tables that the scheduling engine depends on
-
-Name         : downgrade
-Type         : function
-Purpose      : Executes the reverse migration by dropping all tables and enums created in upgrade(). This function runs when rolling back from migration 013 and completely removes the step-based scheduling infrastructure from the database.
-Parameters   : None
-Returns      : None (void function that performs database DDL operations)
-Calls        : op.drop_table(), op.execute() from Alembic
-DB/API       : Drops 5 tables and 6 ENUM types from PostgreSQL in reverse dependency order
-Side effects : Permanently removes all scheduling-related tables and data from the database
-
-WHO CALLS THIS FILE
-- backend/alembic/env.py (Alembic environment configuration that runs migrations)
-- Alembic CLI commands: `alembic upgrade head`, `alembic upgrade 013`, `alembic downgrade 012`
-- Deployment scripts that run database migrations in production and staging environments
-
-IMPORTS EXPLAINED
-- alembic: Core Alembic library providing the `op` object for database operations during migrations
-- sqlalchemy as sa: SQLAlchemy core library providing Column, Integer, String, DateTime and other database type definitions
-- sqlalchemy.dialects.postgresql: PostgreSQL-specific SQLAlchemy extensions, specifically the ENUM type for creating custom enum types in PostgreSQL
-
-INTERN NOTES
-- Easiest thing to break: Changing enum values or table names after this migration runs - existing data will be incompatible and the migration chain will break
-- Non-obvious design decision: sched_steps has both reserve_machine_id (optional pre-assignment) and sched_step_machines (required machines list) to support both automated scheduling and manual machine reservations
-- Most common mistake: Forgetting that downgrade() must drop tables in reverse dependency order (junction tables first, then main tables, then enums) or PostgreSQL will throw foreign key constraint errors
-- Design principle #6: This migration creates the new Job/JobStep tables that replaced legacy SchedJob tables, ensuring the scheduler reads from the correct data structure
-- What to check if behaving unexpectedly: Verify this migration actually ran with `alembic current`, check that all 6 ENUM types were created in PostgreSQL, and confirm foreign key constraints exist between tables
-- Migration chain dependency: This is migration 013 in the single chain - migrations 014-018 may depend on these tables, so rolling back requires checking if later migrations reference these structures
-"""
-```
+Creates:
+  sched_resources
+  sched_jobs
+  sched_steps
+  sched_step_machines
+  sched_step_helpers
 """
 
 from alembic import op

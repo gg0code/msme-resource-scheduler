@@ -1,36 +1,7 @@
-/**
- * frontend/src/pages/GanttPage.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * The Production Timeline (Gantt chart) page. Shows all jobs on a horizontal
- * timeline with assigned resources, conflict indicators, and status icons.
- * Feature-flagged (flags.gantt) — only visible in the nav when enabled.
- * Uses fetchGanttData() from api_gantt.ts which calls GET /api/gantt/.
- * The backend pre-computes all conflict detection and cost data — this page
- * only renders what the backend returns (Design Principle 1).
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Fetches Gantt data via useQuery(['gantt'], fetchGanttData).
- * 2. Renders a date-range header with week/month navigation.
- * 3. For each job: renders a horizontal bar spanning start_date to end_date.
- * 4. Bar colour reflects status_icon (ready=green, conflict=red, in_progress=blue etc).
- * 5. Shows assigned employees and machines as small chips below each bar.
- * 6. Conflict jobs show a red indicator with conflict_reasons on hover.
- * 7. Clicking a job opens a side panel with full job details.
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as /gantt route (protected, feature-flagged nav)
- *
- * INTERN NOTES
- * - The Gantt is read-only — no mutations happen here. All edits go through Jobs.tsx.
- * - Design Principle 1: backend computes has_conflict, conflict_reasons, status_icon,
- *   tentative_cost. Frontend only renders these values.
- * - Design Principle 8: the nav item for Gantt is gated by flags.gantt in Layout.tsx.
- *   The route is always registered but the nav item only shows when the flag is on.
- * - If jobs don't appear on the timeline: check start_date and end_date are set.
- *   Jobs without dates are excluded from the Gantt by the backend.
- */
+// frontend/src/pages/GanttPage.tsx
+// Production timeline (Gantt chart). Feature flagged (flags.gantt).
+// Read-only - all edits go through Jobs.tsx.
+
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { fetchGanttData } from '../api/api_gantt'
 import type { GanttJob } from '../api/api_gantt'
@@ -38,7 +9,7 @@ import { CoachMark } from '../components/onboarding'
 import { ChevronRight, ChevronDown } from 'lucide-react'
 import { useLabels } from '../context/IndustryContext'
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// --- Constants ---------------------------------------------------------------
 const ROW_H    = 52
 const LABEL_W  = 220
 const HEADER_H = 56
@@ -77,7 +48,7 @@ function shortMonth(d: Date) {
   return d.toLocaleDateString('en-IN', { month: 'short' })
 }
 
-// ─── Status dot SVG (on bar) ─────────────────────────────────────────────────
+// --- Status dot SVG (on bar) -------------------------------------------------
 function StatusDotSvg({ icon, x, y }: { icon: string; x: number; y: number }) {
   const cy = y + ROW_H / 2
   const cx = x + 8
@@ -90,7 +61,7 @@ function StatusDotSvg({ icon, x, y }: { icon: string; x: number; y: number }) {
   return <circle cx={cx} cy={cy} r={4} fill={colors[icon] ?? '#e5e7eb'} opacity={0.95} />
 }
 
-// ─── Blink dot (label column) ────────────────────────────────────────────────
+// --- Blink dot (label column) ------------------------------------------------
 function BlinkDot({ icon }: { icon: string }) {
   if (icon === 'in_progress')
     return <svg viewBox="0 0 12 12" className="w-3 h-3 flex-shrink-0"><polygon points="1,1 11,6 1,11" fill="#16a34a"/></svg>
@@ -102,7 +73,7 @@ function BlinkDot({ icon }: { icon: string }) {
   return <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 inline-block ${map[icon] ?? 'bg-gray-300'}`} />
 }
 
-// ─── Timer badge icons on bar ─────────────────────────────────────────────
+// --- Timer badge icons on bar ---------------------------------------------
 function TimerBadges({ job, x, y, barW }: { job: GanttJob; x: number; y: number; barW: number }) {
   // Only show if bar is wide enough (>90px)
   if (barW < 90) return null
@@ -114,9 +85,9 @@ function TimerBadges({ job, x, y, barW }: { job: GanttJob; x: number; y: number;
   if (t === 'idle' && s !== 'Completed' && s !== 'Stopped')
     badges.push({ icon: '▶', color: '#16a34a', title: 'Ready to Start' })
   if (t === 'running')
-    badges.push({ icon: '⏸', color: '#ca8a04', title: 'Running — can Pause' })
+    badges.push({ icon: '⏸', color: '#ca8a04', title: 'Running - can Pause' })
   if (t === 'paused')
-    badges.push({ icon: '↺', color: '#2563eb', title: 'Paused — can Resume' })
+    badges.push({ icon: '↺', color: '#2563eb', title: 'Paused - can Resume' })
   if (t === 'running' || t === 'paused') {
     badges.push({ icon: '✕', color: '#111827', title: 'Stop' })
     badges.push({ icon: '●', color: '#2563eb', title: 'End' })
@@ -252,20 +223,20 @@ export default function GanttPage() {
   // Health + priority based colours (replaces random index colours)
   const getHealthColor = (job: GanttJob): string => {
     const isComplete = ['Completed', 'Cancelled', 'Stopped'].includes(job.status ?? '')
-    if (isComplete) return '#6b7280'          // grey — done
-    if (job.has_conflict) return '#7c3aed'   // purple — conflict
+    if (isComplete) return '#6b7280'          // grey - done
+    if (job.has_conflict) return '#7c3aed'   // purple - conflict
     const end = parseDate(job.end_date)
     if (end) {
       const daysLeft = daysBetween(today, end)
-      if (end < today) return '#ef4444'       // red — overdue
-      if (daysLeft <= 3 && ['Draft','Scheduled'].includes(job.status ?? '')) return '#f59e0b' // amber — at risk
+      if (end < today) return '#ef4444'       // red - overdue
+      if (daysLeft <= 3 && ['Draft','Scheduled'].includes(job.status ?? '')) return '#f59e0b' // amber - at risk
     }
     // Normal: priority colour
     const p = job.priority?.toLowerCase()
     if (p === 'critical') return '#dc2626'   // red
     if (p === 'high')     return '#ea580c'   // orange
     if (p === 'medium')   return '#2563eb'   // blue
-    return '#16a34a'                          // green — low
+    return '#16a34a'                          // green - low
   }
 
   // Build machine groups
@@ -286,7 +257,7 @@ export default function GanttPage() {
     : Object.entries(machineGroups).reduce((acc, [m, arr]) =>
         acc + ROW_H + (collapsedMachines.has(m) ? 0 : arr.length * ROW_H), 0)
 
-  // ── Header rows ─────────────────────────────────────────────────────────────
+  // -- Header rows -------------------------------------------------------------
   // Month sub-header (always shown)
   const monthGroups = days.reduce((acc: { label: string; count: number }[], d) => {
     const m = monthLabel(d)
@@ -295,7 +266,7 @@ export default function GanttPage() {
     return acc
   }, [])
 
-  // Day labels — shown in day/week view; in month view show week numbers instead
+  // Day labels - shown in day/week view; in month view show week numbers instead
   const renderDayHeader = () => {
     if (zoom === 'month') {
       // Show one cell per week with "W{n}" label
@@ -323,7 +294,7 @@ export default function GanttPage() {
     ))
   }
 
-  // ── Bar renderer ─────────────────────────────────────────────────────────────
+  // -- Bar renderer -------------------------------------------------------------
   const renderBar = (job: GanttJob, rowY: number) => {
     const start = parseDate(job.start_date)
     const end   = parseDate(job.end_date)
@@ -383,13 +354,13 @@ export default function GanttPage() {
   return (
     <div className="flex flex-col h-full bg-white" style={{ fontFamily: "'DM Sans', sans-serif" }}>
 
-      {/* ── Header ── */}
+      {/* -- Header -- */}
       <div className="px-6 pt-5 pb-3 border-b border-gray-100">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <CoachMark id="gantt-timeline" title="Production Timeline" description={`See all ${labels.jobs.toLowerCase()} on a visual calendar. Each bar is one ${labels.job.toLowerCase()}. Hover for details.`} position="bottom" step={1} totalSteps={2}>
             <div>
               <h1 className="text-xl font-semibold text-gray-900">{labels.jobs} Schedule</h1>
-              <p className="text-xs text-gray-400 mt-0.5">{monthLabel(rangeStart)} — {monthLabel(rangeEnd)}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{monthLabel(rangeStart)} - {monthLabel(rangeEnd)}</p>
             </div>
           </CoachMark>
 
@@ -440,7 +411,7 @@ export default function GanttPage() {
         </div>
       </div>
 
-      {/* ── Conflict pill (compact, click to open panel) ── */}
+      {/* -- Conflict pill (compact, click to open panel) -- */}
       {conflicting.length > 0 && (
         <div className="px-6 mt-3">
           <button
@@ -457,10 +428,10 @@ export default function GanttPage() {
         </div>
       )}
 
-      {/* ── Conflict floating panel ── */}
+      {/* -- Conflict floating panel -- */}
       {conflictPanelOpen && (
         <>
-          {/* Backdrop — click to close */}
+          {/* Backdrop - click to close */}
           <div
             className="fixed inset-0 z-40 bg-black/20"
             onClick={() => setConflictPanelOpen(false)}
@@ -485,7 +456,7 @@ export default function GanttPage() {
                 ✕
               </button>
             </div>
-            {/* Panel body — scrollable */}
+            {/* Panel body - scrollable */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
               {conflicting.map(j => (
                 <div key={j.id} className="bg-red-50 border border-red-200 rounded-xl p-3">
@@ -512,7 +483,7 @@ export default function GanttPage() {
         </>
       )}
 
-      {/* ── Filters ── */}
+      {/* -- Filters -- */}
       <div className="px-6 py-3 border-b border-gray-100 space-y-2">
         {/* Priority row */}
         <div className="flex items-center gap-3 flex-wrap">
@@ -559,10 +530,10 @@ export default function GanttPage() {
         </div>
       </div>
 
-      {/* ── Chart ── */}
+      {/* -- Chart -- */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* Label column — scrolls vertically in sync */}
+        {/* Label column - scrolls vertically in sync */}
         <div className="flex-shrink-0 flex flex-col relative" style={{ width: labelWidth }}>
           <div className="border-b border-gray-200 bg-gray-50 flex items-end px-3 pb-2 flex-shrink-0" style={{ height: HEADER_H, width: labelWidth }}>
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
@@ -591,7 +562,7 @@ export default function GanttPage() {
                   const collapsed = collapsedMachines.has(machine)
                   return (
                     <div key={machine}>
-                      {/* Machine header row — clickable to collapse */}
+                      {/* Machine header row - clickable to collapse */}
                       <div
                         style={{ height: ROW_H }}
                         onClick={() => toggleMachine(machine)}
@@ -634,7 +605,7 @@ export default function GanttPage() {
           title="Drag to resize"
         />
 
-        {/* Scrollable chart — horizontal AND vertical */}
+        {/* Scrollable chart - horizontal AND vertical */}
         <div ref={scrollRef} id="gantt-chart-scroll" className="flex-1 overflow-x-auto overflow-y-auto" onScroll={e => {
           const label = document.getElementById('gantt-label-scroll')
           if (label) label.scrollTop = (e.target as HTMLElement).scrollTop
@@ -673,10 +644,10 @@ export default function GanttPage() {
                   stroke="#f3f4f6" strokeWidth={1} />
               ))}
 
-              {/* Bars — Jobs */}
+              {/* Bars - Jobs */}
               {activeTab === 'jobs' && filtered.map((job, i) => renderBar(job, i * ROW_H))}
 
-              {/* Bars — Machines */}
+              {/* Bars - Machines */}
               {activeTab === 'machines' && (() => {
                 let y = 0
                 return Object.entries(machineGroups).map(([machine, machineJobs]) => {
@@ -704,7 +675,7 @@ export default function GanttPage() {
         </div>
       </div>
 
-      {/* ── Detail panel ── */}
+      {/* -- Detail panel -- */}
       {selectedJob && (
         <div className="border-t border-gray-200 bg-white px-6 py-4 shadow-inner">
           <div className="flex items-start justify-between">
@@ -722,11 +693,11 @@ export default function GanttPage() {
           </div>
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-1.5 text-xs">
             <div className="flex gap-2"><span className="text-gray-400 w-20">Dates</span>
-              <span>{selectedJob.start_date ? formatDate(new Date(selectedJob.start_date)) : '—'} → {selectedJob.end_date ? formatDate(new Date(selectedJob.end_date)) : '—'}</span></div>
-            <div className="flex gap-2"><span className="text-gray-400 w-20">Status</span><span className="capitalize">{selectedJob.status || '—'}</span></div>
+              <span>{selectedJob.start_date ? formatDate(new Date(selectedJob.start_date)) : '-'} → {selectedJob.end_date ? formatDate(new Date(selectedJob.end_date)) : '-'}</span></div>
+            <div className="flex gap-2"><span className="text-gray-400 w-20">Status</span><span className="capitalize">{selectedJob.status || '-'}</span></div>
             <div className="flex gap-2"><span className="text-gray-400 w-20">Priority</span>
               <span className={`capitalize font-medium ${selectedJob.priority?.toLowerCase() === 'high' ? 'text-red-600' : selectedJob.priority?.toLowerCase() === 'medium' ? 'text-yellow-600' : 'text-green-600'}`}>
-                {selectedJob.priority || '—'}
+                {selectedJob.priority || '-'}
               </span>
             </div>
             <div className="flex gap-2"><span className="text-gray-400 w-20">Employees</span><span>{selectedJob.assigned_employees.join(', ') || 'None'}</span></div>

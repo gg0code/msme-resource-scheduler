@@ -1,12 +1,14 @@
 """
-routers/dashboard.py — V2.1
+routers/dashboard.py — V2.2
 Fixed: SQLAlchemy 2.0 subquery (anon_1) error caused by lazy-loading
   assignments/employee/machine inside _build_job_row loop.
 
 Fixes applied:
-  1. all_jobs query now uses selectinload for assignments → employee/machine
+  1. all_jobs query now uses selectinload for assignments -> employee/machine
   2. _build_job_row reads from pre-loaded job.assignments instead of re-querying
   3. Eliminated N+1: no more db.query(Employee/Machine) per assignment per job
+
+v2.2: Added /plan-limits endpoint for PlanLimitGuard frontend component.
 """
 
 from fastapi import APIRouter, Depends
@@ -57,10 +59,10 @@ def _build_job_row(db: Session, job: Job, tenant_id: int) -> dict:
     tentative = compute_tentative_cost(db, job)
     actual    = compute_actual_cost(db, job)
 
-    # ── Use pre-loaded assignments — no extra DB queries ──────────────────────
+    # Use pre-loaded assignments — no extra DB queries
     employees = []
     machines  = []
-    for a in job.assignments:          # already loaded via selectinload
+    for a in job.assignments:
         if a.employee:
             employees.append({"id": a.employee.id, "full_name": a.employee.full_name})
         if a.machine:
@@ -83,7 +85,6 @@ def _build_job_row(db: Session, job: Job, tenant_id: int) -> dict:
         "status_icon":     _derive_status_icon(job, has_conflict),
         "assigned_employees": employees,
         "assigned_machines":  machines,
-        # Cost grids
         "tentative_cost":      tentative["total_cost"],
         "tentative_profit":    tentative["profit"],
         "tentative_breakdown": tentative,
@@ -103,7 +104,6 @@ def get_dashboard(
     week_end = today + timedelta(days=7)
     tid      = current_user.tenant_id
 
-    # Summary counts — simple scalar queries, no relationship loading needed
     total_active_jobs = (
         db.query(func.count()).select_from(Job)
         .filter(Job.tenant_id == tid, Job.status.in_(["Scheduled", "In Progress", "Draft"]))
@@ -122,7 +122,6 @@ def get_dashboard(
         .scalar()
     )
 
-    # ── All jobs — load assignments + employee + machine in 3 queries total ───
     all_jobs = (
         db.query(Job)
         .options(
@@ -138,7 +137,6 @@ def get_dashboard(
     for job in all_jobs:
         jobs_by_status[job.status] = jobs_by_status.get(job.status, 0) + 1
 
-    # Upcoming jobs this week
     upcoming_jobs = (
         db.query(Job)
         .filter(
@@ -168,4 +166,59 @@ def get_dashboard(
             for j in upcoming_jobs
         ],
         "jobs": [_build_job_row(db, j, tid) for j in all_jobs],
+    }
+
+
+@router.get("/plan-limits")
+def get_plan_limits(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns current plan usage counts and limits for the tenant.
+    Called by PlanLimitGuard (frontend) at /dashboard/plan-limits.
+    No /api/ prefix — registered directly on the dashboard router.
+    """
+    tid  = current_user.tenant_id
+    plan = getattr(getattr(current_user, 'tenant', None), 'plan', None) or 'free'
+
+    emp_count = (
+        db.query(func.count()).select_from(Employee)
+        .filter(Employee.tenant_id == tid)
+        .scalar() or 0
+    )
+    mac_count = (
+        db.query(func.count()).select_from(Machine)
+        .filter(Machine.tenant_id == tid)
+        .scalar() or 0
+    )
+    job_count = (
+        db.query(func.count()).select_from(Job)
+        .filter(Job.tenant_id == tid, Job.status.notin_(['Completed', 'Cancelled']))
+        .scalar() or 0
+    )
+
+    LIMITS = {
+        'free':       {'employees': 10, 'machines': 10, 'jobs': 20, 'raw_materials': 5},
+        'pro':        {'employees': None, 'machines': None, 'jobs': None, 'raw_materials': None},
+        'enterprise': {'employees': None, 'machines': None, 'jobs': None, 'raw_materials': None},
+    }
+    lim = LIMITS.get(plan, LIMITS['free'])
+
+    def make(current, limit):
+        return {
+            'current':   current,
+            'limit':     limit,
+            'reached':   limit is not None and current >= limit,
+            'unlimited': limit is None,
+        }
+
+    return {
+        'plan': plan,
+        'limits': {
+            'employees':    make(emp_count, lim['employees']),
+            'machines':     make(mac_count, lim['machines']),
+            'jobs':         make(job_count, lim['jobs']),
+            'raw_materials': make(0, lim['raw_materials']),
+        }
     }

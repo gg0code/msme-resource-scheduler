@@ -9,8 +9,8 @@
  * and TourButton from here. Any component using CoachMark or Tooltip imports from here.
  *
  * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — imports OnboardingProvider
- * - frontend/src/components/Layout.tsx — imports GettingStarted, TourButton
+ * - frontend/src/App.tsx - imports OnboardingProvider
+ * - frontend/src/components/Layout.tsx - imports GettingStarted, TourButton
  * - Any component using CoachMark or Tooltip
  */
 export { OnboardingProvider, useOnboarding } from './OnboardingContext'

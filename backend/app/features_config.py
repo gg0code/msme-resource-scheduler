@@ -18,5 +18,5 @@ FEATURE_FLAGS: dict[str, bool] = {
     "step_intelligence":  True,
     "csv_import":         True,
     "ai_copilot":         True,
-    "whatsapp":           False,  # v5-dev only — keep False on v3-dev
+    "whatsapp":           True,  # v5-dev only — keep False on v3-dev
 }

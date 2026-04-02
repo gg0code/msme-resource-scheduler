@@ -1,40 +1,13 @@
-/**
- * frontend/src/pages/RegisterPage.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * New tenant registration page. Collects company name, slug, industry type, email,
- * and password. Calls AuthContext.register() which creates a Tenant + User, seeds
- * demo data, and logs the user in. The industry selector on this page determines
- * the tenant's industry_type — which drives all labels, colours, and AI terminology
- * for the entire account lifetime. Registered as a public route in App.tsx.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Renders industry selector (5 options with icons and taglines).
- * 2. Renders company name, slug, email, password fields.
- * 3. Auto-generates slug from company name (lowercase, hyphens).
- * 4. On submit: calls useAuth().register(payload) which calls POST /auth/register.
- * 5. On success: navigates to /dashboard — demo data is already seeded by backend.
- * 6. On failure: shows error from backend detail field.
- *
- * WHO CALLS THIS FILE
- * - frontend/src/App.tsx — registered as /register route (public)
- *
- * INTERN NOTES
- * - The industry_type selected here is stored on the Tenant model and drives the
- *   entire app experience via IndustryContext. It cannot be changed after registration
- *   without a backend admin operation.
- * - Slug validation: lowercase letters, numbers, hyphens only. Auto-generated from
- *   company name but user can edit. Must be globally unique (enforced by backend).
- * - Design Principle 3: register() is in AuthContext — it sets tokenStore after
- *   successful registration so the user is immediately logged in.
- */
+// frontend/src/pages/RegisterPage.tsx
+// New tenant registration with industry selector.
+// industry_type drives all labels and themes for the account lifetime.
+
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import apiClient from '../api/client'
 import { CheckCircle2, XCircle, ChevronRight, ChevronLeft } from 'lucide-react'
 
-// ── Industry options ──────────────────────────────────────────────────────────
+// -- Industry options ----------------------------------------------------------
 
 const INDUSTRIES = [
   {
@@ -120,7 +93,7 @@ const BADGE_COLOR: Record<string, string> = {
   purple: 'bg-purple-100 text-purple-700',
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// -- Component -----------------------------------------------------------------
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -201,7 +174,7 @@ export default function RegisterPage() {
           ))}
         </div>
 
-        {/* ── Step 1: Industry picker ── */}
+        {/* -- Step 1: Industry picker -- */}
         {step === 1 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
             <h2 className="text-base font-semibold text-gray-800 mb-1">What best describes your business?</h2>
@@ -253,7 +226,7 @@ export default function RegisterPage() {
           </div>
         )}
 
-        {/* ── Step 2: Workspace form ── */}
+        {/* -- Step 2: Workspace form -- */}
         {step === 2 && (
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
 
@@ -308,7 +281,7 @@ export default function RegisterPage() {
                     placeholder="sharma-fab" pattern="[a-z0-9\-]+"
                     title="Lowercase letters, numbers, hyphens only"
                     className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <p className="text-xs text-gray-400 mt-1">Lowercase, no spaces — e.g. sharma-fab</p>
+                  <p className="text-xs text-gray-400 mt-1">Lowercase, no spaces - e.g. sharma-fab</p>
                 </div>
 
                 <div>

@@ -1,47 +1,6 @@
-/**
- * frontend/src/scheduler/SchedulerToolbar.tsx
- * Branch: v4-dev | v5-whatsapp (both)
- *
- * FILE PURPOSE
- * The Auto-Schedule button rendered in the top header bar of Layout.tsx. Shows the
- * current scheduler status (active/warn/clean/locked) as button colour and icon.
- * Feature-flagged — only renders when flags.scheduler is true. Clicking the button
- * triggers runScheduler() and shows a result summary panel after the run completes.
- *
- * WHAT THIS FILE DOES — step by step
- * 1. Reads scheduler state from useSchedulerContext().
- * 2. Reads feature flags from useFeatureFlags().
- * 3. Returns null if flags.scheduler is false.
- * 4. Renders a button whose colour reflects SchedulerStatus:
- *    active     — blue pulsing dot (needs to run)
- *    warn       — orange with conflict count
- *    greyed-clean — gray with check icon (last run had no conflicts)
- *    greyed-locked — gray with lock icon (all jobs locked)
- * 5. On click: calls runScheduler() via context.
- * 6. After run: shows a SchedulerRunSummary panel with resolved jobs and conflicts.
- * 7. Panel auto-dismisses after 10 seconds or on manual close.
- *
- * WHO CALLS THIS FILE
- * - frontend/src/components/Layout.tsx — rendered in the header bar
- * - frontend/src/scheduler/SchedulerContext.tsx — re-exported via index (indirect)
- *
- * INTERN NOTES
- * - Design Principle 8: the entire component returns null when flags.scheduler is false.
- *   Never render scheduler UI without checking the flag first.
- * - The button must call markDirty() in Jobs.tsx mutations to stay in sync.
- *   If the button stays gray after a job is created: check Jobs.tsx mutation onSuccess.
- * - greyed-locked state means all jobs have is_locked=true. The button shows a lock
- *   icon and tooltip explaining why it is disabled.
- * - Design Principle 1: runScheduler() calls the backend engine. This component
- *   only triggers the call and displays the result — it never schedules anything.
- */
-// src/scheduler/SchedulerToolbar.tsx — Prompt 2 Part D
-//
-// States:
-//   active        → blue pulsing "Auto-Schedule" button + dirty banner
-//   warn          → amber "Review Conflicts (n)" button + conflict slide-panel
-//   greyed-clean  → disabled grey button, tooltip "Schedule is up to date."
-//   greyed-locked → disabled grey button, tooltip "All jobs are locked…"
+// frontend/src/scheduler/SchedulerToolbar.tsx
+// Auto-Schedule button in header bar. Feature flagged (flags.scheduler).
+// Shows status: active/warn/clean/locked. Displays run summary panel.
 
 import { useState } from 'react'
 import {
@@ -53,7 +12,7 @@ import type { ConflictEntry } from './useScheduler'
 import apiClient from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 
-// ─── Priority badge ───────────────────────────────────────────────────────────
+// --- Priority badge -----------------------------------------------------------
 
 const PRIORITY_BADGE: Record<string, string> = {
   critical: 'bg-red-100 text-red-700 border border-red-200',
@@ -61,7 +20,7 @@ const PRIORITY_BADGE: Record<string, string> = {
   low:      'bg-gray-100 text-gray-600 border border-gray-200',
 }
 
-// ─── Conflict panel ───────────────────────────────────────────────────────────
+// --- Conflict panel -----------------------------------------------------------
 
 function ConflictPanel({
   conflicts,
@@ -158,7 +117,7 @@ function ConflictPanel({
   )
 }
 
-// ─── Result summary panel ────────────────────────────────────────────────────
+// --- Result summary panel ----------------------------------------------------
 
 function ResultSummaryPanel({
   summary,
@@ -276,7 +235,7 @@ function ResultSummaryPanel({
   )
 }
 
-// ─── Main toolbar component ───────────────────────────────────────────────────
+// --- Main toolbar component ---------------------------------------------------
 
 export default function SchedulerToolbar() {
   const {
@@ -301,7 +260,7 @@ export default function SchedulerToolbar() {
   const fmtTime = (d: Date | null) =>
     d ? d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : null
 
-  // ── Button rendering per state ─────────────────────────────────────────────
+  // -- Button rendering per state ---------------------------------------------
 
   if (status === 'greyed-locked') {
     return (
@@ -422,7 +381,7 @@ export default function SchedulerToolbar() {
         )}
       </div>
 
-      {/* Result summary panel — opens automatically after run */}
+      {/* Result summary panel - opens automatically after run */}
       {summaryOpen && summary && (
         <ResultSummaryPanel
           summary={summary}

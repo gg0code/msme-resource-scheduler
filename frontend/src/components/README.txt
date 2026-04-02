@@ -1,4 +1,4 @@
-AUTO-GENERATED — frontend/src/components/
+AUTO-GENERATED - frontend/src/components/
 Branch: v4-dev | v5-whatsapp (both)
 ────────────────────────────────────────────────────────────
 
@@ -15,32 +15,32 @@ never imports from pages/. Sub-folders handle more specialised component groups
 (common/ for data management UI, onboarding/ for the new-user tour).
 
 FILES
-  AICopilot.tsx        — Sliding AI chat panel. Sends messages to /api/ai/chat,
+  AICopilot.tsx        - Sliding AI chat panel. Sends messages to /api/ai/chat,
                          displays conversation history, shows usage quota.
                          Feature-flagged (flags.ai_copilot). Branch: both.
-  EmptyState.tsx       — Zero-data placeholder with icon, title, description,
+  EmptyState.tsx       - Zero-data placeholder with icon, title, description,
                          and optional action button. Branch: both.
-  EndJobModal.tsx      — Job completion modal. Loads actual hours, lets user
+  EndJobModal.tsx      - Job completion modal. Loads actual hours, lets user
                          adjust resource selection, shows live cost preview,
                          and confirms job completion. Branch: both.
-  Layout.tsx           — Main application shell. Sidebar navigation, top header,
+  Layout.tsx           - Main application shell. Sidebar navigation, top header,
                          Outlet for page content. Industry-aware labels, CSS theme
                          variables, feature-flagged nav items. Branch: both.
-  PlanLimitGuard.tsx   — Plan limit hook (usePlanLimits) + three components:
+  PlanLimitGuard.tsx   - Plan limit hook (usePlanLimits) + three components:
                          PlanLimitBanner, RawMaterialLimitHint, LimitedButton.
                          Branch: both.
-  UpgradePrompt.tsx    — Feature gate modal with WhatsApp CTA for enabling features.
+  UpgradePrompt.tsx    - Feature gate modal with WhatsApp CTA for enabling features.
                          Branch: both.
-  ZeroZetaLogo.tsx     — Brand logo component. Branch: both.
+  ZeroZetaLogo.tsx     - Brand logo component. Branch: both.
 
 ARCHITECTURE NOTES
-Layout.tsx is the most important file in this folder — it is the shell that wraps
+Layout.tsx is the most important file in this folder - it is the shell that wraps
 every authenticated page. All other components are rendered either inside Layout
 (GettingStarted, AICopilot button) or inside individual pages (EmptyState,
 EndJobModal, PlanLimitGuard, UpgradePrompt). AICopilot.tsx and UpgradePrompt.tsx
 are the two "floating" components that use fixed positioning over the full screen.
 PlanLimitGuard.tsx is the only file here that exports a hook (usePlanLimits) in
-addition to components — this keeps all plan limit logic in one place.
+addition to components - this keeps all plan limit logic in one place.
 
 DESIGN PRINCIPLES
 Principle 1: AICopilot.tsx calls /api/ai/chat and displays what the backend returns.
@@ -48,24 +48,24 @@ Principle 1: AICopilot.tsx calls /api/ai/chat and displays what the backend retu
 Principle 8: Layout.tsx gates Gantt, WhatsApp, and AI Copilot nav items behind
   feature flags. UpgradePrompt.tsx is shown when a gated feature is accessed.
   PlanLimitGuard.tsx enforces free-plan resource caps.
-Principle 11: All files must pass tsc --noEmit. Layout.tsx imports many components —
+Principle 11: All files must pass tsc --noEmit. Layout.tsx imports many components -
   any type error in a dependency will surface here.
 
 DEPENDENCIES
   This folder imports from:
-    ../api/client.ts               — PlanLimitGuard (plan limits fetch)
-    ../api/api_timer.ts            — EndJobModal (summary + end calls)
-    ../auth/AuthContext.tsx         — Layout (user, logout, hasRole)
-    ../context/FeatureFlags.tsx     — Layout (flags), AICopilot (flags)
-    ../context/IndustryContext.tsx  — Layout (labels, config)
-    ../scheduler/SchedulerToolbar.tsx — Layout
-    ./onboarding/GettingStarted.tsx — Layout
-    ./onboarding/TourButton.tsx     — Layout
-    @tanstack/react-query          — PlanLimitGuard (useQuery)
+    ../api/client.ts               - PlanLimitGuard (plan limits fetch)
+    ../api/api_timer.ts            - EndJobModal (summary + end calls)
+    ../auth/AuthContext.tsx         - Layout (user, logout, hasRole)
+    ../context/FeatureFlags.tsx     - Layout (flags), AICopilot (flags)
+    ../context/IndustryContext.tsx  - Layout (labels, config)
+    ../scheduler/SchedulerToolbar.tsx - Layout
+    ./onboarding/GettingStarted.tsx - Layout
+    ./onboarding/TourButton.tsx     - Layout
+    @tanstack/react-query          - PlanLimitGuard (useQuery)
 
   This folder is imported by:
-    frontend/src/App.tsx           — imports Layout
-    frontend/src/pages/*           — all pages import from here as needed
+    frontend/src/App.tsx           - imports Layout
+    frontend/src/pages/*           - all pages import from here as needed
 
 GOTCHAS
 1. Layout.tsx uses CSS variables (--brand-sidebar-bg etc.) not Tailwind classes for
