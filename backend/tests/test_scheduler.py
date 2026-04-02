@@ -1,8 +1,119 @@
 """
-backend/tests/test_scheduler.py — Prompt 2 Part C
+```python
+"""
+backend/tests/test_scheduler.py
 
-4 tests for the pure-Python scheduler engine.
-Run from backend/ with: pytest tests/test_scheduler.py -v
+FILE PURPOSE
+This file contains unit tests for the pure-Python scheduling engine that powers ZetaOps
+Copilot's core job scheduling functionality. It was introduced in v4.0 to ensure the
+scheduler engine correctly handles resource conflicts, priority-based job ordering, setup
+step reservations, and locked job entries. These tests validate the core scheduling logic
+without any database dependencies, sitting in the test layer that validates the business
+logic layer (app/scheduler/engine.py).
+
+WHAT THIS FILE DOES — step by step
+1. Imports the scheduler engine classes and functions from app.scheduler.engine
+2. Defines shared test fixtures including a fixed schedule date (March 10, 2026)
+3. Creates helper functions to generate test resources (machines M1/M2, helpers H1/H2)
+4. Creates helper functions to generate XY1 and XY2 job steps that mirror seed data
+5. Runs four comprehensive tests covering basic scheduling, setup reservations, locked jobs, and conflicts
+6. Validates that the scheduler produces correct ScheduleEntry objects in resolved list
+7. Validates that unresolvable conflicts appear in unresolved list with proper error messages
+8. Asserts timing constraints like priority ordering and resource availability windows
+
+KEY FUNCTIONS / CLASSES / COMPONENTS
+
+Name         : _dt
+Type         : function
+Purpose      : Helper function that creates datetime objects on the fixed SCHEDULE_DATE at the specified hour and minute. Reduces boilerplate in test assertions and makes test times more readable.
+Parameters   : h (int) - hour in 24-hour format, m (int, default 0) - minute
+Returns      : datetime object set to SCHEDULE_DATE at the specified time
+Calls        : Python datetime constructor
+DB/API       : None - pure utility function
+Side effects : None
+
+Name         : make_resources
+Type         : function  
+Purpose      : Factory function that creates standard test resource configuration with two machines (M1, M2) and two helpers (H1, H2), all working 8:00-16:00 shifts. Provides consistent resource setup across all tests.
+Parameters   : None
+Returns      : List of ResourceSlot objects representing available machines and helpers
+Calls        : ResourceSlot constructor from scheduler engine
+DB/API       : None - creates in-memory test data
+Side effects : None
+
+Name         : make_xy1_steps
+Type         : function
+Purpose      : Factory function that creates the XY1 job step sequence used in seed data - a 4-step manufacturing process including regular production steps and a setup step with machine reservation. Mirrors real-world job complexity.
+Parameters   : job_id (int, default 1) - the job ID to assign to all generated steps
+Returns      : List of StepInput objects representing the complete XY1 job workflow
+Calls        : StepInput constructor from scheduler engine
+DB/API       : None - creates in-memory test data
+Side effects : None
+
+Name         : make_xy2_steps
+Type         : function
+Purpose      : Factory function that creates the XY2 job step sequence used in seed data - a 3-step manufacturing process that shares resources with XY1 to test resource contention scenarios. Designed to conflict with XY1 steps.
+Parameters   : job_id (int, default 2) - the job ID to assign to all generated steps  
+Returns      : List of StepInput objects representing the complete XY2 job workflow
+Calls        : StepInput constructor from scheduler engine
+DB/API       : None - creates in-memory test data
+Side effects : None
+
+Name         : test_basic_xy1_xy2_all_resolved
+Type         : function
+Purpose      : Comprehensive test that validates basic scheduling functionality by running XY1 and XY2 jobs through the scheduler and ensuring all 7 steps are successfully scheduled. Tests priority ordering (critical beats urgent despite lower profit) and resource allocation.
+Parameters   : None (pytest test function)
+Returns      : None (assertions validate behavior)
+Calls        : make_resources, make_xy1_steps, make_xy2_steps, run_scheduler from engine
+DB/API       : None - pure engine testing
+Side effects : None (test assertions only)
+
+Name         : test_setup_reserve_blocks_machine
+Type         : function
+Purpose      : Tests the setup step machine reservation feature where a setup step reserves a machine without actively using it, preventing other steps from using that machine during the setup window. Validates that resource blocking works correctly.
+Parameters   : None (pytest test function)
+Returns      : None (assertions validate behavior)
+Calls        : make_resources, make_xy1_steps, run_scheduler from engine
+DB/API       : None - pure engine testing
+Side effects : None (test assertions only)
+
+Name         : test_locked_job_blocks_machine
+Type         : function
+Purpose      : Tests the locked job functionality where previously scheduled jobs create LockedEntry objects that block resources from being allocated to new jobs. Validates that the scheduler respects existing commitments and schedules around them.
+Parameters   : None (pytest test function)
+Returns      : None (assertions validate behavior)
+Calls        : make_resources, run_scheduler from engine, LockedEntry constructor
+DB/API       : None - pure engine testing
+Side effects : None (test assertions only)
+
+Name         : test_conflict_machine_deadline
+Type         : function
+Purpose      : Tests conflict resolution when multiple jobs need the same resource but one has an impossible deadline. Validates that the scheduler correctly identifies unresolvable conflicts and provides meaningful error messages in the unresolved list.
+Parameters   : None (pytest test function)
+Returns      : None (assertions validate behavior)
+Calls        : run_scheduler from engine, ResourceSlot/JobInput/StepInput constructors
+DB/API       : None - pure engine testing
+Side effects : None (test assertions only)
+
+WHO CALLS THIS FILE
+- pytest test runner when executing: pytest tests/test_scheduler.py -v
+- CI/CD pipeline during automated testing
+- Developer workflow during local testing before commits to v4-dev branch
+
+IMPORTS EXPLAINED
+- datetime.date, datetime.datetime, datetime.time: Python standard library for handling test schedule dates and times, needed to create realistic scheduling scenarios
+- pytest: Testing framework that provides test discovery, fixtures, and assertion handling for the test suite
+- app.scheduler.engine: The core scheduler module being tested, imports all the input/output classes (JobInput, StepInput, ResourceSlot, ScheduleEntry, ConflictEntry, LockedEntry) and the main run_scheduler function
+
+INTERN NOTES
+- Easiest thing to break: Changing the SCHEDULE_DATE constant will break time-sensitive assertions in tests, and modifying resource IDs in helper functions will break the hardcoded assertions that reference specific machine/helper IDs
+- Non-obvious design decision: Tests use a fixed future date (March 10, 2026) instead of relative dates to ensure consistent test results regardless of when tests are run, avoiding flaky tests due to date arithmetic
+- Most common mistake: Forgetting that the scheduler engine is pure Python with zero database calls, so tests must provide all job/step/resource data as input objects rather than expecting database queries
+- Design principle: Implements principle #1 (Engine computes, AI only narrates) by testing the core scheduling logic independently of any AI or database components
+- What to check if behaving unexpectedly: Verify that ResourceSlot shift times match the test assumptions (8:00-16:00), check that step duration_minutes align with expected scheduling windows, and ensure job priorities follow the critical > urgent > normal hierarchy
+- v4-dev specific: This file is stable in production branch and should not be modified unless scheduler engine behavior changes, as these tests validate core business logic that customers depend on
+"""
+```
 """
 
 from datetime import date, datetime, time

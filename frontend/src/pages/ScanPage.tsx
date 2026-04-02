@@ -1,10 +1,36 @@
 /**
- * ScanPage.tsx — Block 2 V3.1
- * Mobile-first QR scan execution page.
- * Route: /scan?token=...
- * No login required. No navbar.
+ * frontend/src/pages/ScanPage.tsx — Block 2 v3.1
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * Mobile-first QR scan execution page for factory workers. Accessed via the /scan
+ * route with a token query param (?token=...). No authentication required — printed
+ * QR cards must always be scannable by any worker on the shop floor. Uses inline
+ * CSS styles (not Tailwind) because this page must render cleanly on mobile browsers
+ * that may not load the full app bundle. Calls backend via native fetch() not apiClient.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Reads token from URL query params.
+ * 2. Calls GET /api/scan/verify?token=... to validate and get step metadata.
+ * 3. If valid and canExecute: shows step name, job name, and action button.
+ * 4. If not executable (locked, already_complete, wrong_status): shows warning.
+ * 5. On button click: calls POST /api/scan/execute with the token.
+ * 6. On success: shows success state with next step name or job completion message.
+ * 7. On error: shows appropriate message per reason (expired, invalid, wrong_status etc).
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as /scan (public route, outside ProtectedRoute)
+ *
+ * INTERN NOTES
+ * - This page uses native fetch() not apiClient — it must work without a JWT.
+ *   Never add auth to this page. Design Principle 10 requires scan to always work.
+ * - Inline styles are intentional — this page must work on mobile browsers that
+ *   may not have Tailwind CSS loaded. Do not convert to Tailwind classes.
+ * - The API_BASE reads from VITE_API_URL env var (note: different from VITE_API_BASE_URL
+ *   used by apiClient). Check both env vars if the page cannot reach the backend.
+ * - Design Principle 10: /scan/verify and /scan/execute are never feature-flagged.
+ *   The token generation endpoint IS flagged but these execution endpoints are not.
  */
-
 import { useEffect, useState, type CSSProperties } from 'react'
 import { useSearchParams } from 'react-router-dom'
 

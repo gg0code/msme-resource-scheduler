@@ -1,43 +1,124 @@
 """
-FILE:    whatsapp_actions.py
-PATH:    backend/app/services/whatsapp_actions.py
-PURPOSE: Confirmation state machine for WhatsApp write actions.
+```python
+"""
+FILE PURPOSE:
+WhatsApp confirmation state machine for write actions in the ZetaOps WhatsApp Copilot feature.
+When AI detects that a factory owner wants to make database changes (mark employees absent, 
+create jobs, update statuses), this file prevents accidental execution by implementing a 
+two-step confirmation flow. Introduced in v5-whatsapp branch as a safety mechanism because
+voice messages and casual conversation can be misinterpreted as commands. Sits between the
+AI intent detection and actual database writes, using Redis for temporary action storage.
 
-         When the AI detects that a factory owner wants to make a change
-         (mark someone absent, create a job, update a status), we do NOT
-         execute it immediately. Instead we:
-           1. Show the owner what we are about to do
-           2. Wait for them to confirm (HAAN/yes/ok) or cancel (NAHI/no)
-           3. Only then write to the database
+WHAT THIS FILE DOES — step by step:
+1. Defines ActionType enum for all write operations that need confirmation
+2. Maintains word lists for detecting confirmation/cancellation in Hindi, Hinglish, and English
+3. Provides Redis storage functions for pending actions with 5-minute auto-expiry
+4. Detects when incoming messages are confirmations ("haan", "yes") or cancellations ("nahi", "no")
+5. Builds human-readable confirmation prompts in Hinglish for factory owners
+6. Executes confirmed database writes using sync SQLAlchemy sessions
+7. Manages the complete state machine: IDLE → PENDING_CONFIRMATION → CONFIRMED/CANCELLED
 
-         This prevents accidental changes — a factory owner might say
-         "Ravi absent hai" as a statement, not necessarily as a command.
-         The confirmation step makes the intent explicit.
+KEY FUNCTIONS / CLASSES / COMPONENTS:
 
-         State machine states:
-           IDLE                 — no pending action, normal conversation
-           PENDING_CONFIRMATION — action proposed, waiting for owner reply
-           CONFIRMED            — owner confirmed, executing DB write
-           CANCELLED            — owner cancelled or timeout occurred
+ActionType
+    Type         : Enum class
+    Purpose      : Defines all write actions requiring confirmation (mark_absent, create_job, 
+                   update_job_status, reschedule_job, mark_maintenance). Prevents typos and
+                   makes action types self-documenting in the codebase.
+    Parameters   : None (enum values are strings)
+    Returns      : String enum values for storage in Redis
+    Calls        : None
+    DB/API       : None
+    Side effects : None
 
-         Pending actions are stored in Redis alongside the session history.
-         They expire after CONFIRMATION_TIMEOUT_SECONDS (5 minutes).
-         If the owner does not reply within 5 minutes, the action is
-         auto-cancelled and they must ask again.
+store_pending_action
+    Type         : Async function
+    Purpose      : Stores a proposed write action in Redis with 5-minute TTL, waiting for owner
+                   confirmation. Called when AI detects write intent but before any DB changes.
+                   Uses mock storage in test mode when Redis is unavailable.
+    Parameters   : phone_number (str, E.164 format), action_type (ActionType enum), 
+                   action_params (dict with action-specific data like employee_id, date)
+    Returns      : bool - True if stored successfully, False if Redis write failed
+    Calls        : _build_pending_action_key(), redis_client.set(), json.dumps()
+    DB/API       : Redis SET with TTL, no SQL database calls
+    Side effects : Writes to Redis or _mock_sessions dict, logs storage success/failure
 
-BRANCH:  v5-whatsapp
-VERSION: v5.1
-CREATED: 2026-03
-UPDATED: 2026-03-29 — v5.1: Converted all DB operations from AsyncSession
-                      (await db.execute / await db.commit) to sync Session
-                      (db.execute / db.commit). The entire ZetaOps app uses
-                      sync SQLAlchemy — AsyncSession was incorrect here and
-                      caused 'CursorResult object can't be awaited' errors.
+get_pending_action
+    Type         : Async function  
+    Purpose      : Retrieves pending action for a phone number from Redis. Called on every
+                   inbound WhatsApp message to check if user has a pending confirmation before
+                   normal AI processing. Returns None if no action exists or TTL expired.
+    Parameters   : phone_number (str, E.164 format like +919876543210)
+    Returns      : dict with action_type, action_params, proposed_at, phone_number or None
+    Calls        : _build_pending_action_key(), redis_client.get(), json.loads()
+    DB/API       : Redis GET, no SQL database calls
+    Side effects : None (read-only operation)
 
-DEPENDENCIES:
-  app/services/whatsapp_session.py — Redis client for storing pending actions
-  app/database.py                  — sync Session for DB writes
-  redis (pip package)              — already installed for whatsapp_session.py
+clear_pending_action
+    Type         : Async function
+    Purpose      : Deletes pending action from Redis after confirmation/cancellation/execution.
+                   Called to clean up state after action is processed or owner explicitly cancels.
+                   Essential for preventing stale confirmations.
+    Parameters   : phone_number (str, E.164 format)
+    Returns      : bool - True if cleared or didn't exist, False if Redis delete failed
+    Calls        : _build_pending_action_key(), redis_client.delete()
+    DB/API       : Redis DELETE command
+    Side effects : Removes key from Redis or _mock_sessions, logs clearing operation
+
+is_confirmation
+    Type         : Function (pure)
+    Purpose      : Detects if incoming message is confirming a pending action by matching against
+                   CONFIRMATION_WORDS set. Handles Hindi ("haan"), English ("yes"), and Hinglish
+                   variations. Conservative approach - when in doubt, does not confirm.
+    Parameters   : message (str, raw WhatsApp message text from owner)
+    Returns      : bool - True if message clearly confirms, False otherwise
+    Calls        : String methods only (lower(), strip(), startswith())
+    DB/API       : None
+    Side effects : None (pure function)
+
+is_cancellation  
+    Type         : Function (pure)
+    Purpose      : Detects if incoming message is cancelling a pending action by matching against
+                   CANCELLATION_WORDS set. Recognizes Hindi ("nahi"), English ("no"), and phrases
+                   like "mat karo" (don't do it). Used to abort pending actions.
+    Parameters   : message (str, raw WhatsApp message text)
+    Returns      : bool - True if message clearly cancels, False otherwise  
+    Calls        : String methods only
+    DB/API       : None
+    Side effects : None (pure function)
+
+build_confirmation_prompt
+    Type         : Function (pure)
+    Purpose      : Generates human-readable confirmation message in Hinglish to send to factory
+                   owner before executing write action. Explains exactly what will happen and
+                   asks for explicit confirmation. Template varies by action type.
+    Parameters   : action_type (ActionType enum), action_params (dict with specifics like names/dates)
+    Returns      : str - formatted confirmation message ready for WhatsApp sending
+    Calls        : String formatting methods, action_params dict access
+    DB/API       : None  
+    Side effects : None (pure function, generates text only)
+
+WHO CALLS THIS FILE:
+- backend/app/services/whatsapp_service.py (main WhatsApp message handler)
+- backend/app/routers/whatsapp_router.py (webhook endpoint processing)
+- backend/app/services/whatsapp_bridge.py (async-to-sync bridge for DB operations)
+
+IMPORTS EXPLAINED:
+- json: Serializing pending actions for Redis storage and deserializing on retrieval
+- logging: Module-level logger for debugging pending action storage, retrieval, and execution
+- datetime, timezone: Timestamping when actions are proposed for debugging and audit trails
+- enum.Enum: Base class for ActionType to ensure type safety and prevent string typos
+- sqlalchemy.orm.Session: Sync database sessions for executing confirmed write operations
+- app.services.whatsapp_session: Reuses Redis connection pool and mock storage for consistency
+- redis (implicit): Redis client accessed through whatsapp_session module for pending action storage
+
+INTERN NOTES:
+- Easiest thing to break: Forgetting to call clear_pending_action() after confirmation/cancellation, leading to stale actions that can be accidentally re-confirmed later
+- Non-obvious design decision: Uses sync SQLAlchemy sessions instead of async because the entire ZetaOps backend is sync - mixing async/sync causes "CursorResult object can't be awaited" errors
+- Most common mistake: Adding new ActionType without implementing the corresponding case in execute_action(), causing confirmed actions to silently fail
+- Implements design principle #9: WhatsApp services use sync Session, bridge uses run_in_executor() for threading
+- If this file behaves unexpectedly: Check Redis connectivity, verify CONFIRMATION_WORDS covers the language variations your users actually type, and ensure pending actions aren't hitting the 5-minute TTL
+- v5-whatsapp merge note: This entire file is v5-only feature - when merging
 """
 
 import json

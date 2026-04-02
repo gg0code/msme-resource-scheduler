@@ -1,10 +1,36 @@
 /**
- * PrintJobCard.tsx — V3.4
- * - Completed/Cancelled jobs: print card without QR (shows completion summary)
- * - Active jobs with steps: print card with QR codes per step
- * Route: /jobs/:jobId/print  (auth required, no sidebar)
+ * frontend/src/pages/PrintJobCard.tsx
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * Print-optimised job card page. Generates a printable document with QR codes for
+ * each step of a job. Workers scan these QR codes on the shop floor to start and
+ * complete steps via ScanPage. Accessed via /jobs/:jobId/print — requires auth
+ * (protected route) but has no sidebar layout (special layout-less route in App.tsx).
+ * Feature-flagged on the token generation side (qr_scan flag) but the page itself
+ * always renders if the route is accessed directly.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Reads jobId from URL params.
+ * 2. Calls POST /api/jobs/{jobId}/scan-tokens to generate signed JWT tokens for all steps.
+ * 3. Renders a print-optimised layout: job header, customer, dates, priority.
+ * 4. For each step: renders step name, type, duration, and two QR codes
+ *    (Start QR and Complete QR) encoding the signed token URLs.
+ * 5. Auto-triggers window.print() on load.
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as /jobs/:jobId/print (auth required, no layout)
+ * - frontend/src/pages/Jobs.tsx — Print button opens this route in a new tab
+ *
+ * INTERN NOTES
+ * - This page uses print CSS media queries — layout is optimised for A4 paper.
+ *   Do not add interactive UI elements that would appear in the printed output.
+ * - Token generation is gated by the qr_scan feature flag on the backend.
+ *   If the flag is off, /api/jobs/{jobId}/scan-tokens returns a warm 200 dict
+ *   (not an error) — the page handles this gracefully.
+ * - Design Principle 10: the tokens generated here link to /scan which is always
+ *   accessible without auth.
  */
-
 import { useEffect, useState, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'

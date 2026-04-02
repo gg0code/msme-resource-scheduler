@@ -1,22 +1,107 @@
 """
-scripts/seed_v2.py — MSME Resource Scheduler V2.0 Data Seed
-============================================================
-Seeds one tenant with realistic Indian manufacturing data:
-  - 20 skills
-  - 10 employees  (with hourly_rate, overtime_rate, skills)
-  - 10 machines   (with hourly_rate, skill requirements)
-  - 20 raw materials (reusable catalog)
-  - 8 jobs        (fully loaded: assignments, skill reqs, raw materials,
-                   order_value, misc_cost, varied statuses)
+```python
+"""
+backend/scripts/seed_v2.py — Database Seeding Script for MSME Resource Scheduler
+=================================================================================
 
-Usage (from backend/ directory):
-  venv\\Scripts\\python.exe scripts/seed_v2.py
+FILE PURPOSE
+This is a standalone Python script that populates the PostgreSQL database with realistic 
+Indian manufacturing test data for development and demo purposes. Introduced in v4-dev to 
+replace earlier seeding scripts with more comprehensive data including skills, employees, 
+machines, and fully-loaded jobs with assignments and raw materials. It sits outside the 
+main application architecture as a utility script run from the command line.
 
-  # Wipe existing data first (same tenant):
-  venv\\Scripts\\python.exe scripts/seed_v2.py --wipe
+WHAT THIS FILE DOES — step by step
+1. Sets up command-line argument parsing for --wipe and --tenant-id options
+2. Configures Python path to import from the main app directory
+3. Imports all necessary SQLAlchemy models and database session
+4. Defines seed data arrays for skills, employees, machines, and jobs with realistic Indian manufacturing scenarios
+5. Opens database session and finds target tenant (first tenant or specified --tenant-id)
+6. Optionally wipes existing data if --wipe flag is provided
+7. Seeds skills table with 20 manufacturing skills across machining, fabrication, quality, etc.
+8. Seeds employees table with 10 workers including hourly rates, overtime rates, and skill associations
+9. Seeds machines table with 10 pieces of equipment including CNC lathes, welders, presses, etc.
+10. Seeds jobs table with 8 realistic manufacturing jobs including customer info, assignments, skill requirements, and raw materials
+11. Commits all changes and closes database session
 
-The script is IDEMPOTENT for skills/employees/machines/jobs by name.
-Running twice won't duplicate — it skips existing records.
+KEY FUNCTIONS / CLASSES / COMPONENTS
+
+Name         : seed_skills
+Type         : function
+Purpose      : Creates Skill records from SKILLS_DATA array, skipping existing skills by name to maintain idempotency. Associates each skill with the target tenant.
+Parameters   : db (Session) - SQLAlchemy database session, tenant_id (int) - tenant to associate skills with
+Returns      : dict mapping skill names to Skill model instances for later reference
+Calls        : SQLAlchemy Session.query(), Session.add(), Session.flush()
+DB/API       : Queries skills table filtered by tenant_id and name, inserts new Skill records
+Side effects : Creates new rows in skills table, prints progress messages to console
+
+Name         : seed_employees  
+Type         : function
+Purpose      : Creates Employee records from EMPLOYEES_DATA array with associated EmployeeSkill junction records. Skips existing employees by name to maintain idempotency.
+Parameters   : db (Session) - SQLAlchemy database session, tenant_id (int) - tenant to associate employees with, skills_map (dict) - mapping of skill names to Skill instances
+Returns      : dict mapping employee names to Employee model instances for later job assignments
+Calls        : SQLAlchemy Session.query(), Session.add(), Session.flush()
+DB/API       : Queries employees table filtered by tenant_id and name, inserts Employee and EmployeeSkill records
+Side effects : Creates new rows in employees and employee_skills tables, prints progress messages
+
+Name         : seed_machines
+Type         : function  
+Purpose      : Creates Machine records from MACHINES_DATA array with associated MachineSkillRequirement records. Each machine specifies required skills, proficiency levels, and operator counts.
+Parameters   : db (Session) - SQLAlchemy database session, tenant_id (int) - tenant to associate machines with, skills_map (dict) - mapping of skill names to Skill instances
+Returns      : dict mapping machine names to Machine model instances for later job assignments
+Calls        : SQLAlchemy Session.query(), Session.add(), Session.flush()
+DB/API       : Queries machines table filtered by tenant_id and name, inserts Machine and MachineSkillRequirement records
+Side effects : Creates new rows in machines and machine_skill_requirements tables, prints progress messages
+
+Name         : seed_jobs
+Type         : function
+Purpose      : Creates Job records from JOBS_DATA array with full job assignments, skill requirements, and raw materials. Each job includes customer info, timeline, costs, and resource allocations representing realistic Indian manufacturing scenarios.
+Parameters   : db (Session) - SQLAlchemy database session, tenant_id (int) - tenant to associate jobs with, employees_map (dict) - employee name to instance mapping, machines_map (dict) - machine name to instance mapping, skills_map (dict) - skill name to instance mapping
+Returns      : None
+Calls        : SQLAlchemy Session.query(), Session.add(), Session.flush()
+DB/API       : Queries jobs table filtered by tenant_id and name, inserts Job, JobAssignment, and JobSkillRequirement records
+Side effects : Creates new rows in jobs, job_assignments, and job_skill_requirements tables with raw_materials JSON data
+
+Name         : wipe_tenant_data
+Type         : function
+Purpose      : Deletes all seeded data for a specific tenant in reverse dependency order to avoid foreign key constraint violations. Used when --wipe flag is provided.
+Parameters   : db (Session) - SQLAlchemy database session, tenant_id (int) - tenant whose data should be deleted
+Returns      : None  
+Calls        : SQLAlchemy Session.query(), Session.delete()
+DB/API       : Deletes from job_assignments, job_skill_requirements, jobs, machine_skill_requirements, machines, employee_skills, employees, skills tables filtered by tenant_id
+Side effects : Permanently removes all seeded data for the specified tenant, prints deletion counts
+
+Name         : main
+Type         : function
+Purpose      : Entry point that orchestrates the entire seeding process. Handles command-line arguments, database session management, and calls all seeding functions in correct order.
+Parameters   : None (uses global args from argparse)
+Returns      : None
+Calls        : SessionLocal(), seed_skills(), seed_employees(), seed_machines(), seed_jobs(), wipe_tenant_data()
+DB/API       : Opens and commits database transaction, queries tenants table to find target tenant
+Side effects : Modifies database with test data, prints success/error messages, exits with status code
+
+WHO CALLS THIS FILE
+This script is executed directly from the command line and is not imported by other files in the codebase. Developers and deployment scripts run it manually using:
+- backend/scripts/seed_v2.py (normal seeding)
+- backend/scripts/seed_v2.py --wipe (wipe and re-seed)
+- backend/scripts/seed_v2.py --tenant-id 2 (seed specific tenant)
+
+IMPORTS EXPLAINED
+sys, os - Standard library modules for path manipulation to import from parent app directory
+argparse - Standard library for parsing --wipe and --tenant-id command-line flags  
+datetime.date, timedelta - Standard library for generating realistic job start/end dates relative to today
+app.database.SessionLocal - Database session factory for connecting to PostgreSQL
+app.models.auth.User, Tenant - SQLAlchemy models for user authentication and tenant isolation
+app.models.skill.Skill - SQLAlchemy model for manufacturing skills catalog
+app.models.employee.Employee, EmployeeSkill - SQLAlchemy models for worker records and their skill associations
+app.models.machine.Machine, MachineSkillRequirement - SQLAlchemy models for equipment and required operator skills
+app.models.job.Job, JobSkillRequirement, JobAssignment - SQLAlchemy models for manufacturing jobs and their resource allocations
+
+INTERN NOTES
+• Easiest thing to break: Running without existing tenant records will crash - always ensure at least one tenant exists in database before seeding
+• Non-obvious design decision: All seed data uses realistic Indian company names, INR pricing, and manufacturing scenarios to match the target market rather than generic placeholder data
+• Most common mistake when editing: Adding new jobs without checking that referenced employee/machine names exist in EMPLOYEES_DATA and MACHINES_DATA arrays
+• Design principle implemented
 """
 
 import sys

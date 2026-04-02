@@ -1,4 +1,121 @@
-// src/api/scheduling.ts — Prompt 1 frontend API layer
+/**
+```typescript
+/**
+ * FILE PURPOSE
+ * This file defines the frontend API client layer for the scheduling system in ZetaOps Copilot.
+ * It was introduced in v4.0.x on the v4-dev branch as part of the React frontend rewrite and serves
+ * as the TypeScript interface between React components and the FastAPI backend scheduling endpoints.
+ * This file sits in the frontend API layer, translating UI actions into HTTP requests to /api/
+ * endpoints and providing type safety for all scheduling-related data structures.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Defines TypeScript types and interfaces for all scheduling domain objects (jobs, steps, resources)
+ * 2. Exports union types for enums used throughout the scheduling system (priorities, statuses, shifts)
+ * 3. Defines request/response interfaces for create, update, and patch operations
+ * 4. Exports resourcesApi object with CRUD operations for machines and helpers
+ * 5. Exports schedJobsApi object with CRUD operations for manufacturing jobs
+ * 6. Exports stepsApi object with CRUD operations for job steps, including status updates
+ * 7. Provides type-safe wrappers around the authenticated HTTP client for all scheduling endpoints
+ *
+ * KEY FUNCTIONS / CLASSES / COMPONENTS
+ *
+ * Name         : ResourceType
+ * Type         : TypeScript union type
+ * Purpose      : Defines the two types of manufacturing resources in the system. 'machine' represents 
+ *                physical equipment like printers or fabrication machines. 'helper' represents human workers
+ *                who assist with jobs but are not primary operators.
+ * Parameters   : N/A (type definition)
+ * Returns      : N/A (type definition)
+ * Calls        : N/A
+ * DB/API       : N/A
+ * Side effects : N/A
+ *
+ * Name         : SchedPriority
+ * Type         : TypeScript union type
+ * Purpose      : Defines job priority levels used by the scheduling engine. 'critical' jobs get highest
+ *                priority and will preempt other work. 'urgent' jobs are scheduled as soon as possible.
+ *                'low' jobs fill available capacity after higher priorities are satisfied.
+ * Parameters   : N/A (type definition)
+ * Returns      : N/A (type definition)
+ * Calls        : N/A
+ * DB/API       : N/A
+ * Side effects : N/A
+ *
+ * Name         : SchedResource
+ * Type         : TypeScript interface
+ * Purpose      : Represents a manufacturing resource (machine or helper) with its availability schedule.
+ *                Maps directly to the Machine and Employee models in the backend, providing shift timing
+ *                information for scheduling calculations.
+ * Parameters   : id (unique resource identifier), tenant_id (multi-tenancy isolation), name (display name),
+ *                type (ResourceType enum), shift_start/shift_end (availability window in HH:MM:SS format),
+ *                created_at (audit timestamp)
+ * Returns      : N/A (interface definition)
+ * Calls        : N/A
+ * DB/API       : N/A
+ * Side effects : N/A
+ *
+ * Name         : SchedJob
+ * Type         : TypeScript interface
+ * Purpose      : Represents a complete manufacturing job with all associated steps. Contains business
+ *                metadata like profit expectations and deadlines, plus operational data like lock status
+ *                and current progress. The steps array provides the full workflow definition.
+ * Parameters   : id (unique job identifier), tenant_id (isolation), name (display name), priority (SchedPriority),
+ *                expected_profit (revenue projection), deadline (completion target), shift (time window),
+ *                lock_status (prevents rescheduling), status (current progress), steps (workflow array),
+ *                created_at/updated_at (audit timestamps)
+ * Returns      : N/A (interface definition)
+ * Calls        : N/A
+ * DB/API       : N/A
+ * Side effects : N/A
+ *
+ * Name         : SchedStep
+ * Type         : TypeScript interface
+ * Purpose      : Represents one step in a job workflow with resource requirements and reservation details.
+ *                Maps to JobStep model in backend. Contains duration estimates, resource requirements arrays,
+ *                and optional machine reservations for critical steps that need guaranteed capacity.
+ * Parameters   : id (unique step identifier), job_id (parent job), sequence_order (workflow position),
+ *                step_type (regular or setup), duration_minutes (time estimate), status (progress),
+ *                required_machine_ids/required_helper_ids (resource requirements), reserve_machine_id (guaranteed allocation),
+ *                is_setup_active (setup step flag), created_at/updated_at (audit timestamps)
+ * Returns      : N/A (interface definition)
+ * Calls        : N/A
+ * DB/API       : N/A
+ * Side effects : N/A
+ *
+ * Name         : resourcesApi
+ * Type         : API client object
+ * Purpose      : Provides type-safe CRUD operations for manufacturing resources. Handles both machines
+ *                and helpers through the same interface, with optional filtering by resource type.
+ *                All operations are tenant-scoped automatically by the backend.
+ * Parameters   : list() accepts optional type filter, create() takes ResourceCreate data, update() takes
+ *                id and partial data, delete() takes id only
+ * Returns      : list() returns SchedResource[], create()/update() return single SchedResource, delete() returns void
+ * Calls        : apiClient from './client' for all HTTP operations
+ * DB/API       : GET /api/resources/, POST /api/resources/, PUT /api/resources/{id}, DELETE /api/resources/{id}
+ * Side effects : Creates, modifies, or removes resource records in database
+ *
+ * Name         : schedJobsApi
+ * Type         : API client object
+ * Purpose      : Provides type-safe CRUD operations for manufacturing jobs. Supports optional filtering
+ *                by job status for dashboard views. All operations automatically include associated
+ *                job steps through backend relationships.
+ * Parameters   : list() accepts optional status filter, create() takes JobCreate data, get() takes job id,
+ *                update() takes id and partial data, delete() takes id only
+ * Returns      : list() returns SchedJob[], create()/get()/update() return single SchedJob with steps array,
+ *                delete() returns void
+ * Calls        : apiClient from './client' for all HTTP operations
+ * DB/API       : GET /api/jobs-v2/, POST /api/jobs-v2/, GET /api/jobs-v2/{id}, PUT /api/jobs-v2/{id}, DELETE /api/jobs-v2/{id}
+ * Side effects : Creates, modifies, or removes job records and associated steps in database
+ *
+ * Name         : stepsApi
+ * Type         : API client object
+ * Purpose      : Provides type-safe CRUD operations for job steps, including a specialized patchStatus()
+ *                method for workflow progression. All operations are scoped to a specific job and
+ *                maintain proper sequence ordering for workflow integrity.
+ * Parameters   : All methods take jobId first, then stepId for individual operations. create() takes StepCreate data,
+ *                update() takes StepUpdate data, patchStatus() takes StepStatus enum value
+ * Returns      : list()
+ */
 
 import apiClient from './client'
 

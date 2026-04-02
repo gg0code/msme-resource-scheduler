@@ -1,7 +1,105 @@
 """
-utils/csv_import.py — V1.1
-Added: tenant_id parameter to all three import functions.
-Every model insert and skill lookup is now tenant-scoped.
+```python
+"""
+FILE PURPOSE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This file provides tenant-scoped bulk import functionality for employees, machines, and skills from CSV/XLSX files. 
+It was introduced in v1.0 and enhanced to v1.1 with mandatory tenant_id parameters on all import functions to ensure 
+data isolation between tenants. This utility sits in the backend/app/utils/ layer and serves as a bridge between 
+raw file data and our SQLAlchemy ORM models, handling both CSV and Excel formats with proper error reporting.
+
+WHAT THIS FILE DOES — step by step
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Reads uploaded file content (bytes) and determines format by filename extension (.xlsx vs .csv)
+2. Parses file content into list of dictionaries with column headers as keys
+3. Iterates through each row, validates required fields, and creates SQLAlchemy model instances
+4. For employees: handles pipe-separated skills (SkillName:Level) and optional leave periods
+5. For machines: handles pipe-separated skill requirements (SkillName:Level:Count) and optional downtime periods
+6. For skills: creates new tenant-scoped skills with categories and descriptions
+7. Auto-creates missing skills during employee/machine imports within the tenant scope
+8. Commits all changes in batches and returns detailed success/failure statistics with error messages
+9. Provides CSV template generation functions for download by users
+
+KEY FUNCTIONS / CLASSES / COMPONENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Name         : _read_csv
+Type         : function
+Purpose      : Parses CSV file content from bytes into a list of dictionaries. Handles UTF-8 BOM stripping 
+               to prevent encoding issues with Excel-exported CSV files.
+Parameters   : content (bytes) - raw file content from upload
+Returns      : List[Dict[str, str]] - each row as dictionary with column headers as keys
+Calls        : csv.DictReader from Python standard library
+DB/API       : None
+Side effects : None
+
+Name         : _read_xlsx
+Type         : function
+Purpose      : Parses Excel (.xlsx) file content from bytes into same format as CSV. Handles empty rows and 
+               None values gracefully. Only reads the active worksheet.
+Parameters   : content (bytes) - raw Excel file content from upload
+Returns      : List[Dict[str, str]] - each row as dictionary, matching CSV format
+Calls        : openpyxl.load_workbook for Excel parsing
+DB/API       : None
+Side effects : None
+
+Name         : _read_file
+Type         : function
+Purpose      : Router function that delegates to appropriate parser based on file extension. Provides unified 
+               interface for both CSV and Excel file handling.
+Parameters   : content (bytes) - raw file content, filename (str) - original filename with extension
+Returns      : List[Dict[str, str]] - parsed rows regardless of source format
+Calls        : _read_csv or _read_xlsx based on filename
+DB/API       : None
+Side effects : None
+
+Name         : _parse_date
+Type         : function
+Purpose      : Safely converts YYYY-MM-DD string to Python date object. Returns None for empty/invalid dates 
+               instead of crashing, allowing optional date fields in imports.
+Parameters   : val (str) - date string in ISO format
+Returns      : Optional[date] - Python date object or None if invalid/empty
+Calls        : date.fromisoformat from Python standard library
+DB/API       : None
+Side effects : None
+
+Name         : _get_or_create_skill
+Type         : function
+Purpose      : Finds existing skill by name within tenant scope, or creates new one if missing. Ensures all 
+               skills referenced in employee/machine imports exist before creating relationships.
+Parameters   : db (Session) - SQLAlchemy session, name (str) - skill name, tenant_id (int) - tenant scope
+Returns      : Skill - existing or newly created skill model instance
+Calls        : SQLAlchemy query operations
+DB/API       : SELECT query for existing skill, INSERT if not found, both filtered by tenant_id
+Side effects : May create new Skill record in database, calls db.flush() to get ID
+
+Name         : import_employees
+Type         : function
+Purpose      : Bulk imports employee records from CSV/Excel with skills, availability, and optional leave periods. 
+               Creates EmployeeSkill relationships and EmployeeLeave records. Each employee is strictly tenant-scoped.
+Parameters   : db (Session) - database session, content (bytes) - file content, tenant_id (int) - tenant scope, 
+               filename (str) - for format detection (default "file.csv")
+Returns      : Dict[str, Any] - {"rows_imported": int, "rows_failed": int, "errors": List[str]}
+Calls        : _read_file, _get_or_create_skill, _parse_date
+DB/API       : INSERT Employee, EmployeeSkill, EmployeeLeave records, all with tenant_id filter
+Side effects : Creates database records, commits transaction, may rollback on individual row errors
+
+Name         : import_machines
+Type         : function
+Purpose      : Bulk imports machine records with skill requirements and optional downtime periods. Creates 
+               MachineSkillRequirement relationships with employee count per skill. All records tenant-scoped.
+Parameters   : db (Session) - database session, content (bytes) - file content, tenant_id (int) - tenant scope,
+               filename (str) - for format detection (default "file.csv")
+Returns      : Dict[str, Any] - {"rows_imported": int, "rows_failed": int, "errors": List[str]}
+Calls        : _read_file, _get_or_create_skill, _parse_date
+DB/API       : INSERT Machine, MachineSkillRequirement, MachineDowntime records with tenant_id
+Side effects : Creates database records, commits transaction, may rollback on individual row errors
+
+Name         : import_skills
+Type         : function
+Purpose      : Bulk imports skill catalog with categories and descriptions. Prevents duplicate skills within 
+               same tenant. Used for pre-populating skill master data before employee/machine imports.
+Parameters   : db (Session) - database session, content (bytes) -
 """
 
 import csv

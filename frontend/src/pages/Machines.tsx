@@ -1,6 +1,30 @@
-// src/pages/Machines.tsx — table layout (matching Employees page)
-// Expandable rows show assigned jobs with Remove button.
-
+/**
+ * frontend/src/pages/Machines.tsx
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * Machine management page. Lists all machines with expandable rows showing skill
+ * requirements, job assignments, and downtime periods. Supports create, edit, delete,
+ * bulk CSV/XLSX import, and downtime period management. Mirrors Employees.tsx
+ * structure. Plan limit enforcement: free plan allows 10 machines.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Fetches machines via useMachines() from hooks_index.ts (['machines'] key).
+ * 2. Header: CsvImport widget + LimitedButton for "Add Machine".
+ * 3. PlanLimitBanner for free plan machine limit.
+ * 4. Machine table with expand/collapse. Expanded row: skill requirements,
+ *    job assignments, UnavailabilityPanel (green accent for machines).
+ * 5. Edit modal: update machine fields and skill requirements.
+ * 6. Delete: useDeleteMachine() invalidates ['machines'] + ['dashboard'].
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as /machines route (protected)
+ *
+ * INTERN NOTES
+ * - UnavailabilityPanel used with accentColor="green" for machine downtime periods.
+ * - The ['machines'] query key is used by GettingStarted.tsx for onboarding detection.
+ * - Design Principle 2: tenant scoping automatic via JWT.
+ 
 import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'

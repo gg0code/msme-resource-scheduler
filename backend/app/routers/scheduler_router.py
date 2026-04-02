@@ -1,18 +1,112 @@
 """
-backend/app/routers/scheduler_router.py — v3.9.5
+```python
+"""
+backend/app/routers/scheduler_router.py
 
-POST /api/scheduler/run
-  - Loads all jobs/steps/resources for tenant from Job, JobStep, Machine, Employee
-  - Builds locked_entries from existing schedule_entries for locked jobs
-  - Calls run_scheduler()
-  - Persists ScheduleEntry results (skips locked jobs)
-  - Returns SchedulerResult JSON
+FILE PURPOSE
+This file implements the main scheduling API endpoints for the ZetaOps Copilot workforce scheduler.
+It serves as the bridge between the FastAPI web layer and the core scheduling engine, handling
+data loading from the database, calling the pure Python scheduler, and persisting results back
+to the database. Introduced in v3.0 and rewritten in v3.9.5 to read from Job/JobStep tables
+instead of legacy SchedJob tables. This sits in the routers layer and orchestrates the entire
+scheduling workflow while maintaining strict tenant isolation.
 
-GET /api/scheduler/entries
-  - Returns all schedule_entries for current tenant
+WHAT THIS FILE DOES — step by step
+1. Defines SQLAlchemy model (ScheduleEntryModel) for persisting schedule results in database
+2. Defines Pydantic response models for API serialization of schedule data
+3. Implements helper functions to load scheduling data from Job/JobStep/Machine/Employee tables
+4. Builds resource availability slots from Machine and Employee records with default shift times
+5. Converts Job records to JobInput format with priority normalization and deadline calculation
+6. Loads JobStep records and resolves required resources using fallback logic (step-level first, then job-level)
+7. Identifies locked schedule entries that cannot be modified during rescheduling
+8. Provides POST /api/scheduler/run endpoint that orchestrates the complete scheduling workflow
+9. Provides GET /api/scheduler/entries endpoint to retrieve current schedule for a tenant
+10. Handles persistence of new schedule results while preserving locked job schedules
 
-v3.9.5: loaders rewritten to read from Job/JobStep/Machine/Employee tables.
-        SchedJob / SchedStep / SchedResource are no longer used here.
+KEY FUNCTIONS / CLASSES / COMPONENTS
+
+Name         : ScheduleEntryModel
+Type         : SQLAlchemy ORM class
+Purpose      : Database model for persisting scheduled job steps with their assigned resources and time windows. Maps to the schedule_entries table and includes tenant_id for isolation, assigned machine/helper arrays, and scheduled start/end times.
+Parameters   : N/A (database model)
+Returns      : N/A (database model)
+Calls        : None (passive model)
+DB/API       : Represents schedule_entries table with tenant_id, job_id, step_id, resource arrays, timestamps
+Side effects : None (model definition only)
+
+Name         : _norm_priority
+Type         : function
+Purpose      : Normalizes Job.priority field from Title case (Critical/High/Medium/Low) to lowercase engine format (critical/urgent/low). This translation layer ensures the database can store human-readable priorities while the engine works with standardized values.
+Parameters   : p (str) - priority string from Job.priority field, can be None or empty
+Returns      : str - normalized priority ("critical", "urgent", or "low") with "low" as fallback
+Calls        : None (pure function)
+DB/API       : None
+Side effects : None (pure function)
+
+Name         : _tenant
+Type         : FastAPI dependency function
+Purpose      : Extracts tenant_id from authenticated user for use as FastAPI Depends parameter. Ensures all scheduling operations are scoped to the current user's tenant, implementing design principle #2 (tenant scoping).
+Parameters   : current_user (User) - injected by get_current_user dependency
+Returns      : int - tenant_id of the authenticated user
+Calls        : app.core.dependencies.get_current_user via FastAPI dependency injection
+DB/API       : None (uses pre-authenticated user)
+Side effects : None
+
+Name         : _load_resources
+Type         : function
+Purpose      : Builds ResourceSlot list from Machine and Employee database records for the scheduler engine. Converts database models to engine format, assigns default shift times (8AM-5PM) since Job model lacks shift fields, and categorizes machines vs helpers.
+Parameters   : db (Session) - SQLAlchemy database session, tenant_id (int) - tenant scope filter
+Returns      : List[ResourceSlot] - engine-compatible resource definitions with availability windows
+Calls        : SQLAlchemy select queries on Machine and Employee models
+DB/API       : Queries Machine and Employee tables filtered by tenant_id
+Side effects : None (read-only)
+
+Name         : _load_jobs
+Type         : function
+Purpose      : Converts Job database records to JobInput format for the scheduling engine. Filters out Completed/Cancelled jobs, normalizes priorities, calculates deadline timestamps from end_date, and sets default shift assignments.
+Parameters   : db (Session) - SQLAlchemy database session, tenant_id (int) - tenant scope filter
+Returns      : List[JobInput] - engine-compatible job definitions with priorities and deadlines
+Calls        : _norm_priority for priority conversion, SQLAlchemy queries on Job model
+DB/API       : Queries Job table excluding Completed/Cancelled status, filtered by tenant_id
+Side effects : None (read-only)
+
+Name         : _load_steps
+Type         : function
+Purpose      : Builds StepInput list from JobStep and StepResource tables with intelligent resource resolution fallback. If a step has explicit StepResource assignments, uses those; otherwise falls back to job-level JobAssignment resources if use_job_resources=True. This enables job-level resource assignment to work before per-step UI is built.
+Parameters   : db (Session) - SQLAlchemy database session, tenant_id (int) - tenant scope filter
+Returns      : List[StepInput] - engine-compatible step definitions with resolved resource requirements
+Calls        : SQLAlchemy queries on JobStep, StepResource, JobAssignment models
+DB/API       : Queries JobStep, StepResource, and JobAssignment tables for active jobs only
+Side effects : None (read-only)
+
+Name         : _load_locked_entries
+Type         : function
+Purpose      : Extracts existing schedule entries for locked jobs to create LockedEntry constraints for the engine. These represent committed time windows that cannot be rescheduled, ensuring the engine respects previously locked schedules during optimization.
+Parameters   : db (Session) - SQLAlchemy database session, tenant_id (int) - tenant scope filter
+Returns      : List[LockedEntry] - time window constraints for locked jobs with resource assignments
+Calls        : SQLAlchemy queries on Job and ScheduleEntryModel
+DB/API       : Queries Job table for is_locked=True jobs, then schedule_entries for those jobs
+Side effects : None (read-only)
+
+Name         : run_scheduler_endpoint
+Type         : FastAPI endpoint
+Purpose      : Main scheduling API that orchestrates the complete workflow: loads data from database, calls the pure Python scheduling engine, cleans up stale entries, and persists new results. Implements design principle #1 (engine computes, AI narrates) by handling all data persistence while letting the engine focus on optimization.
+Parameters   : body (RunSchedulerRequest) - optional schedule_date parameter, db (Session) - database dependency, tenant_id (int) - tenant scope dependency
+Returns      : SchedulerResult - JSON with resolved schedule entries and unresolved conflicts
+Calls        : require_feature for feature flag check, all _load_* functions, run_scheduler from engine, database CRUD operations
+DB/API       : Reads from Job/JobStep/Machine/Employee tables, writes to schedule_entries table
+Side effects : Deletes stale schedule entries for unlocked jobs, creates new ScheduleEntryModel records, commits database transaction
+
+WHO CALLS THIS FILE
+- Frontend scheduling pages via axios API calls to POST /api/scheduler/run
+- Frontend schedule display components via GET /api/scheduler/entries
+- backend/app/main.py registers this router with /api prefix
+- Potentially called by background tasks or other routers needing schedule data
+
+IMPORTS EXPLAINED
+- datetime, date, time, timezone: Handle scheduling timestamps and date calculations for deadlines and time windows
+- typing List, Optional: Type hints for function parameters and return values in strict TypeScript-like Python
+- fastapi APIRouter, Depends
 """
 
 from __future__ import annotations

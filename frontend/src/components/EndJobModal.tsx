@@ -1,6 +1,93 @@
-// src/components/EndJobModal.tsx — V2.0
-// Modal shown when user clicks End button on a running/paused job.
-// Allows editing final employee/machine list, shows live cost preview.
+/**
+ * frontend/src/components/EndJobModal.tsx — v2.0
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * The modal dialog shown when a user clicks the End button on a running or paused job.
+ * It serves as the final step of the job timer flow — letting the user review and edit
+ * which employees and machines were actually used, see a live cost preview, and confirm
+ * job completion. Introduced in v2.0 as part of the time-tracking feature. Sits in the
+ * shared components layer; called from Jobs.tsx. Contains real-time client-side cost
+ * recalculation logic based on hourly rates from the backend summary.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. On mount, calls timerApi.summary(jobId) to load actual hours, current assignments,
+ *    available employees/machines, and the initial cost preview from the backend.
+ * 2. Pre-selects employee and machine IDs from the backend's current_employee_ids and
+ *    current_machine_ids arrays.
+ * 3. Renders an "Actual Hours Worked" banner showing the real time tracked.
+ * 4. Renders two scrollable toggle-button grids: one for employees, one for machines.
+ *    Each button shows the person/machine name and their hourly rate.
+ * 5. When the user toggles a selection, a useEffect fires that recalculates the cost
+ *    preview client-side using the hourly rates from the summary response.
+ * 6. Renders a Final Cost Summary breakdown: employee cost, machine cost, materials,
+ *    misc, total, order value, and actual profit with a green/red trending icon.
+ * 7. On Confirm & Complete, calls onConfirm(selectedEmpIds, selectedMacIds) which
+ *    triggers timerApi.end() in the parent (Jobs.tsx).
+ * 8. Handles loading, error, and confirming states with spinners and disabled buttons.
+ *
+ * KEY FUNCTIONS / CLASSES / COMPONENTS
+ *
+ * Name         : EndJobModal (default export)
+ * Type         : React component
+ * Purpose      : Full-screen modal for completing a job. Loads job summary, shows
+ *                editable resource selection, live cost preview, and confirm button.
+ * Parameters   : jobId: number — the job being completed
+ *                jobName: string — displayed in the modal header
+ *                onConfirm: (empIds, macIds) => Promise<void> — called on confirm click
+ *                onClose: () => void — called on cancel or backdrop click
+ * Returns      : JSX.Element — fixed-position modal with backdrop
+ * Calls        : timerApi.summary(), timerApi (via onConfirm in parent)
+ * DB/API       : GET /api/timer/{jobId}/summary (on mount and on selection change)
+ * Side effects : none — parent handles the actual end() call via onConfirm
+ *
+ * Name         : CostRow
+ * Type         : React component (internal)
+ * Purpose      : Renders a single label/value row in the cost breakdown table.
+ *                highlight prop makes the row bold (used for Total Cost row).
+ * Parameters   : label: string, value: number, highlight?: boolean
+ * Returns      : JSX.Element
+ * Calls        : fmt() helper
+ * DB/API       : none
+ * Side effects : none
+ *
+ * Name         : fmt
+ * Type         : internal function
+ * Purpose      : Formats a number as Indian Rupee currency string (₹1,23,456).
+ *                Returns '—' for null/undefined values.
+ * Parameters   : n: number | null | undefined
+ * Returns      : string
+ * Calls        : Intl/toLocaleString with en-IN locale
+ * DB/API       : none
+ * Side effects : none
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/pages/Jobs.tsx — renders this modal when user clicks End on a job
+ *
+ * IMPORTS EXPLAINED
+ * - useEffect, useState from 'react': State for summary data, selected IDs, preview, loading.
+ * - X, Users, Wrench, TrendingUp, TrendingDown, Loader2, CheckCircle2 from 'lucide-react':
+ *   Icons for close button, section headers, profit direction, and loading/confirm states.
+ * - timerApi from '../api/api_timer': Provides summary() and end() API calls.
+ * - JobSummaryResponse from '../api/api_timer': TypeScript type for the summary response.
+ *
+ * INTERN NOTES
+ * - The cost preview is recalculated CLIENT-SIDE when resource selection changes. It
+ *   reads hourly rates from the summary response and multiplies by actual_hours. This
+ *   avoids an extra API call on every toggle but means the preview logic must stay in
+ *   sync with the backend cost_service.py formula.
+ * - Design Principle 1: The backend computes actual_hours and provides hourly rates.
+ *   The frontend only multiplies them — it does not own the cost formula.
+ * - onConfirm is async and the parent (Jobs.tsx) handles calling timerApi.end().
+ *   This component never calls end() directly — it delegates via the callback.
+ * - The useEffect for preview recalculation re-fetches summary on every selection
+ *   change. This is a known minor inefficiency — the rates are already in state from
+ *   the first fetch but are re-fetched to stay safe. Acceptable for current scale.
+ * - If the modal shows a blank error state: check that /api/timer/{jobId}/summary
+ *   is returning 200. The job must be in 'running' or 'paused' state for summary to work.
+ * - The catch block in handleConfirm reads error.response.data.detail — FastAPI's
+ *   standard error shape. If the backend changes error format this will break silently.
+ */
 
 import { useEffect, useState } from 'react'
 import { X, Users, Wrench, TrendingUp, TrendingDown, Loader2, CheckCircle2 } from 'lucide-react'
@@ -64,17 +151,11 @@ export default function EndJobModal({ jobId, jobName, onConfirm, onClose }: Prop
   }, [jobId])
 
   // Recompute preview when selections change
-  // We call summary endpoint with updated IDs via a lightweight approach:
-  // Since cost_preview is computed server-side, we re-fetch summary when selections change.
-  // To avoid excessive calls, we debounce via useEffect dependency.
   useEffect(() => {
     if (!summary) return
     setPreviewLoading(true)
-    // Re-fetch summary to get updated cost preview
-    // (summary endpoint always uses current actual_hours from DB)
     timerApi.summary(jobId)
       .then(s => {
-        // Build local preview from the rates we have
         const empRate = selectedEmpIds.reduce((sum, id) => {
           const emp = s.available_employees.find(e => e.id === id)
           return sum + (emp?.hourly_rate ?? 0)
@@ -229,7 +310,7 @@ export default function EndJobModal({ jobId, jobName, onConfirm, onClose }: Prop
                   <CostRow label="Total Actual Cost" value={preview.total_cost} highlight />
                   <CostRow label="Order Value" value={preview.order_value} />
                 </div>
-                <div className={`mt-2 pt-2 border-t border-gray-200 flex justify-between items-center`}>
+                <div className="mt-2 pt-2 border-t border-gray-200 flex justify-between items-center">
                   <span className="text-sm font-bold text-gray-800">Actual Profit</span>
                   <div className="flex items-center gap-1.5">
                     {preview.profit >= 0

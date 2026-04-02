@@ -1,10 +1,74 @@
-"""initial schema
-
-Revision ID: 46385051aa8d
-Revises: 
-Create Date: 2026-03-04 15:58:24.898962
-
 """
+```python
+"""
+FILE PURPOSE
+This is the initial database schema migration file for the ZetaOps Copilot project, created by Alembic
+(SQLAlchemy's database migration tool) to establish the foundational database structure. This migration
+was introduced in the early development of v4.x and creates all the core tables needed for workforce
+and job scheduling functionality. It sits at the base of the migration chain (revision 46385051aa8d,
+down_revision None) and defines the fundamental data model that supports employees, jobs, machines,
+skills, and their relationships in the scheduling engine.
+
+WHAT THIS FILE DOES — step by step
+1. Defines Alembic migration metadata (revision ID, creation date, no parent revision)
+2. Creates the 'employees' table with personal info, employment details, and availability percentage
+3. Creates the 'jobs' table with scheduling details, dates, priority, and profit tracking
+4. Creates the 'machines' table with equipment info, type, location, and availability percentage
+5. Creates the 'skills' table with skill definitions, categories, and premium/active flags
+6. Creates the 'availability_overrides' table to handle temporary availability changes for employees/machines
+7. Creates the 'employee_skills' junction table linking employees to their skills with proficiency levels
+8. Creates the 'job_assignments' table linking jobs to assigned employees and machines
+9. Creates the 'job_skill_requirements' table defining what skills each job needs
+10. Creates the 'machine_skill_requirements' table defining what skills are needed to operate each machine
+11. Adds primary key indexes on all tables for query performance
+12. Defines foreign key relationships with CASCADE/SET NULL delete behaviors
+13. Provides downgrade() function to completely reverse all table creations
+
+KEY FUNCTIONS / CLASSES / COMPONENTS
+
+Name         : upgrade
+Type         : function
+Purpose      : Creates all initial database tables and indexes needed for the scheduling system. This
+               establishes the complete foundational schema that allows the application to store and
+               manage employees, jobs, machines, skills, and their complex relationships for workforce
+               scheduling operations.
+Parameters   : None (Alembic migration signature)
+Returns      : None (performs database DDL operations)
+Calls        : Alembic op.create_table(), op.create_index(), sa.Column(), sa.ForeignKeyConstraint()
+DB/API       : Executes CREATE TABLE and CREATE INDEX statements against the PostgreSQL database
+Side effects : Creates 8 tables with indexes and foreign key constraints in the database schema
+
+Name         : downgrade
+Type         : function
+Purpose      : Completely reverses the upgrade() operation by dropping all tables and indexes in reverse
+               dependency order. This allows rolling back to a completely empty database state if needed
+               during development or emergency rollbacks.
+Parameters   : None (Alembic migration signature)
+Returns      : None (performs database DDL operations)
+Calls        : Alembic op.drop_table(), op.drop_index()
+DB/API       : Executes DROP TABLE and DROP INDEX statements against the PostgreSQL database
+Side effects : Removes all tables and data created by upgrade(), leaving database in pre-migration state
+
+WHO CALLS THIS FILE
+- backend/alembic/env.py (Alembic environment loads and executes this migration)
+- Alembic CLI commands like 'alembic upgrade head' or 'alembic downgrade base'
+- Database initialization scripts during deployment or local development setup
+- Migration chain execution (this is the first migration, so subsequent migrations depend on it)
+
+IMPORTS EXPLAINED
+- from alembic import op: Provides Alembic's operation commands (create_table, drop_table, etc.) for database DDL operations
+- import sqlalchemy as sa: Imports SQLAlchemy core for column definitions, data types, and constraint objects used in table creation
+
+INTERN NOTES
+- Easiest thing to break: Modifying this file after it's been applied to production - NEVER edit applied migrations, always create new ones
+- Non-obvious design decision: No tenant_id columns in this initial schema - multi-tenancy was added in later migrations to avoid breaking existing single-tenant deployments
+- Most common mistake: Forgetting that this creates tables WITHOUT the modern tenant_id scoping that current models require - data created here would fail current security filters
+- Design principle implemented: This predates the current design principles but establishes the foundation for principle #2 (tenant scoping was retrofitted later)
+- What to check if unexpected behavior: Verify this migration was actually applied with 'alembic current' - missing base tables cause cascading SQLAlchemy errors
+- Migration chain dependency: All subsequent migrations assume these base tables exist - corrupting this migration breaks the entire database evolution path
+```
+"""
+
 from alembic import op
 import sqlalchemy as sa
 

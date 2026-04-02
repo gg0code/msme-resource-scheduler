@@ -1,41 +1,127 @@
 """
-FILE:    whatsapp_formatter.py
-PATH:    backend/app/services/whatsapp_formatter.py
-PURPOSE: Converts AI responses from markdown format into plain text
-         suitable for WhatsApp messages.
+```python
+"""
+FILE PURPOSE:
+This file converts AI-generated responses from markdown format to plain text suitable for WhatsApp messages. 
+The AI backend (via Groq LLaMA) returns responses formatted for web UI with markdown syntax like **bold**, 
+### headers, and bullet points. WhatsApp doesn't render markdown properly, showing raw symbols instead. 
+This formatter is the final step before sending any AI response to factory owners via the WhatsApp Copilot 
+feature, introduced in v5-whatsapp branch as part of the Factory GPT messaging system.
 
-         The AI backend (run_ai_chat via Groq) returns responses written
-         for a web UI — they contain markdown like **bold**, ### headers,
-         bullet points with -, and code blocks with ```.
+WHAT THIS FILE DOES — step by step:
+1. Defines formatting constants (message length limits, replacement characters)
+2. Provides main format_for_whatsapp() function that orchestrates all formatting steps
+3. Removes markdown code blocks (``` blocks and `inline code`)
+4. Converts markdown headers (###, ##, #) to plain text with spacing
+5. Strips bold markers (**text**, __text__) keeping the text content
+6. Strips italic markers (*text*, _text_) keeping the text content  
+7. Converts bullet points (- item) to WhatsApp bullet character (• item)
+8. Cleans up numbered list formatting and spacing
+9. Converts markdown tables to simple line-by-line text format
+10. Removes extra whitespace and truncates overly long messages
+11. Returns clean plain text ready for WhatsApp delivery via Interakt
 
-         WhatsApp does not render markdown the same way. If we send
-         markdown directly, the factory owner sees raw symbols like
-         asterisks and hashes cluttering the message.
+KEY FUNCTIONS / CLASSES / COMPONENTS:
 
-         This file is the last step before sending a response to the
-         owner. Every AI response must pass through format_for_whatsapp()
-         before being sent via Interakt.
+Name         : format_for_whatsapp
+Type         : function
+Purpose      : Main entry point that converts any markdown-formatted AI response to WhatsApp-safe 
+               plain text. Orchestrates all formatting steps in correct order and handles edge cases 
+               like empty responses. This is the only function external callers should use.
+Parameters   : text (str) - Raw AI response string that may contain markdown formatting, can be empty/None
+Returns      : str - Cleaned plain text string safe to send via WhatsApp, never None, includes fallback for empty input
+Calls        : All private _remove_* and _convert_* functions in this file in sequence
+DB/API       : None - pure function with no external dependencies
+Side effects : Logs warning if input is empty or response gets truncated due to length limits
 
-         This formatter is STATELESS — it takes a string and returns a
-         string. It has no DB access, no Redis access, no external calls.
-         This means it works identically regardless of which AI backend
-         is behind whatsapp_bridge.py — Groq today, Factory GPT tomorrow.
+Name         : _remove_code_blocks
+Type         : function  
+Purpose      : Strips markdown code blocks (``` blocks) and inline code (`code`) markers while preserving
+               the content inside. Prevents raw backtick characters from appearing in WhatsApp messages.
+Parameters   : text (str) - Input text possibly containing code block markers
+Returns      : str - Text with backtick markers removed but code content preserved
+Calls        : Python re module for regex substitutions
+DB/API       : None
+Side effects : None - pure transformation function
 
-BRANCH:  v5-whatsapp
-VERSION: v5.1
-CREATED: 2026-03
+Name         : _remove_headers
+Type         : function
+Purpose      : Converts markdown headers (#, ##, ###) to plain text by removing hash symbols and adding 
+               newline spacing. Preserves visual hierarchy without markdown syntax.
+Parameters   : text (str) - Input text possibly containing markdown header markers
+Returns      : str - Text with hash markers removed and proper spacing added before header text
+Calls        : Python re module for regex substitutions with MULTILINE flag
+DB/API       : None  
+Side effects : None - pure transformation function
 
-DEPENDENCIES:
-  re (Python standard library) — for regex-based text transformations
-  No external packages needed — this file has zero pip dependencies.
+Name         : _remove_bold_markers
+Type         : function
+Purpose      : Strips markdown bold syntax (**text** and __text__) while keeping the bold text content
+               as plain text. Prevents asterisks and underscores from cluttering WhatsApp messages.
+Parameters   : text (str) - Input text possibly containing bold markdown markers
+Returns      : str - Text with bold markers removed but emphasized content preserved as plain text
+Calls        : Python re module for regex substitutions  
+DB/API       : None
+Side effects : None - pure transformation function
 
-USAGE:
-  from app.services.whatsapp_formatter import format_for_whatsapp
+Name         : _remove_italic_markers  
+Type         : function
+Purpose      : Strips markdown italic syntax (*text* and _text_) while preserving italic content as
+               plain text. Carefully avoids matching underscores in variable names like tenant_id.
+Parameters   : text (str) - Input text possibly containing italic markdown markers
+Returns      : str - Text with italic markers removed but emphasized content preserved
+Calls        : Python re module for regex substitutions with word boundary checks
+DB/API       : None
+Side effects : None - pure transformation function
 
-  # Format AI response before sending to owner
-  raw_response = await active_bridge.process_message(...)
-  whatsapp_text = format_for_whatsapp(raw_response)
-  await send_whatsapp_message(phone_number, whatsapp_text)
+Name         : _convert_bullet_points
+Type         : function
+Purpose      : Replaces markdown bullet syntax (- item) with proper WhatsApp bullet character (• item).
+               Handles both regular and indented bullets for nested lists.
+Parameters   : text (str) - Input text possibly containing markdown hyphen-space bullet points  
+Returns      : str - Text with markdown bullets replaced by universal bullet character •
+Calls        : Python re module for regex substitutions with MULTILINE flag
+DB/API       : None
+Side effects : None - pure transformation function
+
+Name         : _convert_numbered_lists
+Type         : function  
+Purpose      : Preserves numbered list items (1. item) but removes extra indentation that would look
+               odd on mobile WhatsApp screens. Numbers are kept since they render fine.
+Parameters   : text (str) - Input text possibly containing indented numbered list items
+Returns      : str - Text with numbered lists left-aligned and cleaned spacing
+Calls        : Python re module for regex substitutions
+DB/API       : None
+Side effects : None - pure transformation function
+
+Name         : _convert_markdown_tables
+Type         : function
+Purpose      : Transforms markdown tables (with | separators and --- rows) into simple line-by-line
+               plain text format. Skips separator rows and converts data rows to readable format.
+Parameters   : text (str) - Input text possibly containing pipe-separated markdown tables
+Returns      : str - Text with tables converted to plain text lines, pipe separators preserved for readability
+Calls        : Python re module and string manipulation methods
+DB/API       : None  
+Side effects : None - pure transformation function
+
+WHO CALLS THIS FILE:
+- backend/app/services/whatsapp_bridge.py - imports format_for_whatsapp() to clean AI responses before sending
+- backend/app/routers/whatsapp_router.py - uses formatting before Interakt WhatsApp message delivery
+- backend/app/services/whatsapp_conversation_manager.py - formats responses in conversation flow handling
+
+IMPORTS EXPLAINED:
+- re: Python standard library regex module for pattern matching and text substitution in all formatting functions
+- logging: Python standard library logging for warning messages when empty responses are received or truncation occurs
+
+INTERN NOTES:
+- Easiest thing to break: Changing the order of formatting steps - bold/italic removal must happen in correct sequence or regex patterns will conflict and produce malformed output
+- Non-obvious design decision: This is a stateless pure function with zero dependencies by design principle #1 (engine computes, AI narrates) - it works identically regardless of which AI backend is used
+- Most common mistake: Forgetting that some formatting functions depend on others running first - headers before bold, bold before italic, code blocks before everything else
+- Design principle: Implements principle #1 (Engine computes, AI only narrates) by being a pure formatter that never re-computes logic, just transforms presentation
+- What to check if behaving unexpectedly: Check the AI response content in logs before formatting - empty responses, malformed markdown, or responses longer than MAX_MESSAGE_LENGTH will trigger edge case handling
+- v5-whatsapp merge note: This file has zero v4-dev dependencies and only uses Python standard library - it will merge cleanly but should be feature-flagged since WhatsApp is v5-only functionality
+"""
+```
 """
 
 import re

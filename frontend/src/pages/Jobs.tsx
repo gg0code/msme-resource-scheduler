@@ -1,15 +1,53 @@
-// src/pages/Jobs.tsx — J1.1
-// New features:
-//   · Start Mode selector: Right Away / Pick a Date / Flexible (earliest+latest)
-//   · Lock / Unlock toggle per job (locked = protected from auto-scheduler)
-//   · Job ID display: "#106" or "ABC-106" if tenant has job_id_prefix
-//   · Conflict badge on row (red ⚠ icon, tooltip)
-//   · Priority colour chips: Critical=Red, High=Orange, Medium=Yellow, Low=Gray
-//   · Start button disabled + tooltip when has_conflict = true
-//   · Auto-Scheduler button (runs on UNLOCKED jobs, prioritises Critical→High→order_value)
-//   · Customer grouping toggle
-//   · All previous V2 features preserved
-
+/**
+ * frontend/src/pages/Jobs.tsx — ~2500 lines
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * The main job management page — the most complex file in the entire frontend.
+ * ~2500 lines handling the complete job lifecycle: create, edit, delete, assign
+ * resources, manage steps, run scheduler, view resource availability, control
+ * timers, print job cards, and receive AI Copilot answers. Every major v4 feature
+ * surfaces here. Industry-aware labels throughout via useLabels().
+ *
+ * WHAT THIS FILE DOES — step by step (major sections)
+ * 1. Data: fetches jobs, employees, machines, skills, plan limits, schedule entries.
+ * 2. Job list: filterable by status, priority, customer. Each job card is expandable.
+ * 3. Create/Edit wizard: multi-step form — basic info → raw materials → skill
+ *    requirements → step management → resource assignment.
+ * 4. Raw materials: JSON array with name/quantity/unit/unit_cost per item.
+ *    Plan limit enforced (RawMaterialLimitHint).
+ * 5. Step management: add/reorder/delete JobStep records for a job.
+ * 6. Resource assignment: assign employees and machines, shows availability panel
+ *    (ResourceAvailabilityResponse) with real-time free_pct and blocking jobs.
+ * 7. Scheduler toolbar: triggers POST /api/scheduler/run, shows resolved/unresolved.
+ * 8. Material estimate: calls GET /api/jobs/{id}/material-estimate, AI narrates result.
+ * 9. Schedule suggestions: calls GET /api/jobs/{id}/schedule-suggestions.
+ * 10. Timer controls: start/pause/resume/stop per job via timerApi.
+ * 11. End job: opens EndJobModal for final cost confirmation.
+ * 12. Print: opens /jobs/:jobId/print in new tab (QR card generation).
+ * 13. Plan limits: LimitedButton + PlanLimitBanner for job count enforcement.
+ *
+ * KEY INTERNAL COMPONENTS (defined inline)
+ * - JobWizard — multi-step create/edit modal (~800 lines)
+ * - StepManager — step CRUD for a job
+ * - ResourcePanel — assignment + availability display
+ * - SchedulerResultPanel — shows run_scheduler() output
+ * - MaterialEstimatePanel — shows material estimate with confidence score
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as /jobs route (protected)
+ *
+ * INTERN NOTES
+ * - This file is too large to understand all at once. Read it section by section.
+ *   Each major section has a comment block starting with ── SectionName ──.
+ * - The ['jobs'] query key is used by GettingStarted.tsx for onboarding detection.
+ * - Design Principle 1: material estimates, schedule suggestions, and cost
+ *   calculations all come from backend endpoints — never computed in this file.
+ * - Design Principle 5: resource availability (amber = partial, red = unavailable)
+ *   is different from scheduling conflicts (red in Gantt). Both surfaces exist here.
+ * - If a job action (assign, step edit etc) seems to have no effect: check that
+ *   the mutation's onSuccess is calling qc.invalidateQueries with the right key.
+ 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -2542,4 +2580,3 @@ export default function Jobs() {
     </div>
   )
 }
-

@@ -1,53 +1,102 @@
 """
-FILE:    whatsapp_whisper.py
-PATH:    backend/app/services/whatsapp_whisper.py
-PURPOSE: Voice note transcription for WhatsApp Copilot.
+```python
+"""
+FILE PURPOSE:
+    Voice note transcription service for the WhatsApp Copilot feature in ZetaOps v5.x. 
+    When factory owners send voice messages instead of typing, this service downloads 
+    the audio from Meta's API and transcribes it to text using Groq's Whisper API. 
+    Introduced in v5-whatsapp branch as part of the WhatsApp integration to make 
+    voice-driven factory scheduling more accessible for owners who prefer speaking 
+    over typing on mobile devices.
 
-         When a factory owner sends a voice note instead of typing,
-         this service downloads the audio and transcribes it to text
-         using Groq's Whisper API (whisper-large-v3 model).
+WHAT THIS FILE DOES — step by step:
+    1. Receives a Meta media_id when webhook detects audio message type
+    2. Downloads audio file from Meta Graph API using two-step process (get URL, then download)
+    3. Validates audio file size against MAX_AUDIO_BYTES safety limit (10MB)
+    4. Sends audio bytes to Groq Whisper API using whisper-large-v3 model
+    5. Returns transcribed text as plain string to be passed into normal AI pipeline
+    6. Handles mock mode bypass for development testing without real API calls
+    7. Provides direct audio bytes transcription for simulator endpoint testing
 
-         The transcribed text is then passed into the normal message
-         pipeline exactly as if the owner had typed it — no special
-         handling needed downstream.
+KEY FUNCTIONS / CLASSES / COMPONENTS:
 
-         Flow:
-           1. Meta webhook receives audio message
-           2. _extract_message_from_payload() detects type=audio
-           3. transcribe_voice_note() is called with the media_id
-           4. Audio file downloaded from Meta API using media_id
-           5. Audio sent to Groq Whisper API for transcription
-           6. Transcribed text returned as plain string
-           7. Router prefixes with [Voice] and passes to AI pipeline
+    Name         : transcribe_voice_note
+    Type         : async function (exported)
+    Purpose      : Main entry point for transcribing WhatsApp voice notes. Downloads 
+                   audio from Meta API using media_id, then transcribes using Groq Whisper.
+                   Returns None on failure so caller can send error message to owner.
+    Parameters   : media_id (str) - Meta media ID from webhook payload, 
+                   access_token (str) - WHATSAPP_ACCESS_TOKEN for Meta API authentication
+    Returns      : str | None - transcribed text string or None if download/transcription failed
+    Calls        : _download_meta_audio(), _transcribe_with_groq()
+    DB/API       : Meta Graph API (2 calls: get URL, download file), Groq Whisper API
+    Side effects : Logs transcription success/failure, holds audio in memory (never disk)
 
-         Supported audio formats from WhatsApp:
-           - .ogg (Opus codec) — WhatsApp default
-           - .mp3, .mp4, .wav, .m4a — also accepted by Whisper
+    Name         : transcribe_audio_bytes
+    Type         : async function (exported)
+    Purpose      : Direct transcription bypass for simulator endpoint testing. Accepts 
+                   raw audio bytes instead of downloading from Meta API, allowing 
+                   development testing with local audio files.
+    Parameters   : audio_bytes (bytes) - raw audio file data, 
+                   filename (str) - filename with extension for format detection (default: "voice_note.ogg")
+    Returns      : str | None - transcribed text string or None if transcription failed
+    Calls        : _transcribe_with_groq()
+    DB/API       : Groq Whisper API only (no Meta API calls)
+    Side effects : Logs mock mode behavior, bypasses Meta download step entirely
 
-         Cost: FREE — uses existing GROQ_API_KEY, no new accounts needed.
-         Groq Whisper free tier: 28,800 seconds/day (~8 hours of audio).
-         A typical factory voice note is 10-30 seconds.
-         Pilot scale (5 factories, 50 voice notes/day) = ~25 minutes/day.
-         Well within free tier.
+    Name         : _download_meta_audio
+    Type         : async function (private helper)
+    Purpose      : Two-step Meta Graph API download process. First gets download URL 
+                   from media_id, then downloads actual audio bytes. Includes safety 
+                   checks for file size and HTTP status codes.
+    Parameters   : media_id (str) - Meta media identifier, 
+                   access_token (str) - Meta API authentication token
+    Returns      : bytes | None - raw audio file bytes or None if any download step failed
+    Calls        : httpx.AsyncClient for HTTP requests
+    DB/API       : Meta Graph API v18.0 (GET /media_id, GET download_url)
+    Side effects : Logs download progress/errors, enforces MAX_AUDIO_BYTES limit
 
-BRANCH:  v5-whatsapp
-VERSION: v5.2
-CREATED: 2026-03-30
+    Name         : _transcribe_with_groq
+    Type         : async function (private helper)
+    Purpose      : Sends audio bytes to Groq Whisper API for transcription. Uses 
+                   asyncio.run_in_executor to wrap synchronous Groq SDK calls and 
+                   avoid blocking FastAPI's event loop.
+    Parameters   : audio_bytes (bytes) - raw audio data, 
+                   filename (str) - filename with extension for Groq format detection
+    Returns      : str | None - transcribed text or None if Groq API call failed
+    Calls        : Groq SDK client, asyncio.get_running_loop().run_in_executor()
+    DB/API       : Groq Whisper API (whisper-large-v3 model)
+    Side effects : Wraps audio in BytesIO object, runs sync API call in thread pool
 
-DEPENDENCIES:
-  groq==0.9.0              — already installed, supports audio transcription
-  httpx==0.27.0            — already installed, used to download audio from Meta
-  app/config.py            — GROQ_API_KEY, WHATSAPP_APP_SECRET
-  app/config.py            — WHATSAPP_MOCK_MODE for dev mode bypass
+WHO CALLS THIS FILE:
+    backend/app/routers/whatsapp_router.py - webhook handler calls transcribe_voice_note() 
+    when message type is 'audio' in _extract_message_from_payload()
+    
+    backend/app/routers/whatsapp_simulator.py - test endpoint calls transcribe_audio_bytes() 
+    for development testing with uploaded audio files
 
-NOTES:
-  - In mock mode (WHATSAPP_MOCK_MODE=True), transcription is skipped and
-    a placeholder text is returned. This lets us test the pipeline without
-    real audio files.
-  - Meta audio download requires a valid access token. In development,
-    the simulator endpoint accepts a pre-transcribed text directly.
-  - Audio files are downloaded to memory (BytesIO) — never written to disk.
-    This avoids temp file cleanup issues and is safer for multi-tenant use.
+IMPORTS EXPLAINED:
+    io - BytesIO wrapper for audio bytes, required by Groq SDK file upload interface
+    logging - Module-level logger for transcription progress and error tracking
+    httpx - Async HTTP client for downloading audio from Meta Graph API endpoints
+    groq - Groq SDK client for Whisper API calls, already installed for AI chat service
+    app.config - Settings object containing GROQ_API_KEY, WHATSAPP_MOCK_MODE, access tokens
+
+INTERN NOTES:
+    • Easiest thing to break: Missing GROQ_API_KEY in .env will cause all transcriptions 
+      to fail with None return - always check settings.GROQ_API_KEY is set
+    • Non-obvious design decision: Audio never touches disk, only held in memory as BytesIO 
+      objects to avoid multi-tenant file cleanup issues and security risks
+    • Most common mistake: Forgetting that Groq SDK is synchronous - must use 
+      run_in_executor() wrapper to avoid blocking FastAPI's async event loop
+    • Implements design principle #9: WhatsApp services use sync Session, bridge uses 
+      run_in_executor() for async compatibility with FastAPI
+    • If transcription behaves unexpectedly: Check WHATSAPP_MOCK_MODE setting, verify 
+      Groq API key validity, and confirm Meta access token has media download permissions
+    • v5-whatsapp merge note: This entire file is new in v5, check that GROQ_API_KEY 
+      and WHATSAPP_MOCK_MODE are added to v4-dev settings when merging
+"""
+```
 """
 
 import io

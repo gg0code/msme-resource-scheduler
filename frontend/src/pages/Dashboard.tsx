@@ -1,11 +1,38 @@
-// src/pages/Dashboard.tsx — V2.0
-// Full job board with:
-//   - Status icons (green blink / red / arrow / blue / black)
-//   - Timer controls: Start, Pause, Resume, Stop (✕), End
-//   - Cost grid: Tentative Cost | Tentative Profit / Actual Cost | Actual Profit
-//   - Conflict banners, greyed Start button
-//   - Auto-poll every POLL_INTERVAL_MS for conflict resolution detection
-
+/**
+ * frontend/src/pages/Dashboard.tsx
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * The main dashboard — the first page users see after login. Shows KPI cards
+ * (active jobs, order book value, estimated profit, available resources), a jobs
+ * status summary, upcoming jobs, and a live job list with cost breakdowns and
+ * conflict indicators. Data fetches every 30 seconds automatically. The most
+ * data-dense page in the application.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Fetches dashboard data via useDashboard() hook (auto-refetches every 30s).
+ * 2. Renders 4 KPI cards using industry labels (kpiJobs, kpiOrderBook, kpiProfit).
+ * 3. Renders jobs-by-status summary (Draft, Scheduled, In Progress, Completed).
+ * 4. Renders upcoming jobs this week as a horizontal scroll list.
+ * 5. Renders the full job list: each job shows timer controls, cost breakdown,
+ *    conflict badge, assigned resources, and action buttons.
+ * 6. Timer controls call timerApi (start/pause/resume/stop) and invalidate cache.
+ * 7. End Job button opens EndJobModal for final cost confirmation.
+ * 8. Industry-aware labels throughout (kpiJobs, kpiOrderBook, kpiProfit).
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/App.tsx — registered as /dashboard route (protected)
+ *
+ * INTERN NOTES
+ * - Dashboard fetches everything in one call (GET /api/dashboard/) — not separate
+ *   calls per section. This keeps the dashboard fast. The backend aggregates all data.
+ * - Design Principle 1: conflict detection, cost calculations, and status icons are
+ *   all pre-computed by the backend. Dashboard only renders them.
+ * - The 30-second refetch (refetchInterval in useDashboard) keeps the shop floor
+ *   status live during the workday. Do not increase this interval.
+ * - useDashboard() uses queryKey ['dashboard'] — delete mutations in hooks_index.ts
+ *   invalidate this key so dashboard stays current after deletions.
+ */
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'

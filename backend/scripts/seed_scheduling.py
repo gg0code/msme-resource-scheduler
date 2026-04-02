@@ -1,23 +1,108 @@
 """
-scripts/seed_scheduling.py — Seed data for Prompt 1 scheduling engine
+```python
+"""
+────────────────────────────────────────────────────────────────────────────────────────────────
+SEED SCHEDULING DATA SCRIPT
+────────────────────────────────────────────────────────────────────────────────────────────────
 
-Seeds for tenant_id=2 (owner@abc.com) by default.
-Usage (from backend/ directory):
-  venv\\Scripts\\python.exe scripts/seed_scheduling.py
-  venv\\Scripts\\python.exe scripts/seed_scheduling.py --tenant-id 5
-  venv\\Scripts\\python.exe scripts/seed_scheduling.py --wipe
+FILE PURPOSE
+This is a development utility script that creates test data for the ZetaOps Copilot scheduling 
+engine, specifically designed for "Prompt 1" testing scenarios. It was introduced in v4-dev to 
+enable rapid testing of the core scheduling engine without manually creating complex job hierarchies 
+through the UI. The script sits outside the main application architecture as a standalone database 
+seeding tool and creates a realistic manufacturing scenario with interdependent jobs, multi-step 
+workflows, and resource constraints that stress-test the scheduling algorithms.
 
-Creates:
-  Resources: M1, M2 (machine), H1, H2 (helper)  — morning shift 08:00–16:00
-  Job XY1 (critical, profit=70000, deadline=next Wednesday, shift=morning)
-    seq=1 regular  machines=[M1]  helpers=[H1]  120 min
-    seq=2 regular  machines=[M2]  helpers=[H2]   90 min
-    seq=3 setup    machines=[]    helpers=[H1]   reserve=M1  30 min
-    seq=4 regular  machines=[M1]  helpers=[H1]   60 min
-  Job XY2 (urgent, profit=90000, deadline=next Thursday, shift=morning)
-    seq=1 regular  machines=[M2]  helpers=[H2]   60 min
-    seq=2 setup    machines=[]    helpers=[H2]   reserve=M1  20 min
-    seq=3 regular  machines=[M1]  helpers=[H2]  120 min
+WHAT THIS FILE DOES — step by step
+1. Parses command-line arguments for tenant ID selection and optional data wiping
+2. Calculates next Wednesday and Thursday dates as realistic job deadlines
+3. Establishes database connection using the main app's SessionLocal
+4. Optionally wipes existing seed data if --wipe flag is provided
+5. Creates or retrieves four resources: two machines (M1, M2) and two helpers (H1, H2)
+6. Sets all resources to morning shift schedule (08:00-16:00)
+7. Creates Job XY1 with 4 sequential steps, critical priority, and Wednesday deadline
+8. Creates Job XY2 with 3 sequential steps, urgent priority, and Thursday deadline
+9. Links each job step to specific machines and helpers based on manufacturing workflow
+10. Sets the first step of each job to "ready" status following scheduling Rule 1
+11. Commits all changes to database and closes connection
+
+KEY FUNCTIONS / CLASSES / COMPONENTS
+
+Name         : next_weekday
+Type         : function
+Purpose      : Calculates the next occurrence of a specified weekday at 09:00 AM, used to 
+               generate realistic job deadlines that fall on business days. This ensures 
+               seeded jobs always have future deadlines regardless of when the script runs.
+Parameters   : weekday (int) - day of week where 0=Monday through 6=Sunday
+Returns      : datetime object representing the next occurrence of that weekday at 09:00
+Calls        : Python datetime.now(), datetime.replace(), timedelta()
+DB/API       : None - pure date calculation
+Side effects : None
+
+Name         : get_or_create_resource
+Type         : function  
+Purpose      : Database helper that either retrieves an existing SchedResource by name or 
+               creates a new one with specified type and morning shift hours. Prevents 
+               duplicate resource creation when script runs multiple times.
+Parameters   : name (str) - resource identifier like "M1" or "H1"
+               rtype (ResourceType) - enum value of ResourceType.machine or ResourceType.helper
+Returns      : SchedResource ORM instance, either existing or newly created
+Calls        : SQLAlchemy db.query(), db.add(), db.flush()
+DB/API       : SELECT query on SchedResource table filtered by tenant_id and name
+               INSERT into SchedResource if not found
+Side effects : Prints status message, adds resource to database session
+
+Name         : create_job_if_missing
+Type         : function
+Purpose      : Creates a complete SchedJob with all associated SchedStep records and their 
+               machine/helper assignments, but only if a job with that name doesn't already 
+               exist. Implements the full job creation workflow including step sequencing 
+               and Rule 1 application (first step becomes ready).
+Parameters   : name (str) - job identifier like "XY1"
+               priority (SchedJobPriority) - enum value for job priority level
+               profit (float) - expected profit value for scheduling priority calculation
+               deadline (datetime) - when job must be completed
+               steps_data (list) - list of dicts containing step configuration data
+Returns      : None - creates database records as side effect
+Calls        : SQLAlchemy db.query(), db.add(), db.flush(), db.commit()
+DB/API       : SELECT query on SchedJob to check existence
+               INSERT into SchedJob, SchedStep, SchedStepMachine, SchedStepHelper tables
+Side effects : Creates complete job hierarchy in database, prints creation status
+
+Name         : run
+Type         : function
+Purpose      : Main orchestration function that executes the entire seeding process from 
+               database connection through resource and job creation. Handles the optional 
+               wipe operation and ensures proper database session management with cleanup.
+Parameters   : None - reads from global args variable
+Returns      : None - performs seeding as side effect
+Calls        : SessionLocal(), get_or_create_resource(), create_job_if_missing()
+DB/API       : DELETE queries for wiping existing data
+               Full resource and job creation through helper functions
+Side effects : Creates or wipes database records, prints progress messages, closes DB session
+
+WHO CALLS THIS FILE
+This script is executed directly from the command line and is not imported by any other files 
+in the codebase. It's run manually by developers using:
+- venv\Scripts\python.exe scripts/seed_scheduling.py
+- venv\Scripts\python.exe scripts/seed_scheduling.py --tenant-id 5  
+- venv\Scripts\python.exe scripts/seed_scheduling.py --wipe
+
+IMPORTS EXPLAINED
+sys, os, argparse - Standard library modules for path manipulation and command-line argument parsing needed for script execution outside the main app context.
+datetime, time, timedelta - Date/time handling for calculating realistic job deadlines and resource shift schedules.
+app.database.SessionLocal - Database session factory from main application to connect to the same PostgreSQL instance.
+app.models.scheduling - All ORM models for the legacy scheduling system including SchedResource, SchedJob, SchedStep and their associated enums and relationship tables.
+
+INTERN NOTES
+• Easiest thing to break: Running this script against the wrong tenant ID can pollute production data or create orphaned records that confuse the scheduling engine
+• Non-obvious design decision: This script uses the LEGACY SchedJob/SchedStep models instead of the newer Job/JobStep models because it was created before the model migration was complete
+• Most common mistake: Forgetting to run this from the backend/ directory causes import path failures since the script manipulates sys.path to find the app modules
+• Design principle #2: The script properly implements tenant scoping on all database queries by consistently filtering with tenant_id, preventing cross-tenant data leakage
+• What to check if behaving unexpectedly: Verify the database connection string matches your development environment and that alembic migrations are up to date, especially migration 018
+• Migration consideration: When this script is eventually updated to use the new Job/JobStep models, the step sequencing logic and Rule 1 implementation may need adjustment
+"""
+```
 """
 
 import sys, os, argparse

@@ -1,3 +1,40 @@
+/**
+ * frontend/src/scheduler/SchedulerToolbar.tsx
+ * Branch: v4-dev | v5-whatsapp (both)
+ *
+ * FILE PURPOSE
+ * The Auto-Schedule button rendered in the top header bar of Layout.tsx. Shows the
+ * current scheduler status (active/warn/clean/locked) as button colour and icon.
+ * Feature-flagged — only renders when flags.scheduler is true. Clicking the button
+ * triggers runScheduler() and shows a result summary panel after the run completes.
+ *
+ * WHAT THIS FILE DOES — step by step
+ * 1. Reads scheduler state from useSchedulerContext().
+ * 2. Reads feature flags from useFeatureFlags().
+ * 3. Returns null if flags.scheduler is false.
+ * 4. Renders a button whose colour reflects SchedulerStatus:
+ *    active     — blue pulsing dot (needs to run)
+ *    warn       — orange with conflict count
+ *    greyed-clean — gray with check icon (last run had no conflicts)
+ *    greyed-locked — gray with lock icon (all jobs locked)
+ * 5. On click: calls runScheduler() via context.
+ * 6. After run: shows a SchedulerRunSummary panel with resolved jobs and conflicts.
+ * 7. Panel auto-dismisses after 10 seconds or on manual close.
+ *
+ * WHO CALLS THIS FILE
+ * - frontend/src/components/Layout.tsx — rendered in the header bar
+ * - frontend/src/scheduler/SchedulerContext.tsx — re-exported via index (indirect)
+ *
+ * INTERN NOTES
+ * - Design Principle 8: the entire component returns null when flags.scheduler is false.
+ *   Never render scheduler UI without checking the flag first.
+ * - The button must call markDirty() in Jobs.tsx mutations to stay in sync.
+ *   If the button stays gray after a job is created: check Jobs.tsx mutation onSuccess.
+ * - greyed-locked state means all jobs have is_locked=true. The button shows a lock
+ *   icon and tooltip explaining why it is disabled.
+ * - Design Principle 1: runScheduler() calls the backend engine. This component
+ *   only triggers the call and displays the result — it never schedules anything.
+ */
 // src/scheduler/SchedulerToolbar.tsx — Prompt 2 Part D
 //
 // States:
