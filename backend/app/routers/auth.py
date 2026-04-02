@@ -1,6 +1,4 @@
-"""app/routers/auth.py — v4.0.2
-Added: industry_type in /auth/me response (from tenant)
-"""
+"""app/routers/auth.py — register, login, refresh, logout, me"""
 from typing import Optional
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
@@ -62,19 +60,5 @@ def logout(
 
 
 @router.get("/me", response_model=UserResponse)
-def me(
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    # v4.0.2 — include industry_type from tenant so frontend loads correct config
-    from app.models.auth import Tenant
-    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
-    industry_type = (tenant.industry_type or "printing") if tenant else "printing"
-    return {
-        "id":            current_user.id,
-        "email":         current_user.email,
-        "role":          current_user.role,
-        "tenant_id":     current_user.tenant_id,
-        "is_active":     current_user.is_active,
-        "industry_type": industry_type,
-    }
+def me(current_user=Depends(get_current_user)):
+    return current_user

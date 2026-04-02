@@ -1,6 +1,6 @@
-// frontend/src/data/aiTools.ts - v4.0.8
-// 50 pre-built AI prompts for the Tools tab in AICopilot.
-// Call getAITools(labels) to get industry-specific terminology.
+// src/data/aiTools.ts - v4.0.8
+// 50 pre-built AI prompts - industry-aware via IndustryLabels
+// Call getAITools(labels) to get prompts in the right terminology
 
 import type { IndustryLabels } from '../config/industries/types'
 

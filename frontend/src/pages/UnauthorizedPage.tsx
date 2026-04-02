@@ -1,6 +1,4 @@
-// frontend/src/pages/UnauthorizedPage.tsx
-// Shown when user role does not have access to the requested route.
-
+// src/pages/UnauthorizedPage.tsx
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 

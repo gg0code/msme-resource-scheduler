@@ -1,14 +1,3 @@
-# backend/app/routers/features.py — V3.7
-#
-# Public endpoint — no auth required.
-# Frontend fetches this once on load to know which features are visible.
-#
-# GET /api/features  →  { "scheduler": false, "gantt": false, ... }
-#
-# Register in main.py:
-#   from app.routers import features
-#   app.include_router(features.router, prefix="/api")
-
 from fastapi import APIRouter
 from app.features_config import FEATURE_FLAGS
 

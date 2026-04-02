@@ -1,19 +1,3 @@
-"""
-backend/app/services/demo_seeder.py — v4.0.6
-
-Seeds realistic demo data for a new tenant based on their industry_type.
-Called automatically after registration in auth_service.register_tenant_and_user().
-
-Each industry gets:
-  - 5 skills
-  - 6 employees with skill assignments
-  - 3 machines with skill requirements
-  - 3 jobs with skill requirements, raw materials, and steps
-  - Assignments linking jobs to employees and machines
-
-Seeding is idempotent — skips any records that already exist.
-"""
-
 from __future__ import annotations
 from datetime import date, timedelta
 from sqlalchemy.orm import Session
@@ -25,7 +9,7 @@ from app.models.job import Job, JobSkillRequirement, JobAssignment
 from app.models.job_steps import JobStep
 
 
-# ─── Helper ───────────────────────────────────────────────────────────────────
+# --- Helper -------------------------------------------------------------------
 
 def _today_plus(days: int) -> date:
     return date.today() + timedelta(days=days)
@@ -130,7 +114,7 @@ def _seed_job(db: Session, tid: int, name: str, customer: str,
     return job
 
 
-# ─── Industry seeders ─────────────────────────────────────────────────────────
+# --- Industry seeders ---------------------------------------------------------
 
 def _seed_printing(db: Session, tid: int):
     # Skills
@@ -590,7 +574,7 @@ def _seed_field_service(db: Session, tid: int):
         ])
 
 
-# ─── Main entry point ─────────────────────────────────────────────────────────
+# --- Main entry point ---------------------------------------------------------
 
 SEEDERS = {
     "printing":     _seed_printing,

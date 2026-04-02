@@ -1,6 +1,12 @@
-// frontend/src/context/FeatureFlags.tsx - v4.0.9
-// Fetches feature flags from /api/features, provides via useFeatureFlags().
-// All flags default to false until API responds. Cached 5 minutes.
+// src/context/FeatureFlags.tsx - v4.0.9
+//
+// Fetches feature flags from /api/features once on app load.
+// Makes them available everywhere via useFeatureFlags() hook.
+// No auth needed - flags are public UI visibility controls.
+//
+// Usage:
+//   const flags = useFeatureFlags()
+//   {flags.gantt && <NavItem to="/gantt" label="Production Timeline" />}
 
 import { createContext, useContext, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'

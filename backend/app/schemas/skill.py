@@ -16,7 +16,6 @@ class SkillBase(BaseModel):
     name: str
     category: str           # "generic" | "premium"
     is_premium: bool = False
-    is_generic_role: bool = False
     description: Optional[str] = None
 
 
@@ -41,7 +40,6 @@ class SkillUpdate(BaseModel):
     name: Optional[str] = None
     category: Optional[str] = None
     is_premium: Optional[bool] = None
-    is_generic_role: Optional[bool] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
 

@@ -1,17 +1,3 @@
-"""
-routers/gantt.py — V3.7
-
-GET /api/gantt/
-Returns all jobs for the tenant enriched with:
-  - assigned employee names and machine names
-  - has_conflict (bool) + conflict_reasons (list of strings)
-  - status_icon: one of 'ready' | 'conflict' | 'in_progress' | 'completed' | 'stopped'
-
-Read-only. No writes.
-Registered in main.py as /api/gantt
-V3.7: feature flag guard — returns warm message if gantt flag is False
-"""
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
@@ -49,7 +35,8 @@ class GanttJob(BaseModel):
     tentative_cost: Optional[float] = None
     tentative_profit: Optional[float] = None
 
-    model_config = {"from_attributes": True}
+    class Config:
+        from_attributes = True
 
 
 def _derive_status_icon(job: Job, has_conflict: bool) -> str:
@@ -81,7 +68,7 @@ def get_gantt_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # V3.7 — feature flag guard
+    # V3.7 - feature flag guard
     guard = require_feature("gantt")
     if guard:
         return guard

@@ -1,6 +1,8 @@
-// frontend/src/pages/Availability.tsx
-// Availability override management page.
-// Add/delete employee and machine availability overrides.
+// src/pages/Availability.tsx
+// --------------------------
+// Availability Overrides page. Covers both individual leave/maintenance and
+// bulk factory holidays. Shows a filterable list of all overrides with
+// add, edit and delete. Uses GET/POST/PATCH/DELETE /api/availability/.
 
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'

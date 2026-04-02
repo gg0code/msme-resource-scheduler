@@ -1,76 +1,19 @@
-"""
-FILE:    whatsapp_session.py
-PATH:    backend/app/services/whatsapp_session.py
-PURPOSE: Manages conversation history for WhatsApp messages using Redis.
-         Every factory owner gets a sliding window of their last 10 messages
-         stored in Redis with a 30 minute TTL (time to live).
-
-         This gives the AI memory within a conversation — the owner can say
-         "reschedule that job" and the AI knows which job was just discussed.
-         After 30 minutes of inactivity, the session expires and the next
-         message starts a fresh conversation.
-
-         Redis is used instead of PostgreSQL for session state because:
-         - Redis TTL handles expiry automatically — no cleanup jobs needed
-         - Redis is much faster for frequent small reads/writes
-         - Session data is temporary — it does not need to survive a restart
-         - PostgreSQL is reserved for permanent data only
-
-         When UPSTASH_REDIS_URL is not set in .env (development mode),
-         this file falls back to an in-memory dictionary automatically.
-         No code changes needed when switching to real Redis — just set
-         the environment variable.
-
-BRANCH:  v5-whatsapp
-VERSION: v5.0
-CREATED: 2026-03
-
-DEPENDENCIES:
-  redis (pip package)    — pip install redis
-  UPSTASH_REDIS_URL      — environment variable in .env
-                           Get from upstash.com after creating a Redis DB.
-                           Leave blank for development — mock mode activates.
-  app.config             — settings object that reads .env variables
-
-USAGE:
-  from app.services.whatsapp_session import (
-      get_session, save_session, clear_session,
-      add_message_to_session, get_ai_history
-  )
-
-  # Load existing session (returns empty list if no session exists)
-  history = await get_session(phone_number="+919876543210")
-
-  # Add a message and save in one call (most common usage)
-  history = await add_message_to_session(
-      phone_number="+919876543210",
-      role="user",
-      content="aaj ka schedule kya hai"
-  )
-
-  # Get history stripped of timestamps — safe to pass to Groq
-  ai_history = await get_ai_history(phone_number="+919876543210")
-
-  # Clear session (owner types reset/naya, or confirmation timeout)
-  await clear_session(phone_number="+919876543210")
-"""
-
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 import redis.asyncio as aioredis
 
 from app.config import settings
 
 # ---------------------------------------------------------------------------
-# Module logger — all messages prefixed with module name for easy filtering
+# Module logger - all messages prefixed with module name for easy filtering
 # ---------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# SESSION CONSTANTS — all tunable values defined here, never buried in logic
+# SESSION CONSTANTS - all tunable values defined here, never buried in logic
 # ---------------------------------------------------------------------------
 
 # How long a session lives without any new message (seconds).
@@ -85,7 +28,7 @@ MAX_SESSION_MESSAGES = 10
 
 # Redis key namespace prefix.
 # Full key format: whatsapp:session:+919876543210
-# Colons are Redis convention for namespacing — makes keys easy to find
+# Colons are Redis convention for namespacing - makes keys easy to find
 # in the Upstash dashboard and avoids collisions with other Redis keys.
 SESSION_KEY_PREFIX = "whatsapp:session"
 
@@ -111,7 +54,7 @@ def _create_redis_client() -> aioredis.Redis | None:
         sessions will not persist across server restarts.
     """
     if not settings.UPSTASH_REDIS_URL:
-        # Mock mode — log a warning but do not crash.
+        # Mock mode - log a warning but do not crash.
         # This is expected during development before Upstash is configured.
         logger.warning(
             "UPSTASH_REDIS_URL not set in .env — running in mock mode. "
@@ -131,16 +74,16 @@ def _create_redis_client() -> aioredis.Redis | None:
 
 # Shared Redis client for the entire application.
 # None = mock mode (UPSTASH_REDIS_URL not configured).
-# Created once at module load — do not recreate inside functions.
+# Created once at module load - do not recreate inside functions.
 redis_client = _create_redis_client()
 
 
 # ---------------------------------------------------------------------------
-# IN-MEMORY FALLBACK — used only when Redis is not configured
+# IN-MEMORY FALLBACK - used only when Redis is not configured
 # ---------------------------------------------------------------------------
 # When redis_client is None (mock mode), sessions are stored in this dict.
 # Key = Redis key string, Value = list of message dicts.
-# This dict is lost on every server restart — acceptable for development.
+# This dict is lost on every server restart - acceptable for development.
 # NEVER use this in production with real pilot factories.
 _mock_sessions: dict[str, list] = {}
 
@@ -187,7 +130,7 @@ async def get_session(phone_number: str) -> list[dict]:
     """
     session_key = _build_session_key(phone_number)
 
-    # Mock mode — read from in-memory dict instead of Redis
+    # Mock mode - read from in-memory dict instead of Redis
     if redis_client is None:
         history = _mock_sessions.get(session_key, [])
         logger.debug(
@@ -203,7 +146,7 @@ async def get_session(phone_number: str) -> list[dict]:
         raw_session_data = await redis_client.get(session_key)
 
         if raw_session_data is None:
-            # No session found — normal for new conversations or after TTL expiry
+            # No session found - normal for new conversations or after TTL expiry
             logger.debug(
                 f"No session in Redis for ****{phone_number[-4:]} — "
                 f"fresh conversation"
@@ -220,7 +163,7 @@ async def get_session(phone_number: str) -> list[dict]:
         return history
 
     except json.JSONDecodeError as e:
-        # Redis returned data that is not valid JSON — should never happen
+        # Redis returned data that is not valid JSON - should never happen
         # in normal operation but could occur if data was manually edited.
         logger.error(
             f"Corrupted session data for ****{phone_number[-4:]} — "
@@ -230,7 +173,7 @@ async def get_session(phone_number: str) -> list[dict]:
         return []
 
     except Exception as e:
-        # Redis connection failure — return empty list so conversation
+        # Redis connection failure - return empty list so conversation
         # can continue without history rather than failing completely.
         logger.error(
             f"Redis GET failed for ****{phone_number[-4:]}. "
@@ -268,7 +211,7 @@ async def save_session(
     """
     session_key = _build_session_key(phone_number)
 
-    # Apply sliding window — keep only the most recent MAX_SESSION_MESSAGES.
+    # Apply sliding window - keep only the most recent MAX_SESSION_MESSAGES.
     # Drop from the front (oldest) not the back (newest).
     if len(history) > MAX_SESSION_MESSAGES:
         messages_to_drop = len(history) - MAX_SESSION_MESSAGES
@@ -278,7 +221,7 @@ async def save_session(
             f"dropped {messages_to_drop} oldest, keeping {MAX_SESSION_MESSAGES}"
         )
 
-    # Mock mode — write to in-memory dict instead of Redis
+    # Mock mode - write to in-memory dict instead of Redis
     if redis_client is None:
         _mock_sessions[session_key] = history
         logger.debug(
@@ -289,11 +232,11 @@ async def save_session(
 
     # Real Redis mode
     try:
-        # Serialise to JSON — ensure_ascii=False preserves Hindi characters
+        # Serialise to JSON - ensure_ascii=False preserves Hindi characters
         session_json = json.dumps(history, ensure_ascii=False)
 
         # SET with EX resets the TTL on every save.
-        # Active conversations never expire — 30 min counts from LAST message.
+        # Active conversations never expire - 30 min counts from LAST message.
         await redis_client.set(
             session_key,
             session_json,
@@ -336,7 +279,7 @@ async def clear_session(phone_number: str) -> bool:
     """
     session_key = _build_session_key(phone_number)
 
-    # Mock mode — remove from in-memory dict
+    # Mock mode - remove from in-memory dict
     if redis_client is None:
         # pop with None default = no error if key does not exist
         _mock_sessions.pop(session_key, None)
@@ -387,7 +330,7 @@ async def add_message_to_session(
         Reads from and writes to Redis or _mock_sessions.
         Resets session TTL.
     """
-    # Validate role — only these two values are valid in conversation history.
+    # Validate role - only these two values are valid in conversation history.
     # System prompts are handled inside whatsapp_bridge.py, not here.
     if role not in ("user", "assistant"):
         raise ValueError(
@@ -400,12 +343,12 @@ async def add_message_to_session(
     history = await get_session(phone_number)
 
     # Build new message dict.
-    # We store timestamp for analytics — stripped before sending to Groq.
+    # We store timestamp for analytics - stripped before sending to Groq.
     # See get_ai_history() which returns Groq-safe history without timestamps.
     new_message = {
         "role": role,
         "content": content,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.utcnow().isoformat()
     }
 
     history.append(new_message)
@@ -435,11 +378,11 @@ async def get_ai_history(phone_number: str) -> list[dict]:
     """
     full_history = await get_session(phone_number)
 
-    # Strip timestamp field — Groq rejects unknown fields in message history
+    # Strip timestamp field - Groq rejects unknown fields in message history
     ai_history = [
         {"role": msg["role"], "content": msg["content"]}
         for msg in full_history
-        # Safety check — skip any malformed entries missing required fields
+        # Safety check - skip any malformed entries missing required fields
         if "role" in msg and "content" in msg
     ]
 

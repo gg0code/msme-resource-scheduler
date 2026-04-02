@@ -1,48 +1,6 @@
-"""
-FILE:    whatsapp_actions.py
-PATH:    backend/app/services/whatsapp_actions.py
-PURPOSE: Confirmation state machine for WhatsApp write actions.
-
-         When the AI detects that a factory owner wants to make a change
-         (mark someone absent, create a job, update a status), we do NOT
-         execute it immediately. Instead we:
-           1. Show the owner what we are about to do
-           2. Wait for them to confirm (HAAN/yes/ok) or cancel (NAHI/no)
-           3. Only then write to the database
-
-         This prevents accidental changes — a factory owner might say
-         "Ravi absent hai" as a statement, not necessarily as a command.
-         The confirmation step makes the intent explicit.
-
-         State machine states:
-           IDLE                 — no pending action, normal conversation
-           PENDING_CONFIRMATION — action proposed, waiting for owner reply
-           CONFIRMED            — owner confirmed, executing DB write
-           CANCELLED            — owner cancelled or timeout occurred
-
-         Pending actions are stored in Redis alongside the session history.
-         They expire after CONFIRMATION_TIMEOUT_SECONDS (5 minutes).
-         If the owner does not reply within 5 minutes, the action is
-         auto-cancelled and they must ask again.
-
-BRANCH:  v5-whatsapp
-VERSION: v5.1
-CREATED: 2026-03
-UPDATED: 2026-03-29 — v5.1: Converted all DB operations from AsyncSession
-                      (await db.execute / await db.commit) to sync Session
-                      (db.execute / db.commit). The entire ZetaOps app uses
-                      sync SQLAlchemy — AsyncSession was incorrect here and
-                      caused 'CursorResult object can't be awaited' errors.
-
-DEPENDENCIES:
-  app/services/whatsapp_session.py — Redis client for storing pending actions
-  app/database.py                  — sync Session for DB writes
-  redis (pip package)              — already installed for whatsapp_session.py
-"""
-
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 
 from sqlalchemy.orm import Session
@@ -64,13 +22,13 @@ logger = logging.getLogger(__name__)
 # 300 seconds = 5 minutes. After this, the owner must ask again.
 CONFIRMATION_TIMEOUT_SECONDS = 300
 
-# Redis key prefix for pending actions — separate from session keys.
+# Redis key prefix for pending actions - separate from session keys.
 # Full key format: whatsapp:pending_action:+919876543210
 PENDING_ACTION_KEY_PREFIX = "whatsapp:pending_action"
 
 
 # ---------------------------------------------------------------------------
-# ACTION TYPES — all supported write actions
+# ACTION TYPES - all supported write actions
 # ---------------------------------------------------------------------------
 
 class ActionType(str, Enum):
@@ -93,7 +51,7 @@ class ActionType(str, Enum):
 
 # Words the owner can type to CONFIRM a pending action.
 # Covers Hindi, Hinglish, and English variations.
-# All lowercase — we compare against lowercased input.
+# All lowercase - we compare against lowercased input.
 CONFIRMATION_WORDS = {
     "haan", "haa", "han",           # Hindi yes
     "yes", "y", "yeah", "yep",      # English yes
@@ -159,13 +117,13 @@ async def store_pending_action(
     pending_action = {
         "action_type":   action_type.value,  # Store string not Enum object
         "action_params": action_params,
-        "proposed_at":   datetime.now(timezone.utc).isoformat(),
+        "proposed_at":   datetime.utcnow().isoformat(),
         "phone_number":  phone_number
     }
 
     action_json = json.dumps(pending_action, ensure_ascii=False)
 
-    # Mock mode — store in memory dict (no Redis)
+    # Mock mode - store in memory dict (no Redis)
     if redis_client is None:
         _mock_sessions[pending_key] = action_json
         logger.info(
@@ -174,7 +132,7 @@ async def store_pending_action(
         )
         return True
 
-    # Real Redis mode — store with TTL so it auto-expires after 5 minutes
+    # Real Redis mode - store with TTL so it auto-expires after 5 minutes
     try:
         await redis_client.set(
             pending_key,
@@ -214,7 +172,7 @@ async def get_pending_action(phone_number: str) -> dict | None:
     """
     pending_key = _build_pending_action_key(phone_number)
 
-    # Mock mode — read from memory dict
+    # Mock mode - read from memory dict
     if redis_client is None:
         raw_data = _mock_sessions.get(pending_key)
         if raw_data is None:
@@ -458,9 +416,9 @@ async def execute_action(
 
 
 # ---------------------------------------------------------------------------
-# PRIVATE ACTION EXECUTORS — one function per action type
+# PRIVATE ACTION EXECUTORS - one function per action type
 # ---------------------------------------------------------------------------
-# All functions use sync SQLAlchemy Session — no async, no await.
+# All functions use sync SQLAlchemy Session - no async, no await.
 # Adding a new action type:
 #   1. Add to ActionType enum above
 #   2. Add a _execute_* function here following the same pattern
@@ -496,14 +454,14 @@ def _execute_mark_absent(
     date_str      = params.get("date")
     employee_name = params.get("employee_name", "Employee")
 
-    # Validate required params — fail fast with a helpful message
+    # Validate required params - fail fast with a helpful message
     if not employee_id or not date_str:
         return False, (
             "Employee ID ya date missing hai. "
             "Dobara poochein: 'Rajan ko aaj absent mark karo'"
         )
 
-    # Sync execute — no await
+    # Sync execute - no await
     result = db.execute(
         update(Employee)
         .where(

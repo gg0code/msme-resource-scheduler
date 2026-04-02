@@ -59,7 +59,7 @@ def assign_resources(
             if eff <= 0:
                 raise AssignmentError(f"Employee '{emp.full_name}' is unavailable on {d}")
 
-        if _is_employee_busy(db, emp_id, job_id, days, tenant_id=tenant_id):
+        if _is_employee_busy(db, emp_id, job_id, days):
             raise AssignmentError(
                 f"Employee '{emp.full_name}' is already assigned to another job in this date range"
             )
@@ -85,7 +85,7 @@ def assign_resources(
             if eff <= 0:
                 raise AssignmentError(f"Machine '{machine.name}' is unavailable on {d}")
 
-        if _is_machine_busy(db, machine_id, job_id, days, tenant_id=tenant_id):
+        if _is_machine_busy(db, machine_id, job_id, days):
             raise AssignmentError(
                 f"Machine '{machine.name}' is already assigned to another job in this date range"
             )

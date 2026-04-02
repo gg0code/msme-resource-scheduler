@@ -1,6 +1,11 @@
-// frontend/src/config/industries/types.ts - v4.0.9
-// IndustryConfig, IndustryLabels, IndustryBranding, IndustryColours interfaces.
-// All industry config files implement these types.
+// src/config/industries/types.ts - v4.0.9
+// -----------------------------------------------------------------------------
+// Industry configuration types.
+// IndustryColours is retained for backward compatibility but the v4.0.7
+// refactor moved colour application to CSS body classes (index.css).
+// Components should use CSS variables (var(--brand-primary) etc) not
+// IndustryColours fields directly.
+// -----------------------------------------------------------------------------
 
 // -- Colours (CSS variable backing - kept for config files) --------------------
 

@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
-/* ─── Industry theme variables ───────────────────────────────────────────────
+/* --- Industry theme variables -----------------------------------------------
    Applied to <body> via IndustryContext.
    Components use var(--brand-*) instead of hardcoded Tailwind colours.
-   ─────────────────────────────────────────────────────────────────────────── */
+   --------------------------------------------------------------------------- */
 
 /* Default (printing / blue) */
 :root {
@@ -18,7 +18,7 @@
   --brand-accent:         #60a5fa;  /* blue-400 */
 }
 
-/* PrintFlow — blue (same as default) */
+/* PrintFlow - blue (same as default) */
 body.theme-printing {
   --brand-sidebar-bg:     #111827;
   --brand-sidebar-border: #374151;
@@ -31,7 +31,7 @@ body.theme-printing {
   --brand-accent:         #60a5fa;
 }
 
-/* ShopFloor — slate */
+/* ShopFloor - slate */
 body.theme-manufacturing {
   --brand-sidebar-bg:     #0f172a;  /* slate-900 */
   --brand-sidebar-border: #334155;  /* slate-700 */
@@ -44,7 +44,7 @@ body.theme-manufacturing {
   --brand-accent:         #94a3b8;  /* slate-400 */
 }
 
-/* FabFlow — orange */
+/* FabFlow - orange */
 body.theme-fabrication {
   --brand-sidebar-bg:     #1c1917;  /* stone-900 */
   --brand-sidebar-border: #44403c;  /* stone-700 */
@@ -57,7 +57,7 @@ body.theme-fabrication {
   --brand-accent:         #fb923c;  /* orange-400 */
 }
 
-/* BatchFlow — green */
+/* BatchFlow - green */
 body.theme-chemical {
   --brand-sidebar-bg:     #052e16;  /* green-950 */
   --brand-sidebar-border: #166534;  /* green-800 */
@@ -70,7 +70,7 @@ body.theme-chemical {
   --brand-accent:         #4ade80;  /* green-400 */
 }
 
-/* ServiceFlow — purple */
+/* ServiceFlow - purple */
 body.theme-field_service {
   --brand-sidebar-bg:     #1e1b4b; /* indigo-950 */
   --brand-sidebar-border: #4338ca; /* indigo-700 */
@@ -83,9 +83,9 @@ body.theme-field_service {
   --brand-accent:         #a78bfa; /* violet-400 */
 }
 
-/* ─── Utility classes using CSS variables ────────────────────────────────────
+/* --- Utility classes using CSS variables ------------------------------------
    Use these in components instead of hardcoded Tailwind colour classes.
-   ─────────────────────────────────────────────────────────────────────────── */
+   --------------------------------------------------------------------------- */
 
 .brand-sidebar-bg     { background-color: var(--brand-sidebar-bg) !important; }
 .brand-sidebar-border { border-color: var(--brand-sidebar-border) !important; }

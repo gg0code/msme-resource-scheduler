@@ -1,6 +1,7 @@
-// frontend/src/pages/Skills.tsx
-// Skills catalogue. Proprietor-only. List, create, CSV import.
-// Query key [skills] used by GettingStarted for onboarding detection.
+// src/pages/Skills.tsx
+// --------------------
+// Skills catalogue page. Lists all skills and allows adding new ones.
+// Uses GET /api/skills/ to fetch and POST /api/skills/ to create.
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'

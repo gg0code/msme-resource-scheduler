@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import List, Dict, Optional
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.models.job import Job, JobSkillRequirement, JobAssignment
 from app.models.employee import Employee, EmployeeSkill
@@ -51,35 +51,26 @@ def _is_employee_busy(
     employee_id: int,
     job_id: int,
     days: List[date],
-    tenant_id: Optional[int] = None,
+    tenant_id: Optional[int] = None,   # ← ADDED
 ) -> bool:
-    """
-    Employee is 'busy' only when their total allocation_pct on overlapping jobs >= 100.
-    50% on Job A + 50% on Job B = 100% → still available for a 3rd job at 0% remaining.
-    50% on Job A alone = 50% remaining → NOT busy.
-    """
-    q = (
-        db.query(JobAssignment)
-        .join(Job, Job.id == JobAssignment.job_id)
-        .filter(
-            JobAssignment.employee_id == employee_id,
-            JobAssignment.job_id != job_id,
-        )
+    q = db.query(JobAssignment).filter(
+        JobAssignment.employee_id == employee_id,
+        JobAssignment.job_id != job_id,
     )
     if tenant_id is not None:
-        q = q.filter(Job.tenant_id == tenant_id)
-    other_assignments = q.all()
+        q = q.filter(JobAssignment.tenant_id == tenant_id)  # ← tenant scoped
+    assignments = q.all()
 
-    total_allocated = 0
-    for a in other_assignments:
-        other_job = db.query(Job).filter(Job.id == a.job_id).first()
-        if not other_job or not other_job.start_date or not other_job.end_date:
-            continue
-        other_days = set(_date_range(other_job.start_date, other_job.end_date))
-        if any(d in other_days for d in days):
-            total_allocated += (a.allocation_pct or 100)
-
-    return total_allocated >= 100
+    for assignment in assignments:
+        other_job_q = db.query(Job).filter(Job.id == assignment.job_id)
+        if tenant_id is not None:
+            other_job_q = other_job_q.filter(Job.tenant_id == tenant_id)  # ← tenant scoped
+        other_job = other_job_q.first()
+        if other_job:
+            other_days = set(_date_range(other_job.start_date, other_job.end_date))
+            if any(d in other_days for d in days):
+                return True
+    return False
 
 
 def _is_machine_busy(
@@ -89,22 +80,23 @@ def _is_machine_busy(
     days: List[date],
     tenant_id: Optional[int] = None,   # ← ADDED
 ) -> bool:
-    q = (
-        db.query(Job)
-        .join(JobAssignment, JobAssignment.job_id == Job.id)
-        .filter(
-            JobAssignment.machine_id == machine_id,
-            JobAssignment.job_id != job_id,
-        )
+    q = db.query(JobAssignment).filter(
+        JobAssignment.machine_id == machine_id,
+        JobAssignment.job_id != job_id,
     )
     if tenant_id is not None:
-        q = q.filter(Job.tenant_id == tenant_id)
-    other_jobs = q.all()
+        q = q.filter(JobAssignment.tenant_id == tenant_id)  # ← tenant scoped
+    assignments = q.all()
 
-    for other_job in other_jobs:
-        other_days = set(_date_range(other_job.start_date, other_job.end_date))
-        if any(d in other_days for d in days):
-            return True
+    for assignment in assignments:
+        other_job_q = db.query(Job).filter(Job.id == assignment.job_id)
+        if tenant_id is not None:
+            other_job_q = other_job_q.filter(Job.tenant_id == tenant_id)  # ← tenant scoped
+        other_job = other_job_q.first()
+        if other_job:
+            other_days = set(_date_range(other_job.start_date, other_job.end_date))
+            if any(d in other_days for d in days):
+                return True
     return False
 
 
@@ -244,16 +236,11 @@ def check_availability(
 
         if len(qualified) < req.employees_required:
             skill_name = req.skill.name if req.skill else f"skill#{req.skill_id}"
-            shortfall  = req.employees_required - len(qualified)
             conflicts.append(ConflictDetail(
                 resource_type="employee", resource_id=req.skill_id,
                 resource_name=f"Skill: {skill_name} (need {req.employees_required}, found {len(qualified)})",
                 dates=[str(d) for d in days],
-                reason=(
-                    f"No one assigned has '{skill_name}' skill at '{req.min_skill_level}' level"
-                    if len(qualified) == 0
-                    else f"Need {shortfall} more person(s) with '{skill_name}' at '{req.min_skill_level}' level"
-                ),
+                reason=f"Insufficient qualified employees for '{skill_name}' at '{req.min_skill_level}' level",
             ))
 
     # --- Step 5: Feasibility Score ---

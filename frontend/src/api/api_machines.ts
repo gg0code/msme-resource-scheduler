@@ -1,6 +1,3 @@
-// frontend/src/api/api_machines.ts
-// Machine CRUD, skill requirements, and CSV import API calls.
-
 import apiClient from './client'
 import type { Machine, ImportResult } from '../types/types_index'
 

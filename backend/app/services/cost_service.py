@@ -1,24 +1,3 @@
-"""
-services/cost_service.py — V2.0
-
-Single source of truth for all cost calculations.
-Both tentative and actual costs use the same formula — only the hours differ.
-
-FORMULA:
-  hours        = duration_days × estimated_hours_per_day
-  employee_cost = Σ (employee.hourly_rate × hours)  for each assigned employee
-  machine_cost  = Σ (machine.hourly_rate  × hours)  for each assigned machine
-  material_cost = Σ (item.quantity × item.unit_cost) from raw_materials JSON
-  misc_cost     = job.misc_cost (flat addition)
-  total_cost    = employee_cost + machine_cost + material_cost + misc_cost
-
-  tentative_hours = (end_date - start_date).days × estimated_hours_per_day
-  actual_hours    = (actual_end_at - actual_start_at).total_seconds/3600
-                    minus paused_seconds/3600
-
-  profit = order_value - total_cost
-"""
-
 from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional

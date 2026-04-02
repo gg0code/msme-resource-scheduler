@@ -308,10 +308,14 @@ def run_scheduler(
                 # Helpers are shareable — no overlap check
 
                 if ok:
-                    slot_found  = True
-                    slot_start  = proposed_start
-                    slot_end    = proposed_end
-                    break
+                    # Also check deadline constraint
+                    if proposed_end <= job.deadline:
+                        slot_found  = True
+                        slot_start  = proposed_start
+                        slot_end    = proposed_end
+                        break
+                    # Slot exists but misses deadline - keep scanning
+                    # (won't find better slot, but loop will exit naturally)
 
                 current += timedelta(minutes=1)
 

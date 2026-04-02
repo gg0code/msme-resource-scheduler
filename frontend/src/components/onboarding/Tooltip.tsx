@@ -1,5 +1,5 @@
-// frontend/src/components/onboarding/Tooltip.tsx
-// Styled hover tooltip with 300ms delay. Pure presentational.
+// src/components/onboarding/Tooltip.tsx
+// Styled hover tooltip - not the native browser `title` attribute.
 
 import {
   useRef,

@@ -1,63 +1,3 @@
-"""
-FILE:    whatsapp_bridge.py
-PATH:    backend/app/services/whatsapp_bridge.py
-PURPOSE: The single connection point between the WhatsApp channel and the AI backend.
-         Today this calls run_ai_chat() in ai_service.py directly.
-         When Factory GPT is ready, only this file changes — a new class is written
-         and one line is updated at the bottom. Nothing else in the WhatsApp
-         codebase needs to change.
-
-         Think of this file as a power socket. The WhatsApp code plugs into the socket.
-         What generates the power (Groq today, Factory GPT tomorrow) is behind the wall.
-
-BRANCH:  v5-whatsapp
-VERSION: v5.1
-CREATED: 2026-03
-UPDATED: 2026-03-29 — v5.1 fix: WhatsApp instructions injected via structured_data
-                       instead of a second system message. Two system messages caused
-                       Groq tool call validation to fail (tool not in request.tools).
-
-DEPENDENCIES:
-  app/services/ai_service.py  — run_ai_chat() is the current AI backend being wrapped.
-                                NOTE: run_ai_chat() is a SYNC function that takes a
-                                sync SQLAlchemy Session. We run it in a thread pool
-                                executor to avoid blocking the async FastAPI event loop.
-  app/agents/supervisor.py    — SupervisorAgent will be the future swap-in (Factory GPT).
-                                This file does not exist yet — placeholder reference only.
-
-IMPORTANT — SYNC vs ASYNC:
-  run_ai_chat() in ai_service.py is a synchronous function (uses sync Session).
-  Our WhatsApp router is async (uses AsyncSession).
-  We bridge this gap using asyncio.get_running_loop().run_in_executor() which runs
-  the sync function in a thread pool without blocking the async event loop.
-  When Factory GPT arrives, its Supervisor Agent will be natively async —
-  the executor wrapper will be removed from SupervisorAgentBridge.
-
-IMPORTANT — WHY NO SECOND SYSTEM MESSAGE:
-  Groq's tool calling requires exactly ONE system message at position 0.
-  If we prepend a second {"role": "system"} message, Groq's tool call
-  validation fails with "tool was not in request.tools" error.
-  Fix: WhatsApp behavioural instructions are injected as a hidden [CONTEXT]
-  block prepended to the FIRST user message. This keeps one system message
-  while still controlling language and formatting behaviour.
-
-SWAP POINT (Factory GPT):
-  When Factory GPT Supervisor Agent is ready:
-    1. Write SupervisorAgentBridge class below (template at bottom of file)
-    2. Change the last line: active_bridge = SupervisorAgentBridge()
-    3. Done. No other file in the WhatsApp codebase needs to change.
-
-USAGE:
-  from app.services.whatsapp_bridge import active_bridge
-  response = await active_bridge.process_message(
-      messages=[{"role": "user", "content": "aaj ka schedule kya hai"}],
-      db=db,
-      tenant_id=1,
-      industry_type="printing",
-      language="hinglish"
-  )
-"""
-
 import asyncio
 import logging
 from typing import Protocol, runtime_checkable
@@ -151,7 +91,7 @@ def _inject_whatsapp_context(messages: list[dict], language: str) -> list[dict]:
             }
             return result
 
-    # No user message found — return unchanged
+    # No user message found - return unchanged
     # This should never happen in normal flow but handles edge cases safely
     logger.warning(
         "WhatsApp context injection: no user message found in messages list. "
@@ -161,7 +101,7 @@ def _inject_whatsapp_context(messages: list[dict], language: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# PROTOCOL — the contract every AI bridge must follow
+# PROTOCOL - the contract every AI bridge must follow
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
@@ -207,7 +147,7 @@ class AIChannelBridge(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# CURRENT IMPLEMENTATION — GroqDirectBridge
+# CURRENT IMPLEMENTATION - GroqDirectBridge
 # ---------------------------------------------------------------------------
 
 class GroqDirectBridge:
@@ -263,8 +203,8 @@ class GroqDirectBridge:
         # Why: run_ai_chat() uses a sync SQLAlchemy Session and makes blocking
         # HTTP calls to Groq API. Running it directly in async code would block
         # the entire FastAPI event loop, freezing ALL requests.
-        # run_in_executor() offloads it to a separate thread — safe for async.
-        loop = asyncio.get_running_loop()
+        # run_in_executor() offloads it to a separate thread - safe for async.
+        loop = asyncio.get_event_loop()
 
         response = await loop.run_in_executor(
             None,  # None = use the default thread pool executor
@@ -285,19 +225,19 @@ class GroqDirectBridge:
 
 
 # ---------------------------------------------------------------------------
-# ACTIVE BRIDGE — the singleton used by the entire WhatsApp codebase
+# ACTIVE BRIDGE - the singleton used by the entire WhatsApp codebase
 # ---------------------------------------------------------------------------
 # Every file that needs to call the AI imports this one object.
 # To swap the AI backend, change ONLY this one line.
 #
 # Current:  active_bridge = GroqDirectBridge()
-# Future:   active_bridge = SupervisorAgentBridge()   ← one line change
+# Future:   active_bridge = SupervisorAgentBridge()   <- one line change
 
 active_bridge: AIChannelBridge = GroqDirectBridge()
 
 
 # ---------------------------------------------------------------------------
-# FUTURE SWAP TEMPLATE — SupervisorAgentBridge
+# FUTURE SWAP TEMPLATE - SupervisorAgentBridge
 # ---------------------------------------------------------------------------
 # Uncomment and complete this when Factory GPT Supervisor Agent is ready.
 # Do not uncomment until app/agents/supervisor.py exists.
@@ -325,4 +265,4 @@ active_bridge: AIChannelBridge = GroqDirectBridge()
 #             industry_type=industry_type
 #         )
 #
-# active_bridge: AIChannelBridge = SupervisorAgentBridge()  # ← one line change
+# active_bridge: AIChannelBridge = SupervisorAgentBridge()  # <- one line change

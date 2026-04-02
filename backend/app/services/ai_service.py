@@ -1,10 +1,3 @@
-"""
-app/services/ai_service.py — V3.0
-AI Copilot service using Groq (Llama 3.3) with tool calling.
-Tools: revenue, raw_material_cost, delayed_jobs, machine_availability, employee_availability,
-       job_cost_breakdown, shop_floor_summary
-"""
-
 import json
 import os
 from datetime import date, datetime, timedelta
@@ -17,7 +10,7 @@ from app.models.job import Job, JobAssignment
 from app.models.employee import Employee
 from app.models.machine import Machine
 
-# ── Safe date parser ──────────────────────────────────────────────────────────
+# -- Safe date parser ----------------------------------------------------------
 def safe_date_parse(check_str: Any, fallback: date) -> date:
     """Parse a date string robustly. Handles ISO format and relative terms."""
     if not check_str or isinstance(check_str, dict):
@@ -58,7 +51,7 @@ def safe_days(d1, d2, default: int = 0) -> int:
     except Exception:
         return default
 
-# ── Groq client ───────────────────────────────────────────────────────────────
+# -- Groq client ---------------------------------------------------------------
 def get_groq_client() -> Groq:
     from app.config import settings
     api_key = settings.GROQ_API_KEY
@@ -68,7 +61,7 @@ def get_groq_client() -> Groq:
 
 MODEL = "llama-3.3-70b-versatile"
 
-# ── Tool definitions (sent to Llama) ─────────────────────────────────────────
+# -- Tool definitions (sent to Llama) -----------------------------------------
 TOOLS = [
     {
         "type": "function",
@@ -213,7 +206,7 @@ TOOLS = [
             },
         },
     },
-    # ── NEW TOOLS (J1.1 gap-fill) ─────────────────────────────────────────────
+    # -- NEW TOOLS (J1.1 gap-fill) ---------------------------------------------
     {
         "type": "function",
         "function": {
@@ -326,11 +319,11 @@ TOOLS = [
     },
 ]
 
-# ── Tool executor — runs the actual DB queries ────────────────────────────────
+# -- Tool executor - runs the actual DB queries --------------------------------
 def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
     args  = args or {}
 
-    # Safely coerce month/year — Llama sometimes passes nested objects
+    # Safely coerce month/year - Llama sometimes passes nested objects
     def safe_int(val, default: int) -> int:
         try:
             return int(val) if val is not None and not isinstance(val, dict) else default
@@ -339,7 +332,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
 
     today = date.today()
 
-    # ── 1. Monthly Revenue ────────────────────────────────────────────────────
+    # -- 1. Monthly Revenue ----------------------------------------------------
     if name == "get_monthly_revenue":
         month = safe_int(args.get("month"), today.month)
         year  = safe_int(args.get("year"),  today.year)
@@ -363,7 +356,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "job_count": len(jobs),
         }
 
-    # ── 2. Raw Material Cost ──────────────────────────────────────────────────
+    # -- 2. Raw Material Cost --------------------------------------------------
     elif name == "get_raw_material_cost":
         month = safe_int(args.get("month"), today.month)
         year  = safe_int(args.get("year"),  today.year)
@@ -390,7 +383,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "breakdown": sorted(breakdown, key=lambda x: x["cost"], reverse=True)[:8],
         }
 
-    # ── 3. Delayed Jobs ───────────────────────────────────────────────────────
+    # -- 3. Delayed Jobs -------------------------------------------------------
     elif name == "get_delayed_jobs":
         jobs = db.query(Job).options(selectinload(Job.assignments).selectinload(JobAssignment.employee), selectinload(Job.assignments).selectinload(JobAssignment.machine)).filter(
             Job.tenant_id == tenant_id,
@@ -422,7 +415,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "total_issues": len(delayed) + len(at_risk),
         }
 
-    # ── 4. Machine Availability ───────────────────────────────────────────────
+    # -- 4. Machine Availability -----------------------------------------------
     elif name == "get_machine_availability":
         check_str  = args.get("check_date")
         check_date = safe_date_parse(check_str, today)
@@ -466,7 +459,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "total_busy": len(busy),
         }
 
-    # ── 5. Employee Availability ──────────────────────────────────────────────
+    # -- 5. Employee Availability ----------------------------------------------
     elif name == "get_employee_availability":
         check_str  = args.get("check_date")
         check_date = safe_date_parse(check_str, today)
@@ -515,7 +508,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "total_busy": len(busy),
         }
 
-    # ── 6. Job Cost Breakdown ─────────────────────────────────────────────────
+    # -- 6. Job Cost Breakdown -------------------------------------------------
     elif name == "get_job_cost_breakdown":
         job_name = args.get("job_name", "")
         job = db.query(Job).options(selectinload(Job.assignments).selectinload(JobAssignment.employee), selectinload(Job.assignments).selectinload(JobAssignment.machine)).filter(
@@ -588,7 +581,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "assigned_machines":  assigned_machines,
         }
 
-    # ── 7. All Jobs Cost Summary ──────────────────────────────────────────────
+    # -- 7. All Jobs Cost Summary ----------------------------------------------
     elif name == "get_all_jobs_cost_summary":
         status_filter = args.get("status_filter", "all")
         sort_by       = args.get("sort_by", "total_cost")
@@ -670,7 +663,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             },
         }
 
-    # ── 8. Shop Floor Summary ─────────────────────────────────────────────────
+    # -- 8. Shop Floor Summary -------------------------------------------------
     elif name == "get_shop_floor_summary":
         all_jobs = db.query(Job).options(selectinload(Job.assignments).selectinload(JobAssignment.employee), selectinload(Job.assignments).selectinload(JobAssignment.machine)).filter(Job.tenant_id == tenant_id).all()
 
@@ -723,7 +716,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "mtd_revenue": round(mtd_revenue, 2),
         }
 
-    # ── 8. Employee Utilisation ───────────────────────────────────────────────
+    # -- 8. Employee Utilisation -----------------------------------------------
     elif name == "get_employee_utilisation":
         check_str  = args.get("check_date")
         check_date = safe_date_parse(check_str, today)
@@ -779,7 +772,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
         }
 
 
-    # ── 10. Monthly Cost Summary ──────────────────────────────────────────────
+    # -- 10. Monthly Cost Summary ----------------------------------------------
     elif name == "get_monthly_cost_summary":
         month = safe_int(args.get("month"), today.month)
         year  = safe_int(args.get("year"),  today.year)
@@ -823,7 +816,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "net_profit":round(net,2),"overall_margin_pct":margin,"is_profitable":net>0,
             "jobs":sorted(job_details,key=lambda x:x["total_cost"],reverse=True)}
 
-    # ── 11. Schedule Overview ─────────────────────────────────────────────────
+    # -- 11. Schedule Overview -------------------------------------------------
     elif name == "get_schedule_overview":
         import datetime as dt, calendar as cal
         mode       = args.get("mode","conflicts")
@@ -917,7 +910,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
 
         return {"error":f"Unknown mode: {mode}"}
 
-    # ── 12. Alerts Summary ────────────────────────────────────────────────────
+    # -- 12. Alerts Summary ----------------------------------------------------
     elif name == "get_alerts_summary":
         margin_threshold = float(args.get("margin_threshold") or 10)
         all_jobs = db.query(Job).options(selectinload(Job.assignments).selectinload(JobAssignment.employee), selectinload(Job.assignments).selectinload(JobAssignment.machine)).filter(Job.tenant_id==tenant_id,
@@ -960,7 +953,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "jobs_no_raw_materials":no_rm,"ending_soon_3_days":ending,
             "low_margin_jobs":low_mg,"margin_threshold_used":margin_threshold}
 
-    # ── 13. Machine Utilisation ───────────────────────────────────────────────
+    # -- 13. Machine Utilisation -----------------------------------------------
     elif name == "get_machine_utilisation":
         import datetime as dt, calendar as cal
         month = safe_int(args.get("month"),today.month)
@@ -1007,7 +1000,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "absence_impact":{"machine":mname,"affected_jobs":impact,
                 "total_affected":len(impact)} if mname else None}
 
-    # ── 14. Employees by Skill ────────────────────────────────────────────────
+    # -- 14. Employees by Skill ------------------------------------------------
     elif name == "get_employees_by_skill":
         import calendar as cal
         month    = safe_int(args.get("month"),today.month)
@@ -1043,7 +1036,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "groups":{k:v for k,v in sorted(groups.items())},
             "top_by_hours":emp_data[:5],"total_employees":len(all_e)}
 
-    # ── 15. Jobs Overview ─────────────────────────────────────────────────────
+    # -- 15. Jobs Overview -----------------------------------------------------
     elif name == "get_jobs_overview":
         import datetime as dt, calendar as cal
         mode  = args.get("mode","by_customer")
@@ -1097,7 +1090,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
 
         return {"error":f"Unknown mode: {mode}"}
 
-    # ── 16. RM Cost Impact ────────────────────────────────────────────────────
+    # -- 16. RM Cost Impact ----------------------------------------------------
     elif name == "get_rm_cost_impact":
         increase_pct = float(args.get("increase_pct") or 15)/100
         active = db.query(Job).options(selectinload(Job.assignments).selectinload(JobAssignment.employee), selectinload(Job.assignments).selectinload(JobAssignment.machine)).filter(Job.tenant_id==tenant_id,
@@ -1130,7 +1123,7 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
     return {"error": f"Unknown tool: {name}"}
 
 
-# ── System prompt ─────────────────────────────────────────────────────────────
+# -- System prompt -------------------------------------------------------------
 _SYSTEM_PROMPT_BASE = """You are an AI Copilot for MSME Resource Scheduler — a production management app used by Indian manufacturing shops.
 
 You help the owner/scheduler by:
@@ -1232,7 +1225,7 @@ def _build_system_prompt(industry_type: str = "printing") -> str:
     return base + industry_block
 
 
-# ── Main chat function ────────────────────────────────────────────────────────
+# -- Main chat function --------------------------------------------------------
 def run_ai_chat(
     messages: list[dict],
     db: Session,
@@ -1252,7 +1245,7 @@ def run_ai_chat(
     # Trim history to last 8 messages to reduce token usage (keeps context without bloat)
     trimmed = messages[-8:] if len(messages) > 8 else messages
 
-    # v3.9.9 — if structured data is provided, inject into system prompt and
+    # v3.9.9 - if structured data is provided, inject into system prompt and
     # return a direct narration without tool calls.
     # The engine computed the data; AI only explains. Never re-compute.
     if structured_data:
@@ -1282,7 +1275,7 @@ def run_ai_chat(
     # Add dynamic system prompt (includes today's date)
     full_messages = [{"role": "system", "content": _build_system_prompt(industry_type)}] + trimmed
 
-    # First call — let Llama decide which tool to call
+    # First call - let Llama decide which tool to call
     response = client.chat.completions.create(
         model=MODEL,
         messages=full_messages,
@@ -1294,7 +1287,7 @@ def run_ai_chat(
 
     msg = response.choices[0].message
 
-    # If no tool call — return direct response
+    # If no tool call - return direct response
     if not msg.tool_calls:
         return msg.content or "I couldn't find an answer to that. Try asking about jobs, costs, machines, or employees."
 
@@ -1314,8 +1307,8 @@ def run_ai_chat(
             "content":      result_str,
         })
 
-    # Second call — Llama formats the tool results into a human response
-    # msg.content may be None when tool_calls are present — use "" to avoid Groq validation error
+    # Second call - Llama formats the tool results into a human response
+    # msg.content may be None when tool_calls are present - use "" to avoid Groq validation error
     full_messages.append({"role": "assistant", "content": msg.content or "", "tool_calls": msg.tool_calls})
     full_messages.extend(tool_results)
 

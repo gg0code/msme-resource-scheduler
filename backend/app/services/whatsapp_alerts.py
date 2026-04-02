@@ -1,61 +1,3 @@
-"""
-FILE:    whatsapp_alerts.py
-PATH:    backend/app/services/whatsapp_alerts.py
-PURPOSE: Proactive alert scheduler for WhatsApp Copilot.
-
-         Sends alerts to factory owners WITHOUT them asking first.
-         This is what makes ZetaOps feel like a real assistant rather
-         than just a chatbot — it watches the factory and speaks up
-         when something needs attention.
-
-         Four alert types:
-           BRIEFING     — 7am IST daily morning summary of the day ahead
-           JOB_DELAY    — when a job falls behind its scheduled end date
-           MACHINE_DOWN — when a machine status changes to maintenance
-           CONFLICT     — when a scheduling conflict is detected
-
-         Uses APScheduler running INSIDE the FastAPI process.
-         No separate worker or Celery needed for pilot scale (5 factories).
-         Scheduler is started when FastAPI app starts and stopped on shutdown.
-
-         Alert flow:
-           APScheduler triggers job → fetch data from DB → format message
-           → send via Interakt (or log in mock mode) → done
-
-         Each factory owner can opt out of individual alert types via
-         alert_preferences JSON in phone_tenant_map table.
-
-BRANCH:  v5-whatsapp
-VERSION: v5.4.1
-CREATED: 2026-03
-UPDATED: 2026-03-30 — v5.4.1: Replaced execute_tool() calls with direct DB
-                      queries for briefing and conflicts. execute_tool() depends
-                      on tool names that may not exist (get_dashboard_summary,
-                      get_schedule_alerts). Direct queries are more reliable
-                      and have no dependency on ai_service tool names.
-
-DEPENDENCIES:
-  apscheduler==3.11.2          — pip install apscheduler
-  app/models/whatsapp.py       — PhoneTenantMap for active phone numbers
-  app/models/job.py            — Job model for delay and conflict queries
-  app/models/employee.py       — Employee model for briefing headcount
-  app/services/whatsapp_formatter.py — format_for_whatsapp() for clean text
-  app/database.py              — SessionLocal for DB queries
-  app/config.py                — settings (WHATSAPP_MOCK_MODE, timezone)
-
-USAGE:
-  # In app/main.py — start scheduler when app starts, stop on shutdown
-  from app.services.whatsapp_alerts import start_scheduler, stop_scheduler
-
-  @app.on_event("startup")
-  async def startup():
-      start_scheduler()
-
-  @app.on_event("shutdown")
-  async def shutdown():
-      stop_scheduler()
-"""
-
 import logging
 from datetime import datetime, date
 
@@ -76,22 +18,22 @@ logging.getLogger(__name__).setLevel(logging.INFO)
 # SCHEDULER CONSTANTS
 # ---------------------------------------------------------------------------
 
-# Timezone for all scheduled jobs — IST (Indian Standard Time)
+# Timezone for all scheduled jobs - IST (Indian Standard Time)
 # All pilot factories are in India so we use IST for scheduling.
 SCHEDULER_TIMEZONE = "Asia/Kolkata"
 
-# Morning briefing time — 7:00 AM IST every day
+# Morning briefing time - 7:00 AM IST every day
 MORNING_BRIEFING_HOUR   = 7
 MORNING_BRIEFING_MINUTE = 0
 
-# Job delay check — runs every 2 hours during working hours (8am to 8pm IST)
+# Job delay check - runs every 2 hours during working hours (8am to 8pm IST)
 JOB_DELAY_CHECK_HOURS = "8-20"   # Only during working hours
 JOB_DELAY_CHECK_EVERY = 2        # Every 2 hours
 
-# Conflict check — runs every 4 hours
+# Conflict check - runs every 4 hours
 CONFLICT_CHECK_EVERY = 4
 
-# Alert type identifiers — must match keys in alert_preferences JSON column
+# Alert type identifiers - must match keys in alert_preferences JSON column
 ALERT_TYPE_BRIEFING     = "morning_briefing"
 ALERT_TYPE_JOB_DELAY    = "job_delay"
 ALERT_TYPE_MACHINE_DOWN = "machine_down"
@@ -109,7 +51,7 @@ scheduler = AsyncIOScheduler(timezone=SCHEDULER_TIMEZONE)
 
 
 # ---------------------------------------------------------------------------
-# SCHEDULER LIFECYCLE — start and stop
+# SCHEDULER LIFECYCLE - start and stop
 # ---------------------------------------------------------------------------
 
 def start_scheduler() -> None:
@@ -133,7 +75,7 @@ def start_scheduler() -> None:
         logger.warning("Scheduler already running — skipping start.")
         return
 
-    # Register morning briefing — 7am IST daily
+    # Register morning briefing - 7am IST daily
     scheduler.add_job(
         func=send_morning_briefings,
         trigger=CronTrigger(
@@ -150,7 +92,7 @@ def start_scheduler() -> None:
         f"{MORNING_BRIEFING_HOUR:02d}:{MORNING_BRIEFING_MINUTE:02d} IST daily"
     )
 
-    # Register job delay check — every 2 hours during working hours
+    # Register job delay check - every 2 hours during working hours
     scheduler.add_job(
         func=check_delayed_jobs,
         trigger=CronTrigger(
@@ -164,7 +106,7 @@ def start_scheduler() -> None:
     )
     logger.info("Scheduled: job delay check every 2 hours (8am-8pm IST)")
 
-    # Register conflict check — every 4 hours
+    # Register conflict check - every 4 hours
     scheduler.add_job(
         func=check_scheduling_conflicts,
         trigger=CronTrigger(
@@ -206,7 +148,7 @@ def stop_scheduler() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DEV HELPER — override schedule for testing
+# DEV HELPER - override schedule for testing
 # ---------------------------------------------------------------------------
 
 def set_dev_schedule() -> None:
@@ -250,7 +192,7 @@ def set_dev_schedule() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ALERT JOB 1 — Morning briefing
+# ALERT JOB 1 - Morning briefing
 # ---------------------------------------------------------------------------
 
 async def send_morning_briefings() -> None:
@@ -299,7 +241,7 @@ async def send_morning_briefings() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ALERT JOB 2 — Job delay check
+# ALERT JOB 2 - Job delay check
 # ---------------------------------------------------------------------------
 
 async def check_delayed_jobs() -> None:
@@ -343,7 +285,7 @@ async def check_delayed_jobs() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ALERT JOB 3 — Conflict check
+# ALERT JOB 3 - Conflict check
 # ---------------------------------------------------------------------------
 
 async def check_scheduling_conflicts() -> None:
@@ -385,7 +327,7 @@ async def check_scheduling_conflicts() -> None:
 
 
 # ---------------------------------------------------------------------------
-# MACHINE DOWN ALERT — triggered on demand, not on schedule
+# MACHINE DOWN ALERT - triggered on demand, not on schedule
 # ---------------------------------------------------------------------------
 
 async def send_machine_down_alert(
@@ -485,7 +427,7 @@ async def _get_active_phone_mappings(
         phone_mappings = db.execute(query).scalars().all()
 
         for mapping in phone_mappings:
-            # alert_preferences is JSONB — default all ON if not set
+            # alert_preferences is JSONB - default all ON if not set
             preferences = mapping.alert_preferences or {}
             alert_enabled = preferences.get(alert_type, True)
 
@@ -536,7 +478,7 @@ async def _build_morning_briefing(
     try:
         today = date.today()
 
-        # Active jobs — in_progress or pending
+        # Active jobs - in_progress or pending
         active_jobs = db.execute(
             select(func.count(Job.id)).where(
                 Job.tenant_id == tenant_id,
@@ -553,7 +495,7 @@ async def _build_morning_briefing(
             )
         ).scalar() or 0
 
-        # Delayed jobs — end_date passed, not finished
+        # Delayed jobs - end_date passed, not finished
         delayed_jobs = db.execute(
             select(func.count(Job.id)).where(
                 Job.tenant_id == tenant_id,
@@ -721,7 +663,7 @@ def _build_delay_alert(delayed_jobs: list[dict], industry_type: str) -> str:
     job_count = len(delayed_jobs)
     alert = f"ALERT: {job_count} delayed job{'s' if job_count > 1 else ''}\n\n"
 
-    # List first 3 delayed jobs — avoid very long messages on mobile
+    # List first 3 delayed jobs - avoid very long messages on mobile
     for job in delayed_jobs[:3]:
         alert += f"- {job['job_name']} (due: {job['end_date']})\n"
 

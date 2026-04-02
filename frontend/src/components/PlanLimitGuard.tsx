@@ -1,6 +1,9 @@
-// frontend/src/components/PlanLimitGuard.tsx
-// Plan limit hook (usePlanLimits) + PlanLimitBanner, LimitedButton,
-// RawMaterialLimitHint components for free plan enforcement.
+// src/components/PlanLimitGuard.tsx
+// Shared hook + components for plan limit enforcement across all pages.
+// Usage:
+//   const { planLimits, isReached, getInfo } = usePlanLimits()
+//   <LimitedButton resource="jobs" planLimits={planLimits} onClick={...}>New Job</LimitedButton>
+//   <PlanLimitBanner resource="jobs" planLimits={planLimits} />
 
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '../api/client'

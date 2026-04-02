@@ -1,6 +1,6 @@
-// frontend/src/scheduler/SchedulerContext.tsx
-// Thin context wrapper around useScheduler().
-// Provides useSchedulerContext() to any component.
+// src/scheduler/SchedulerContext.tsx
+// Provides useScheduler() state to the whole app via context
+// Wrap <Layout> (or <App>) with <SchedulerProvider>
 
 import { createContext, useContext } from 'react'
 import type { ReactNode } from 'react'

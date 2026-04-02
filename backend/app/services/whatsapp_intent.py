@@ -1,39 +1,3 @@
-"""
-FILE:    whatsapp_intent.py
-PATH:    backend/app/services/whatsapp_intent.py
-PURPOSE: Scans the AI's response text to detect write intents (mark absent,
-         update job status, etc.) and extracts the parameters needed to
-         execute them after owner confirmation.
-
-         This is the GLUE between the AI and the confirmation state machine.
-
-         Flow:
-           1. AI responds to "Rajan aaj nahi aaya"
-           2. This module scans the AI response for absent-marking intent
-           3. If intent found — returns (ActionType, params) so the router
-              can store a pending action and send confirmation prompt
-           4. If no write intent — returns None, normal conversation continues
-
-         WHY KEYWORD MATCHING (not AI tool calling):
-           We use simple keyword matching rather than asking the AI to output
-           structured JSON because:
-           a) The AI already responded in natural language — we don't want a
-              second AI call for every message (latency + cost)
-           b) Keyword matching on the USER message (not AI response) is more
-              reliable — user intent is in their words, not the AI's summary
-           c) The confirmation state machine handles edge cases — even if we
-              occasionally false-positive, the owner must confirm before any
-              DB write happens. Safety net is always there.
-
-BRANCH:  v5-whatsapp
-VERSION: v5.1
-CREATED: 2026-03-29
-
-DEPENDENCIES:
-  app/services/whatsapp_actions.py — ActionType enum
-  app/database.py                  — SessionLocal for DB lookups (employee name → id)
-"""
-
 import logging
 import re
 from datetime import date, timedelta
@@ -49,11 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# INTENT KEYWORDS — edit these to add new trigger phrases
+# INTENT KEYWORDS - edit these to add new trigger phrases
 # ---------------------------------------------------------------------------
 
 # Phrases in the USER message that signal "mark employee absent"
-# All lowercase — we match against lowercased user message.
+# All lowercase - we match against lowercased user message.
 ABSENT_KEYWORDS = [
     "nahi aaya", "nahi aayi", "absent", "nahi aayega", "nahi aayegi",
     "absent mark", "mark absent", "chutti", "leave pe", "nahi hai aaj",
@@ -79,7 +43,7 @@ TOMORROW_KEYWORDS = ["kal", "tomorrow", "agle din"]
 
 
 # ---------------------------------------------------------------------------
-# HELPER — resolve relative date to YYYY-MM-DD string
+# HELPER - resolve relative date to YYYY-MM-DD string
 # ---------------------------------------------------------------------------
 
 def _resolve_date(user_message: str) -> str:
@@ -106,12 +70,12 @@ def _resolve_date(user_message: str) -> str:
         if keyword in message_lower:
             return str(today + timedelta(days=1))
 
-    # Default to today — covers "aaj" and no date specified
+    # Default to today - covers "aaj" and no date specified
     return str(today)
 
 
 # ---------------------------------------------------------------------------
-# HELPER — extract employee name from user message
+# HELPER - extract employee name from user message
 # ---------------------------------------------------------------------------
 
 def _extract_employee_name(user_message: str) -> str | None:
@@ -134,7 +98,7 @@ def _extract_employee_name(user_message: str) -> str | None:
     Side effects:
         None — pure function.
     """
-    # Common non-name words to skip — these appear frequently near absent keywords
+    # Common non-name words to skip - these appear frequently near absent keywords
     SKIP_WORDS = {
         "aaj", "kal", "nahi", "absent", "hai", "hain", "ka", "ki",
         "ko", "ne", "se", "the", "is", "are", "was", "will", "not",
@@ -153,7 +117,7 @@ def _extract_employee_name(user_message: str) -> str | None:
         ):
             return clean
 
-    # Fallback — take first word that looks like a name (not a keyword)
+    # Fallback - take first word that looks like a name (not a keyword)
     for word in words:
         clean = re.sub(r'[^\w]', '', word).lower()
         if clean and clean not in SKIP_WORDS and len(clean) > 2:
@@ -163,10 +127,10 @@ def _extract_employee_name(user_message: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# HELPER — look up employee id by name in DB
+# HELPER - look up employee id by name in DB
 # ---------------------------------------------------------------------------
 
-def _find_employee_id(name: str, tenant_id: int, db: Session) -> tuple[int | None, str | None]:
+def _find_employee_id(name: str, tenant_id: int, db: Session) -> int | None:
     """
     Look up an employee's ID by partial name match within a tenant.
 
@@ -251,7 +215,7 @@ def detect_write_intent(
     """
     message_lower = user_message.lower()
 
-    # ── 1. Check for ABSENT intent ──────────────────────────────────────────
+    # -- 1. Check for ABSENT intent ------------------------------------------
     absent_detected = any(keyword in message_lower for keyword in ABSENT_KEYWORDS)
 
     if absent_detected:
@@ -279,7 +243,7 @@ def detect_write_intent(
                     "date":          target_date,
                 }
             else:
-                # Name found but no DB match — still flag intent but without ID.
+                # Name found but no DB match - still flag intent but without ID.
                 # build_confirmation_prompt will show name and ask owner to confirm.
                 # execute_action will fail gracefully if employee_id is missing.
                 logger.info(
@@ -293,13 +257,13 @@ def detect_write_intent(
                     "date":          target_date,
                 }
 
-    # ── 2. Check for MAINTENANCE intent ─────────────────────────────────────
+    # -- 2. Check for MAINTENANCE intent -------------------------------------
     maintenance_detected = any(
         keyword in message_lower for keyword in MAINTENANCE_KEYWORDS
     )
 
     if maintenance_detected:
-        # For now, return intent without machine ID — confirmation prompt
+        # For now, return intent without machine ID - confirmation prompt
         # will ask owner to confirm which machine before we look up the ID.
         # This is safer than guessing which machine they mean.
         logger.info(
@@ -310,7 +274,7 @@ def detect_write_intent(
             "machine_name": "the machine",  # Will be clarified in confirmation
         }
 
-    # ── 3. Check for JOB STATUS UPDATE intent ───────────────────────────────
+    # -- 3. Check for JOB STATUS UPDATE intent -------------------------------
     job_status_detected = any(
         keyword in message_lower for keyword in JOB_STATUS_KEYWORDS
     )
@@ -325,5 +289,5 @@ def detect_write_intent(
             "job_name":   "the job",  # Will be clarified in confirmation
         }
 
-    # No write intent detected — normal read/query message
+    # No write intent detected - normal read/query message
     return None, None

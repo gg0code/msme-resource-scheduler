@@ -7,7 +7,6 @@ Used as a FastAPI dependency on POST endpoints.
 from typing import Optional
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from app.database import get_db
 from app.core.dependencies import get_current_user
@@ -18,8 +17,8 @@ from app.models.auth import User, Tenant
 PLAN_LIMITS: dict[str, dict[str, Optional[int]]] = {
     "free": {
         "employees": 10,
-        "jobs":      20,
-        "machines":  10,
+        "jobs":       5,
+        "machines":   5,
         "skills":    20,
     },
     "paid": {
@@ -59,10 +58,9 @@ def check_plan_limit(resource: str, model_class):
             return  # paid plan — unlimited, skip check
 
         current_count = (
-            db.query(func.count())
-            .select_from(model_class)
+            db.query(model_class)
             .filter(model_class.tenant_id == current_user.tenant_id)
-            .scalar()
+            .count()
         )
 
         if current_count >= limit:

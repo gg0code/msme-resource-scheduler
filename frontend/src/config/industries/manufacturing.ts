@@ -1,6 +1,5 @@
-// frontend/src/config/industries/manufacturing.ts - v4.0.2
-// ShopFloor Resource Planner config for manufacturing industry.
-// job=Production Order, employee=Operator, machine=Work Center
+// src/config/industries/manufacturing.ts - v4.0.2
+// ShopFloor Resource Planner - Manufacturing industry configuration
 
 import type { IndustryConfig } from './types'
 

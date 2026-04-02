@@ -1,6 +1,6 @@
-// frontend/src/scheduler/useScheduler.ts - v3.9.5
-// Scheduler state machine: status, conflicts, summary, markDirty.
-// Calls POST /api/scheduler/run and builds per-job result summary.
+// src/scheduler/useScheduler.ts - v3.9.5
+// Hook: state machine + API calls for the scheduler toolbar
+// v3.9.5: captures resolved jobs and builds a result summary after each run
 
 import { useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'

@@ -1,6 +1,11 @@
-// frontend/src/pages/Checker.tsx
-// Resource availability checker for a specific job.
-// Shows free/busy/partial status per employee and machine.
+// src/pages/Checker.tsx
+// ---------------------
+// Availability Checker page. Select a job, run the 5-step availability check
+// from the backend engine, and see a full feasibility report:
+//   - Feasibility score (0-100%)
+//   - Pass / Fail per skill requirement with available employee list
+//   - Conflict details with blocked dates and reasons
+// No data is changed - this is a read-only diagnostic tool.
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'

@@ -1,12 +1,3 @@
-"""
-app/routers/ai_chat.py — V3.7
-AI Copilot chat endpoint using Groq + Llama 3.3
-POST /api/ai/chat
-GET  /api/ai/usage  — get current usage for tenant
-Added: per-tenant daily query tracking + token counting
-V3.7: feature flag guard — returns warm message if ai_copilot flag is False
-"""
-
 import traceback
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,14 +18,14 @@ except ImportError:
 
 router = APIRouter()
 
-# ── Plan limits ───────────────────────────────────────────────────────────────
+# -- Plan limits ---------------------------------------------------------------
 PLAN_LIMITS = {
     "free":       50,
     "pro":        500,
     "enterprise": 99999,
 }
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# -- Schemas -------------------------------------------------------------------
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -60,7 +51,7 @@ class UsageResponse(BaseModel):
     plan: str
     date: str
 
-# ── Usage helpers ─────────────────────────────────────────────────────────────
+# -- Usage helpers -------------------------------------------------------------
 def get_or_reset_usage(tenant: Tenant, db: Session) -> Tenant:
     today = date.today()
     if tenant.ai_queries_date != today:
@@ -75,14 +66,14 @@ def check_limit(tenant: Tenant) -> tuple[bool, int, int]:
     used  = tenant.ai_queries_today or 0
     return used < limit, used, limit
 
-# ── Chat endpoint ─────────────────────────────────────────────────────────────
+# -- Chat endpoint -------------------------------------------------------------
 @router.post("/chat", response_model=ChatResponse)
 def ai_chat(
     request: ChatRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # V3.7 — feature flag guard
+    # V3.7 - feature flag guard
     guard = require_feature("ai_copilot")
     if guard:
         return guard
@@ -113,9 +104,10 @@ def ai_chat(
                 break
 
     try:
-        # v3.9.9 — pass structured_data to run_ai_chat so it injects into system prompt
-        # v4.0.8 — pass industry_type so AI uses correct terminology
-        tenant_obj = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+        # v3.9.9 - pass structured_data to run_ai_chat so it injects into system prompt
+        # v4.0.8 - pass industry_type so AI uses correct terminology
+        from app.models.auth import Tenant as TenantModel
+        tenant_obj = db.query(TenantModel).filter(TenantModel.id == current_user.tenant_id).first()
         industry_type = (tenant_obj.industry_type or "printing") if tenant_obj else "printing"
         reply = run_ai_chat(
             messages=messages,
@@ -148,7 +140,7 @@ def ai_chat(
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        # Groq rate-limit (token quota exhausted) — show friendly message
+        # Groq rate-limit (token quota exhausted) - show friendly message
         err_str = str(e)
         if GroqRateLimitError and isinstance(e, GroqRateLimitError):
             raise HTTPException(
@@ -163,13 +155,13 @@ def ai_chat(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
 
-# ── Usage endpoint ────────────────────────────────────────────────────────────
+# -- Usage endpoint ------------------------------------------------------------
 @router.get("/usage", response_model=UsageResponse)
 def get_usage(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # V3.7 — feature flag guard
+    # V3.7 - feature flag guard
     guard = require_feature("ai_copilot")
     if guard:
         return guard
@@ -192,7 +184,7 @@ def get_usage(
     )
 
 
-# ── Proactive greeting endpoint — V3.9 ────────────────────────────────────────
+# -- Proactive greeting endpoint - V3.9 ----------------------------------------
 @router.get("/greeting")
 def get_greeting(
     db: Session = Depends(get_db),
@@ -224,11 +216,11 @@ def get_greeting(
     # Running jobs
     running = [j for j in active_jobs if j.timer_status == "running"]
 
-    # At risk — due within 3 days and not started
+    # At risk - due within 3 days and not started
     at_risk = [
         j for j in active_jobs
         if j.end_date and j.status in ["Draft", "Scheduled"]
-        and 0 <= ((j.end_date.date() if hasattr(j.end_date, 'date') else j.end_date) - today).days <= 3
+        and 0 <= (j.end_date.date() if hasattr(j.end_date, 'date') else j.end_date - today).days <= 3
     ]
 
     # Overdue

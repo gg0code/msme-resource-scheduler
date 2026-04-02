@@ -1,20 +1,13 @@
-"""app/schemas/auth.py — v4.0.1
-Added: industry_type to RegisterRequest
-"""
+"""app/schemas/auth.py — Pydantic schemas for auth endpoints"""
 import re
-from typing import Optional
 from pydantic import BaseModel, EmailStr, field_validator
 
-VALID_INDUSTRY_TYPES = {
-    "printing", "manufacturing", "fabrication", "chemical", "field_service"
-}
 
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     company_name: str
     slug: str
-    industry_type: str = "printing"
 
     @field_validator("password")
     @classmethod
@@ -30,13 +23,6 @@ class RegisterRequest(BaseModel):
             raise ValueError("Slug must contain only lowercase letters, numbers, and hyphens")
         return v
 
-    @field_validator("industry_type")
-    @classmethod
-    def industry_valid(cls, v: str) -> str:
-        if v not in VALID_INDUSTRY_TYPES:
-            raise ValueError(f"industry_type must be one of: {', '.join(VALID_INDUSTRY_TYPES)}")
-        return v
-
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -49,12 +35,11 @@ class TokenResponse(BaseModel):
 
 
 class UserResponse(BaseModel):
-    id:            int
-    email:         str
-    role:          str
-    tenant_id:     int
-    is_active:     bool
-    industry_type: str = "printing"   # v4.0.2 — from tenant
+    id: int
+    email: str
+    role: str
+    tenant_id: int
+    is_active: bool
     model_config = {"from_attributes": True}
 
 

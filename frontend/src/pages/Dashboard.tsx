@@ -1,31 +1,23 @@
-// frontend/src/pages/Dashboard.tsx
-// Main dashboard: KPI cards, job list, timer controls, conflict badges.
-// Refetches every 30 seconds via useDashboard().
+// src/pages/Dashboard.tsx - V2.0
+// Full job board with:
+//   - Status icons (green blink / red / arrow / blue / black)
+//   - Timer controls: Start, Pause, Resume, Stop (✕), End
+//   - Cost grid: Tentative Cost | Tentative Profit / Actual Cost | Actual Profit
+//   - Conflict banners, greyed Start button
+//   - Auto-poll every POLL_INTERVAL_MS for conflict resolution detection
 
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
-
 import {
   Pause,
-  Play,
-  Square,
-  RotateCcw,
   AlertCircle,
   Loader2,
   Clock,
   CalendarDays,
   Zap,
   BriefcaseBusiness,
-  Factory,
-  Users,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  TrendingUp,
-  TrendingDown,
 } from 'lucide-react'
-
 import apiClient from '../api/client'
 import { useLabels } from '../context/IndustryContext'
 import { CoachMark } from '../components/onboarding'

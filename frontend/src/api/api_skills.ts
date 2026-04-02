@@ -1,6 +1,3 @@
-// frontend/src/api/api_skills.ts
-// Skills catalogue CRUD and CSV import API calls.
-
 import apiClient from './client'
 import type { Skill, ImportResult } from '../types/types_index'
 

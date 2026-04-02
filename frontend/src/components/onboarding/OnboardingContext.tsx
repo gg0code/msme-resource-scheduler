@@ -1,6 +1,5 @@
-// frontend/src/components/onboarding/OnboardingContext.tsx
-// Tracks seen tour stops per user in localStorage.
-// Provides markSeen, resetTour, isSeen, isNewUser via useOnboarding().
+// src/components/onboarding/OnboardingContext.tsx
+// Tracks which tour stops the user has seen, persisted per-user in localStorage.
 
 import {
   createContext,

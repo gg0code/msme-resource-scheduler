@@ -1,6 +1,6 @@
-// frontend/src/components/Layout.tsx - v4.0.9
-// Main app shell: sidebar nav, header bar, Outlet for page content.
-// Industry-aware labels, CSS theme variables, feature-flagged nav items.
+// src/components/Layout.tsx - v4.0.9
+// Industry-aware nav labels, ZetaOps Copilot branding, CSS theme variables
+// WhatsApp nav gated behind feature flag
 
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'

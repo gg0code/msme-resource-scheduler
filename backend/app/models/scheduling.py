@@ -1,175 +1,442 @@
-"""
-app/models/scheduling.py  — Prompt 1 (Step-based scheduling engine)
+from __future__ import annotations
 
-New tables (prefixed sched_* to avoid collision with existing job/machine tables):
-  sched_resources   — machines and helpers
-  sched_jobs        — scheduling jobs (distinct from existing Job)
-  sched_steps       — ordered steps within a job
-  sched_step_machines — M2M: step ↔ machine resources
-  sched_step_helpers  — M2M: step ↔ helper resources
-"""
+from typing import List, Optional
 
-import enum
-from datetime import datetime, time, timezone
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
-from sqlalchemy import (
-    Boolean, Column, DateTime, Enum as SAEnum,
-    Float, ForeignKey, Integer, String, Time, UniqueConstraint,
+from app.models.scheduling import (
+    ResourceType, SchedJob, SchedJobStatus, SchedResource,
+    SchedStep, SchedStepHelper, SchedStepMachine,
+    StepStatus, StepType,
 )
-from sqlalchemy.orm import relationship
-
-from app.database import Base
-
-
-# ─── Enums ────────────────────────────────────────────────────────────────────
-
-class ResourceType(str, enum.Enum):
-    machine = "machine"
-    helper  = "helper"
+from app.schemas.scheduling import (
+    JobCreate, JobUpdate, ResourceCreate, ResourceUpdate,
+    StepCreate, StepUpdate,
+)
 
 
-class SchedJobPriority(str, enum.Enum):
-    critical = "critical"
-    urgent   = "urgent"
-    low      = "low"
+# --- Internal helpers ---------------------------------------------------------
+
+def _eager_step(db: Session, step_id: int) -> Optional[SchedStep]:
+    return db.scalars(
+        select(SchedStep)
+        .where(SchedStep.id == step_id)
+        .options(
+            selectinload(SchedStep.machine_links),
+            selectinload(SchedStep.helper_links),
+        )
+    ).first()
 
 
-class SchedJobShift(str, enum.Enum):
-    morning = "morning"
-    evening = "evening"
+def _eager_job(db: Session, job_id: int) -> Optional[SchedJob]:
+    return db.scalars(
+        select(SchedJob)
+        .where(SchedJob.id == job_id)
+        .options(
+            selectinload(SchedJob.steps)
+            .selectinload(SchedStep.machine_links),
+            selectinload(SchedJob.steps)
+            .selectinload(SchedStep.helper_links),
+        )
+    ).first()
 
 
-class SchedJobStatus(str, enum.Enum):
-    pending     = "pending"
-    scheduled   = "scheduled"
-    in_progress = "in_progress"
-    complete    = "complete"
+def _validate_resource_refs(
+    db: Session,
+    tenant_id: int,
+    machine_ids: List[int],
+    helper_ids: List[int],
+    reserve_machine_id: Optional[int],
+) -> None:
+    """Verify IDs exist, belong to tenant, and have the correct type."""
+    def _check(ids: List[int], expected_type: ResourceType, label: str) -> None:
+        if not ids:
+            return
+        rows = db.scalars(
+            select(SchedResource).where(
+                SchedResource.id.in_(ids),
+                SchedResource.tenant_id == tenant_id,
+            )
+        ).all()
+        found = {r.id for r in rows}
+        missing = set(ids) - found
+        if missing:
+            raise ValueError(f"{label} IDs not found for this tenant: {sorted(missing)}")
+        wrong = [r.id for r in rows if r.type != expected_type]
+        if wrong:
+            raise ValueError(
+                f"Resource IDs {wrong} are not of type '{expected_type.value}' "
+                f"(required for {label})."
+            )
+
+    _check(machine_ids, ResourceType.machine, "required_machine_ids")
+    _check(helper_ids,  ResourceType.helper,  "required_helper_ids")
+
+    if reserve_machine_id is not None:
+        res = db.scalars(
+            select(SchedResource).where(
+                SchedResource.id == reserve_machine_id,
+                SchedResource.tenant_id == tenant_id,
+            )
+        ).first()
+        if res is None:
+            raise ValueError(f"reserve_machine_id={reserve_machine_id} not found.")
+        if res.type != ResourceType.machine:
+            raise ValueError(
+                f"reserve_machine_id must reference a machine resource "
+                f"(ID {reserve_machine_id} is type '{res.type.value}')."
+            )
 
 
-class StepType(str, enum.Enum):
-    regular = "regular"
-    setup   = "setup"
+def _set_step_resources(
+    db: Session,
+    step: SchedStep,
+    machine_ids: List[int],
+    helper_ids: List[int],
+) -> None:
+    """Replace all resource associations on a step."""
+    for link in list(step.machine_links):
+        db.delete(link)
+    for link in list(step.helper_links):
+        db.delete(link)
+    db.flush()
+    for rid in machine_ids:
+        db.add(SchedStepMachine(step_id=step.id, resource_id=rid))
+    for rid in helper_ids:
+        db.add(SchedStepHelper(step_id=step.id, resource_id=rid))
+    db.flush()
 
 
-class StepStatus(str, enum.Enum):
-    pending     = "pending"
-    ready       = "ready"
-    in_progress = "in_progress"
-    complete    = "complete"
+def _resequence(db: Session, job_id: int) -> None:
+    """Rule 2: renumber remaining steps 1..N after a deletion."""
+    steps = db.scalars(
+        select(SchedStep)
+        .where(SchedStep.job_id == job_id)
+        .order_by(SchedStep.sequence_order)
+    ).all()
+    for new_order, step in enumerate(steps, start=1):
+        step.sequence_order = new_order
+    db.flush()
 
 
-# ─── Resource ─────────────────────────────────────────────────────────────────
+def _refresh_readiness(db: Session, job_id: int) -> None:
+    """
+    Rule 1: walk steps in sequence order.
+    A step is 'ready' only when all prior steps are 'complete'.
+    If a prior step is not complete, any later 'ready' step reverts to 'pending'.
+    """
+    steps = db.scalars(
+        select(SchedStep)
+        .where(SchedStep.job_id == job_id)
+        .order_by(SchedStep.sequence_order)
+    ).all()
 
-class SchedResource(Base):
-    __tablename__ = "sched_resources"
+    all_prior_complete = True
+    for step in steps:
+        if step.status == StepStatus.complete:
+            continue  # completed steps are immutable here
+        if step.status == StepStatus.in_progress:
+            all_prior_complete = False
+            continue
+        # pending or ready
+        if all_prior_complete and step.status == StepStatus.pending:
+            step.status = StepStatus.ready
+        elif not all_prior_complete and step.status == StepStatus.ready:
+            step.status = StepStatus.pending  # predecessor moved back
+        all_prior_complete = False  # first non-complete blocks all successors
 
-    id          = Column(Integer, primary_key=True, index=True)
-    tenant_id   = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
-    name        = Column(String(150), nullable=False)
-    type        = Column(SAEnum(ResourceType, name="resource_type_enum"), nullable=False)
-    shift_start = Column(Time, nullable=False, default=time(8, 0))
-    shift_end   = Column(Time, nullable=False, default=time(16, 0))
-    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    db.flush()
 
-    # Relationships
-    machine_steps = relationship("SchedStepMachine", back_populates="resource", cascade="all, delete-orphan")
-    helper_steps  = relationship("SchedStepHelper",  back_populates="resource", cascade="all, delete-orphan")
-    reserved_steps = relationship(
-        "SchedStep",
-        foreign_keys="SchedStep.reserve_machine_id",
-        back_populates="reserve_machine",
+
+# --- Resource CRUD ------------------------------------------------------------
+
+def create_resource(db: Session, tenant_id: int, data: ResourceCreate) -> SchedResource:
+    existing = db.scalars(
+        select(SchedResource).where(
+            SchedResource.tenant_id == tenant_id,
+            SchedResource.name == data.name,
+        )
+    ).first()
+    if existing:
+        raise ValueError(f"A resource named '{data.name}' already exists for this tenant.")
+
+    resource = SchedResource(tenant_id=tenant_id, **data.model_dump())
+    db.add(resource)
+    db.commit()
+    db.refresh(resource)
+    return resource
+
+
+def get_resource(db: Session, tenant_id: int, resource_id: int) -> Optional[SchedResource]:
+    return db.scalars(
+        select(SchedResource).where(
+            SchedResource.id == resource_id,
+            SchedResource.tenant_id == tenant_id,
+        )
+    ).first()
+
+
+def list_resources(
+    db: Session,
+    tenant_id: int,
+    resource_type: Optional[ResourceType] = None,
+) -> List[SchedResource]:
+    q = select(SchedResource).where(SchedResource.tenant_id == tenant_id)
+    if resource_type is not None:
+        q = q.where(SchedResource.type == resource_type)
+    return db.scalars(q.order_by(SchedResource.name)).all()
+
+
+def update_resource(
+    db: Session, tenant_id: int, resource_id: int, data: ResourceUpdate
+) -> Optional[SchedResource]:
+    resource = get_resource(db, tenant_id, resource_id)
+    if resource is None:
+        return None
+
+    updates = data.model_dump(exclude_unset=True)
+    new_start = updates.get("shift_start", resource.shift_start)
+    new_end   = updates.get("shift_end",   resource.shift_end)
+    if new_start >= new_end:
+        raise ValueError("shift_start must be earlier than shift_end")
+
+    for k, v in updates.items():
+        setattr(resource, k, v)
+    db.commit()
+    db.refresh(resource)
+    return resource
+
+
+def delete_resource(db: Session, tenant_id: int, resource_id: int) -> bool:
+    resource = get_resource(db, tenant_id, resource_id)
+    if resource is None:
+        return False
+    db.delete(resource)
+    db.commit()
+    return True
+
+
+# --- Job CRUD -----------------------------------------------------------------
+
+def create_job(db: Session, tenant_id: int, data: JobCreate) -> SchedJob:
+    job = SchedJob(tenant_id=tenant_id, **data.model_dump())
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return _eager_job(db, job.id)
+
+
+def get_job(db: Session, tenant_id: int, job_id: int) -> Optional[SchedJob]:
+    return _eager_job(db, job_id) if db.scalars(
+        select(SchedJob).where(
+            SchedJob.id == job_id, SchedJob.tenant_id == tenant_id
+        )
+    ).first() else None
+
+
+def list_jobs(
+    db: Session,
+    tenant_id: int,
+    status: Optional[SchedJobStatus] = None,
+) -> List[SchedJob]:
+    q = (
+        select(SchedJob)
+        .where(SchedJob.tenant_id == tenant_id)
+        .options(
+            selectinload(SchedJob.steps).selectinload(SchedStep.machine_links),
+            selectinload(SchedJob.steps).selectinload(SchedStep.helper_links),
+        )
+        .order_by(SchedJob.created_at.desc())
+    )
+    if status:
+        q = q.where(SchedJob.status == status)
+    return db.scalars(q).all()
+
+
+def update_job(
+    db: Session, tenant_id: int, job_id: int, data: JobUpdate
+) -> Optional[SchedJob]:
+    job = db.scalars(
+        select(SchedJob).where(SchedJob.id == job_id, SchedJob.tenant_id == tenant_id)
+    ).first()
+    if job is None:
+        return None
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(job, k, v)
+    db.commit()
+    return _eager_job(db, job_id)
+
+
+def delete_job(db: Session, tenant_id: int, job_id: int) -> bool:
+    job = db.scalars(
+        select(SchedJob).where(SchedJob.id == job_id, SchedJob.tenant_id == tenant_id)
+    ).first()
+    if job is None:
+        return False
+    db.delete(job)
+    db.commit()
+    return True
+
+
+# --- Step CRUD ----------------------------------------------------------------
+
+def create_step(db: Session, tenant_id: int, job_id: int, data: StepCreate) -> SchedStep:
+    # Verify job belongs to tenant
+    job = db.scalars(
+        select(SchedJob).where(SchedJob.id == job_id, SchedJob.tenant_id == tenant_id)
+    ).first()
+    if job is None:
+        raise ValueError(f"Job {job_id} not found.")
+
+    # Rule 2: always append at end
+    existing_orders = db.scalars(
+        select(SchedStep.sequence_order).where(SchedStep.job_id == job_id)
+    ).all()
+    next_order = (max(existing_orders) + 1) if existing_orders else 1
+
+    # Validate resource refs
+    _validate_resource_refs(
+        db, tenant_id,
+        data.required_machine_ids,
+        data.required_helper_ids,
+        data.reserve_machine_id,
     )
 
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "name", name="uq_sched_resource_tenant_name"),
+    step = SchedStep(
+        job_id=job_id,
+        sequence_order=next_order,
+        step_type=data.step_type,
+        duration_minutes=data.duration_minutes,
+        reserve_machine_id=data.reserve_machine_id,
+        status=StepStatus.pending,
+    )
+    db.add(step)
+    db.flush()
+
+    for rid in data.required_machine_ids:
+        db.add(SchedStepMachine(step_id=step.id, resource_id=rid))
+    for rid in data.required_helper_ids:
+        db.add(SchedStepHelper(step_id=step.id, resource_id=rid))
+    db.flush()
+
+    _refresh_readiness(db, job_id)
+    db.commit()
+    return _eager_step(db, step.id)
+
+
+def get_step(db: Session, tenant_id: int, step_id: int) -> Optional[SchedStep]:
+    step = _eager_step(db, step_id)
+    if step is None:
+        return None
+    # verify tenant via job
+    job = db.get(SchedJob, step.job_id)
+    return step if (job and job.tenant_id == tenant_id) else None
+
+
+def list_steps(db: Session, tenant_id: int, job_id: int) -> List[SchedStep]:
+    # Verify job belongs to tenant
+    job = db.scalars(
+        select(SchedJob).where(SchedJob.id == job_id, SchedJob.tenant_id == tenant_id)
+    ).first()
+    if job is None:
+        raise ValueError(f"Job {job_id} not found.")
+    return db.scalars(
+        select(SchedStep)
+        .where(SchedStep.job_id == job_id)
+        .order_by(SchedStep.sequence_order)
+        .options(
+            selectinload(SchedStep.machine_links),
+            selectinload(SchedStep.helper_links),
+        )
+    ).all()
+
+
+def update_step(
+    db: Session, tenant_id: int, step_id: int, data: StepUpdate
+) -> Optional[SchedStep]:
+    step = get_step(db, tenant_id, step_id)
+    if step is None:
+        return None
+
+    updates = data.model_dump(exclude_unset=True)
+    new_machine_ids = updates.pop("required_machine_ids", None)
+    new_helper_ids  = updates.pop("required_helper_ids",  None)
+
+    # Determine effective types after update
+    eff_type    = updates.get("step_type", step.step_type)
+    eff_reserve = updates.get("reserve_machine_id", step.reserve_machine_id)
+    eff_machines = (
+        new_machine_ids if new_machine_ids is not None
+        else [m.resource_id for m in step.machine_links]
     )
 
+    # Cross-validate combined state
+    if eff_type == StepType.setup and eff_machines:
+        raise ValueError("Setup steps cannot have required_machine_ids.")
+    if eff_type == StepType.regular and eff_reserve is not None:
+        raise ValueError("reserve_machine_id is only valid for setup steps.")
 
-# ─── Job ──────────────────────────────────────────────────────────────────────
+    if new_machine_ids is not None or new_helper_ids is not None:
+        m_ids = new_machine_ids or []
+        h_ids = new_helper_ids  or []
+        _validate_resource_refs(db, tenant_id, m_ids, h_ids, None)
+        _set_step_resources(db, step, m_ids, h_ids)
 
-class SchedJob(Base):
-    __tablename__ = "sched_jobs"
+    if "reserve_machine_id" in updates:
+        _validate_resource_refs(db, tenant_id, [], [], updates["reserve_machine_id"])
 
-    id               = Column(Integer, primary_key=True, index=True)
-    tenant_id        = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
-    name             = Column(String(200), nullable=False)
-    priority         = Column(SAEnum(SchedJobPriority, name="sched_job_priority_enum"), nullable=False, default=SchedJobPriority.low)
-    expected_profit  = Column(Float, nullable=True)
-    deadline         = Column(DateTime, nullable=False)
-    shift            = Column(SAEnum(SchedJobShift, name="sched_job_shift_enum"), nullable=False, default=SchedJobShift.morning)
-    lock_status      = Column(Boolean, nullable=False, default=False)
-    status           = Column(SAEnum(SchedJobStatus, name="sched_job_status_enum"), nullable=False, default=SchedJobStatus.pending)
-    created_at       = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at       = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    for k, v in updates.items():
+        setattr(step, k, v)
 
-    steps = relationship(
-        "SchedStep",
-        back_populates="job",
-        cascade="all, delete-orphan",
-        order_by="SchedStep.sequence_order",
-        lazy="select",
-    )
+    db.flush()
+    _refresh_readiness(db, step.job_id)
+    db.commit()
+    return _eager_step(db, step_id)
 
 
-# ─── Step ─────────────────────────────────────────────────────────────────────
-
-class SchedStep(Base):
-    __tablename__ = "sched_steps"
-    __table_args__ = (
-        UniqueConstraint("job_id", "sequence_order", name="uq_sched_step_job_seq"),
-    )
-
-    id               = Column(Integer, primary_key=True, index=True)
-    job_id           = Column(Integer, ForeignKey("sched_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
-    sequence_order   = Column(Integer, nullable=False)
-    step_type        = Column(SAEnum(StepType, name="step_type_enum"), nullable=False, default=StepType.regular)
-    duration_minutes = Column(Integer, nullable=False)
-    status           = Column(SAEnum(StepStatus, name="step_status_enum"), nullable=False, default=StepStatus.pending)
-    reserve_machine_id = Column(
-        Integer,
-        ForeignKey("sched_resources.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-
-    job             = relationship("SchedJob", back_populates="steps")
-    reserve_machine = relationship(
-        "SchedResource",
-        foreign_keys=[reserve_machine_id],
-        back_populates="reserved_steps",
-    )
-    machine_links = relationship("SchedStepMachine", back_populates="step", cascade="all, delete-orphan", lazy="select")
-    helper_links  = relationship("SchedStepHelper",  back_populates="step", cascade="all, delete-orphan", lazy="select")
+def delete_step(db: Session, tenant_id: int, step_id: int) -> bool:
+    step = get_step(db, tenant_id, step_id)
+    if step is None:
+        return False
+    job_id = step.job_id
+    db.delete(step)
+    db.flush()
+    _resequence(db, job_id)       # Rule 2: close gap
+    _refresh_readiness(db, job_id) # Rule 1: re-evaluate
+    db.commit()
+    return True
 
 
-# ─── Step ↔ Machine (M2M) ─────────────────────────────────────────────────────
+def update_step_status(
+    db: Session, tenant_id: int, step_id: int, new_status: StepStatus
+) -> Optional[SchedStep]:
+    """
+    PATCH /status — update one step's status then re-evaluate all siblings.
+    Rule 1 is always applied after this change.
+    Guard: cannot set 'ready' if predecessors are not complete.
+    """
+    step = get_step(db, tenant_id, step_id)
+    if step is None:
+        return None
 
-class SchedStepMachine(Base):
-    __tablename__ = "sched_step_machines"
-    __table_args__ = (
-        UniqueConstraint("step_id", "resource_id", name="uq_step_machine"),
-    )
+    if new_status == StepStatus.ready:
+        predecessors = db.scalars(
+            select(SchedStep).where(
+                SchedStep.job_id == step.job_id,
+                SchedStep.sequence_order < step.sequence_order,
+            )
+        ).all()
+        not_done = [s for s in predecessors if s.status != StepStatus.complete]
+        if not_done:
+            orders = sorted(s.sequence_order for s in not_done)
+            raise ValueError(
+                f"Cannot set step to 'ready': predecessors at positions "
+                f"{orders} are not yet complete."
+            )
 
-    id          = Column(Integer, primary_key=True, index=True)
-    step_id     = Column(Integer, ForeignKey("sched_steps.id", ondelete="CASCADE"), nullable=False)
-    resource_id = Column(Integer, ForeignKey("sched_resources.id", ondelete="CASCADE"), nullable=False)
-
-    step     = relationship("SchedStep",    back_populates="machine_links")
-    resource = relationship("SchedResource", back_populates="machine_steps")
-
-
-# ─── Step ↔ Helper (M2M) ──────────────────────────────────────────────────────
-
-class SchedStepHelper(Base):
-    __tablename__ = "sched_step_helpers"
-    __table_args__ = (
-        UniqueConstraint("step_id", "resource_id", name="uq_step_helper"),
-    )
-
-    id          = Column(Integer, primary_key=True, index=True)
-    step_id     = Column(Integer, ForeignKey("sched_steps.id", ondelete="CASCADE"), nullable=False)
-    resource_id = Column(Integer, ForeignKey("sched_resources.id", ondelete="CASCADE"), nullable=False)
-
-    step     = relationship("SchedStep",    back_populates="helper_links")
-    resource = relationship("SchedResource", back_populates="helper_steps")
+    step.status = new_status
+    db.flush()
+    _refresh_readiness(db, step.job_id)
+    db.commit()
+    return _eager_step(db, step_id)

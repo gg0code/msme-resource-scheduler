@@ -1,43 +1,3 @@
-"""
-FILE:    whatsapp_formatter.py
-PATH:    backend/app/services/whatsapp_formatter.py
-PURPOSE: Converts AI responses from markdown format into plain text
-         suitable for WhatsApp messages.
-
-         The AI backend (run_ai_chat via Groq) returns responses written
-         for a web UI — they contain markdown like **bold**, ### headers,
-         bullet points with -, and code blocks with ```.
-
-         WhatsApp does not render markdown the same way. If we send
-         markdown directly, the factory owner sees raw symbols like
-         asterisks and hashes cluttering the message.
-
-         This file is the last step before sending a response to the
-         owner. Every AI response must pass through format_for_whatsapp()
-         before being sent via Interakt.
-
-         This formatter is STATELESS — it takes a string and returns a
-         string. It has no DB access, no Redis access, no external calls.
-         This means it works identically regardless of which AI backend
-         is behind whatsapp_bridge.py — Groq today, Factory GPT tomorrow.
-
-BRANCH:  v5-whatsapp
-VERSION: v5.1
-CREATED: 2026-03
-
-DEPENDENCIES:
-  re (Python standard library) — for regex-based text transformations
-  No external packages needed — this file has zero pip dependencies.
-
-USAGE:
-  from app.services.whatsapp_formatter import format_for_whatsapp
-
-  # Format AI response before sending to owner
-  raw_response = await active_bridge.process_message(...)
-  whatsapp_text = format_for_whatsapp(raw_response)
-  await send_whatsapp_message(phone_number, whatsapp_text)
-"""
-
 import re
 import logging
 
@@ -48,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# FORMATTING CONSTANTS — all limits defined here, never buried in functions
+# FORMATTING CONSTANTS - all limits defined here, never buried in functions
 # ---------------------------------------------------------------------------
 
 # Maximum characters in a single WhatsApp message.
@@ -66,7 +26,7 @@ BULLET_REPLACEMENT = "• "   # Replace markdown - bullets with proper bullet ch
 
 
 # ---------------------------------------------------------------------------
-# MAIN FUNCTION — format_for_whatsapp()
+# MAIN FUNCTION - format_for_whatsapp()
 # ---------------------------------------------------------------------------
 
 def format_for_whatsapp(text: str) -> str:
@@ -121,7 +81,7 @@ def format_for_whatsapp(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# PRIVATE FORMATTING STEPS — each does exactly one transformation
+# PRIVATE FORMATTING STEPS - each does exactly one transformation
 # ---------------------------------------------------------------------------
 
 def _remove_code_blocks(text: str) -> str:
@@ -143,9 +103,9 @@ def _remove_code_blocks(text: str) -> str:
         Input:  "Result:\n```\nJob 1: Printing\nJob 2: Cutting\n```"
         Output: "Result:\nJob 1: Printing\nJob 2: Cutting"
     """
-    # Remove triple backtick blocks — including the optional language hint
+    # Remove triple backtick blocks - including the optional language hint
     # e.g. ```python or ```json after the opening backticks
-    # re.DOTALL makes . match newlines too — needed for multi-line blocks
+    # re.DOTALL makes . match newlines too - needed for multi-line blocks
     text = re.sub(r"```[a-zA-Z]*\n?", "", text, flags=re.DOTALL)
     text = re.sub(r"```", "", text)
 
@@ -263,7 +223,7 @@ def _convert_bullet_points(text: str) -> str:
     # ^ with MULTILINE matches start of each line, not just start of string
     text = re.sub(r"^- ", BULLET_REPLACEMENT, text, flags=re.MULTILINE)
 
-    # Also handle indented bullets (  - item) — common in nested lists
+    # Also handle indented bullets (  - item) - common in nested lists
     text = re.sub(r"^\s{2,}- ", BULLET_REPLACEMENT, text, flags=re.MULTILINE)
 
     return text
@@ -323,22 +283,22 @@ def _convert_markdown_tables(text: str) -> str:
 
     for line in lines:
         # Detect separator rows like |---|---| or |:--|--:|
-        # These are table dividers — skip them entirely
+        # These are table dividers - skip them entirely
         if re.match(r"^\s*\|[-:\s|]+\|\s*$", line):
             continue
 
-        # Detect table data rows — lines starting and ending with |
+        # Detect table data rows - lines starting and ending with |
         if line.strip().startswith("|") and line.strip().endswith("|"):
             # Extract cell contents by splitting on | and cleaning whitespace
             cells = [cell.strip() for cell in line.split("|")]
             # Filter out empty strings from leading/trailing | characters
             cells = [c for c in cells if c]
             if cells:
-                # Join cells with | separator — readable on mobile
+                # Join cells with | separator - readable on mobile
                 result_lines.append(" | ".join(cells))
             continue
 
-        # Not a table line — keep as-is
+        # Not a table line - keep as-is
         result_lines.append(line)
 
     return "\n".join(result_lines)
@@ -401,7 +361,7 @@ def _truncate_if_too_long(text: str) -> str:
     if len(text) <= MAX_MESSAGE_LENGTH:
         return text
 
-    # Find a good cut point — look for sentence end near the limit.
+    # Find a good cut point - look for sentence end near the limit.
     # We search in the last 200 characters of the allowed window.
     search_start = MAX_MESSAGE_LENGTH - 200
     search_window = text[search_start:MAX_MESSAGE_LENGTH]
@@ -418,7 +378,7 @@ def _truncate_if_too_long(text: str) -> str:
         # Cut at the sentence boundary for a cleaner break
         cut_point = search_start + last_sentence_end + 1
     else:
-        # No sentence boundary found — cut at the hard limit
+        # No sentence boundary found - cut at the hard limit
         cut_point = MAX_MESSAGE_LENGTH
 
     truncated = text[:cut_point].rstrip()
@@ -433,7 +393,7 @@ def _truncate_if_too_long(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# UTILITY FUNCTION — detect_language()
+# UTILITY FUNCTION - detect_language()
 # ---------------------------------------------------------------------------
 
 def detect_language(text: str) -> str:
@@ -470,7 +430,7 @@ def detect_language(text: str) -> str:
     if re.search(r"[\u0900-\u097F]", text):
         return "hindi"
 
-    # Common Hinglish words — Hindi spoken in Latin script.
+    # Common Hinglish words - Hindi spoken in Latin script.
     # Factory owners frequently use these when typing on a phone.
     # We check lowercase to make matching case-insensitive.
     hinglish_words = [
@@ -497,5 +457,5 @@ def detect_language(text: str) -> str:
     if hinglish_count >= 2:
         return "hinglish"
 
-    # Default — treat as English
+    # Default - treat as English
     return "english"

@@ -1,6 +1,4 @@
-// frontend/src/api/api_timer.ts
-// Job timer API - start, pause, resume, stop, summary, end.
-
+// src/api/api_timer.ts - V2.0
 import apiClient from './client'
 
 export interface CostBreakdown {

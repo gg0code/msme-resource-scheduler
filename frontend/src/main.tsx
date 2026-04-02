@@ -1,6 +1,3 @@
-// frontend/src/main.tsx
-// React app entry point. Mounts App into #root.
-
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'

@@ -1,5 +1,6 @@
-// frontend/src/components/EndJobModal.tsx - v2.0
-// Job completion modal. Editable resource selection, live cost preview.
+// src/components/EndJobModal.tsx - V2.0
+// Modal shown when user clicks End button on a running/paused job.
+// Allows editing final employee/machine list, shows live cost preview.
 
 import { useEffect, useState } from 'react'
 import { X, Users, Wrench, TrendingUp, TrendingDown, Loader2, CheckCircle2 } from 'lucide-react'

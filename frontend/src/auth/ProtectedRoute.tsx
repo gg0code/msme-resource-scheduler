@@ -1,5 +1,11 @@
 // frontend/src/auth/ProtectedRoute.tsx
-// Route guard - checks auth and role before rendering children.
+//
+// Wraps React Router routes.
+//
+// Usage in your App.tsx:
+//   <ProtectedRoute />                                  - any logged-in user
+//   <ProtectedRoute roles={["proprietor"]} />           - proprietor only
+//   <ProtectedRoute roles={["proprietor","scheduler"]} /> - either role
 
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth, type Role } from "./AuthContext";

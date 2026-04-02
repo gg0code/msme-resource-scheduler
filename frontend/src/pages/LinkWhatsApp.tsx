@@ -1,6 +1,11 @@
-// frontend/src/pages/LinkWhatsApp.tsx
-// WhatsApp phone number linking page (v5-whatsapp).
-// Links owner phone to ZetaOps account for WhatsApp Copilot.
+// frontend/src/pages/LinkWhatsApp.tsx - v5.5
+// FILE:    LinkWhatsApp.tsx
+// PATH:    frontend/src/pages/LinkWhatsApp.tsx
+// PURPOSE: Allows a logged-in proprietor to link their WhatsApp number to their
+//          ZetaOps tenant account. Calls POST /api/v1/whatsapp/link-phone and
+//          shows current linked numbers for the tenant.
+// BRANCH:  v5-whatsapp
+// CREATED: 2026-03-29
 
 import { useEffect, useState, type FormEvent } from 'react'
 import { MessageCircle, Phone, Trash2, Plus, CheckCircle, AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
