@@ -1,92 +1,45 @@
 """
-```python
-"""
-FILE PURPOSE:
-WhatsApp identity resolution service that maps incoming WhatsApp phone numbers to ZetaOps 
-tenants and users. This is the security gatekeeper for the WhatsApp Copilot feature introduced 
-in v5-whatsapp branch. Every inbound WhatsApp message must pass through this service first 
-to determine which factory (tenant) the message belongs to and whether the sender is authorized 
-to use the system. Without successful identity resolution, messages are rejected before reaching 
-the AI processing pipeline.
+FILE:    whatsapp_identity.py
+PATH:    backend/app/services/whatsapp_identity.py
+PURPOSE: Resolves an incoming WhatsApp phone number to a ZetaOps tenant
+         and user. This is the first thing that runs after signature
+         verification on every inbound message. If the phone number is
+         not registered, the message is rejected before touching the AI.
 
-WHAT THIS FILE DOES — step by step:
-1. Defines IdentityResult data class that encapsulates resolved phone number identity
-2. Provides resolve_identity() function that looks up phone numbers in phone_tenant_map table
-3. Updates last_seen_at timestamp when phone numbers are successfully resolved
-4. Provides check_consent() function to verify if conversation logging is allowed
-5. Provides record_consent() function to save user consent for data logging
-6. Handles all error cases defensively (unregistered phones, invalid formats, inactive mappings)
-7. Masks phone numbers in logs for privacy compliance
+         Think of this as the doorman — it checks who is knocking before
+         letting anyone into the system.
 
-KEY FUNCTIONS / CLASSES / COMPONENTS:
+         Three functions are provided:
+           resolve_identity()  — main lookup, called on every message
+           check_consent()     — checks if owner agreed to data logging
+           record_consent()    — called when owner replies HAAN (yes)
 
-IdentityResult
-    Type         : Data class
-    Purpose      : Encapsulates the resolved identity information for a WhatsApp phone number. 
-                   Acts as a clean interface between the database model and business logic, 
-                   preventing tight coupling to SQLAlchemy models.
-    Parameters   : tenant_id (int), user_id (int), industry_type (str), phone_number (str), 
-                   consent_given (bool), display_name (str|None), phone_role (str)
-    Returns      : N/A (constructor creates instance)
-    Calls        : None (pure data container)
-    DB/API       : No database or API calls
-    Side effects : None (immutable data holder)
+BRANCH:  v5-whatsapp
+VERSION: v5.0
+CREATED: 2026-03
 
-resolve_identity
-    Type         : Function
-    Purpose      : Main entry point for phone number resolution. Validates E.164 format, 
-                   queries phone_tenant_map table for active mappings, and returns tenant 
-                   information. Also updates last_seen_at timestamp for analytics tracking.
-    Parameters   : phone_number (str) - E.164 format like +919876543210, db (Session) - SQLAlchemy session
-    Returns      : IdentityResult object if phone is registered and active, None if not found or inactive
-    Calls        : SQLAlchemy select/update queries, logging functions
-    DB/API       : SELECT from phone_tenant_map WHERE phone_number and is_active=True, 
-                   UPDATE last_seen_at timestamp
-    Side effects : Updates last_seen_at column in database, writes to application logs
+DEPENDENCIES:
+  app/models/whatsapp.py  — PhoneTenantMap SQLAlchemy model
+  app/database.py         — AsyncSession database dependency
+  migration 017           — phone_tenant_map table must exist before
+                            this service can be used
 
-check_consent
-    Type         : Function
-    Purpose      : Read-only function to verify if a phone number owner has consented to conversation 
-                   logging. Used before writing any data to whatsapp_conversations table to ensure 
-                   GDPR compliance and data privacy requirements.
-    Parameters   : phone_number (str) - E.164 format phone number, db (Session) - SQLAlchemy session
-    Returns      : True if consent given and mapping is active, False otherwise (defaults to False for safety)
-    Calls        : SQLAlchemy select query
-    DB/API       : SELECT consent_given FROM phone_tenant_map WHERE phone_number and is_active=True
-    Side effects : None (read-only operation)
+USAGE:
+  from app.services.whatsapp_identity import (
+      resolve_identity, check_consent, record_consent
+  )
 
-record_consent
-    Type         : Function
-    Purpose      : Records user consent for conversation logging when owner replies "HAAN" (yes) to 
-                   initial consent prompt. Once called, future check_consent() calls return True 
-                   and conversations will be logged for Factory GPT training.
-    Parameters   : phone_number (str) - E.164 format phone number, db (Session) - SQLAlchemy session
-    Returns      : True if consent successfully recorded, False if phone mapping not found
-    Calls        : SQLAlchemy update query
-    DB/API       : UPDATE phone_tenant_map SET consent_given=True WHERE phone_number and is_active=True
-    Side effects : Modifies consent_given column in database, commits transaction
+  # Resolve phone to tenant on every inbound message
+  identity = await resolve_identity(phone_number="+919876543210", db=db)
+  if identity is None:
+      return  # Phone not registered — reject silently
 
-WHO CALLS THIS FILE:
-- backend/app/routers/whatsapp.py (main WhatsApp webhook handler)
-- backend/app/services/whatsapp_service.py (before processing messages)
-- backend/app/services/whatsapp_conversation.py (before logging conversations)
+  # Check consent before logging conversation
+  if identity.consent_given:
+      # safe to log to whatsapp_conversations table
 
-IMPORTS EXPLAINED:
-- logging: Python standard library for structured application logging with module-level loggers
-- sqlalchemy.orm.Session: SQLAlchemy session type for database transactions and queries  
-- sqlalchemy.select/update: SQLAlchemy query builder functions for SELECT and UPDATE statements
-- sqlalchemy.sql.func: SQLAlchemy SQL functions like func.now() for database-level timestamps
-- app.models.whatsapp.PhoneTenantMap: SQLAlchemy ORM model representing phone-to-tenant mappings
-
-INTERN NOTES:
-- Easiest thing to break: Forgetting tenant_id filtering in queries - this would leak data between factories and violate design principle #2
-- Non-obvious design decision: Returns IdentityResult object instead of raw SQLAlchemy model to decouple business logic from database schema changes
-- Most common mistake: Not handling None return from resolve_identity() in calling code, which should result in message rejection not error
-- Design principle implemented: #2 (tenant scoping on ALL DB queries) and #9 (WhatsApp services use sync Session)
-- What to check if behaving unexpectedly: E.164 phone number format validation, is_active=True filtering, and last_seen_at timestamp updates in database
-- v5-whatsapp merge note: This entire file is new in v5 and requires migration 017 (phone_tenant_map table) to be applied before deployment
-"""
-```
+  # Record consent when owner replies HAAN
+  await record_consent(phone_number="+919876543210", db=db)
 """
 
 import logging

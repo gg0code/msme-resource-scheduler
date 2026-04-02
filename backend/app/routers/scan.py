@@ -1,97 +1,14 @@
 """
-FILE PURPOSE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-This file implements the QR code scanning system for ZetaOps Copilot, allowing factory floor workers to start and complete job steps by scanning QR codes without needing to log in. Introduced in v3.7 on the v4-dev branch, it sits in the FastAPI router layer and handles both authenticated token generation (for managers printing QR cards) and unauthenticated token verification/execution (for workers scanning codes). This enables hands-free job step tracking in manufacturing environments where workers may have dirty hands or limited device access.
+app/routers/scan.py — V3.7
+Token generation and scan execution endpoints.
 
-WHAT THIS FILE DOES — step by step
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Defines Pydantic schemas for QR token generation, verification, and execution requests/responses
-2. Provides helper functions to safely query Jobs and JobSteps with tenant_id filtering
-3. Exposes a POST endpoint for authenticated users to generate start/complete token pairs for all steps in a job
-4. Exposes a GET endpoint for unauthenticated token verification (returns step metadata without executing)
-5. Exposes a POST endpoint for unauthenticated token execution (actually starts or completes the step)
-6. Implements step status transitions (ready → in_progress → complete) with automatic next-step unlocking
-7. Detects job completion when all steps are complete and updates the parent Job status
-8. Returns rich response data including next step information and user-friendly messages
+Endpoints:
+  POST /api/jobs/{job_id}/scan-tokens   — generate all tokens for a job (auth required)
+  POST /api/scan/execute                — execute a scan action (no auth, token-based)
+  GET  /api/scan/verify                 — verify token and return metadata (no auth)
 
-KEY FUNCTIONS / CLASSES / COMPONENTS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-StepTokenPair
-    Type         : Pydantic BaseModel class
-    Purpose      : Response schema representing a single job step with its associated start and complete QR tokens. Contains all metadata needed to print a QR card for a step including timing, status, and the actual token strings.
-    Parameters   : step_id (int), sequence_no (int), step_name (str), step_type (str), duration_minutes (int), status (str), start_token (str), complete_token (str), expires_at (str)
-    Returns      : N/A (data class)
-    Calls        : None
-    DB/API       : None
-    Side effects : None
-
-JobTokensResponse
-    Type         : Pydantic BaseModel class
-    Purpose      : Response schema for the token generation endpoint. Contains job-level metadata and a list of all step token pairs for printing QR cards.
-    Parameters   : job_id (int), job_name (str), expires_at (str), steps (List[StepTokenPair])
-    Returns      : N/A (data class)
-    Calls        : None
-    DB/API       : None
-    Side effects : None
-
-ScanExecuteRequest
-    Type         : Pydantic BaseModel class
-    Purpose      : Request schema for executing a QR scan. Contains only the scanned token string that workers provide.
-    Parameters   : token (str)
-    Returns      : N/A (data class)
-    Calls        : None
-    DB/API       : None
-    Side effects : None
-
-ScanExecuteResponse
-    Type         : Pydantic BaseModel class
-    Purpose      : Response schema for scan execution results. Provides comprehensive feedback to the worker including success status, what happened, and what to do next.
-    Parameters   : success (bool), action (str), step_name (str), job_name (str), step_id (int), job_id (int), is_last_step (bool), next_step_name (str | None), job_completed (bool), message (str)
-    Returns      : N/A (data class)
-    Calls        : None
-    DB/API       : None
-    Side effects : None
-
-ScanVerifyResponse
-    Type         : Pydantic BaseModel class
-    Purpose      : Response schema for token verification. Allows UIs to show step information and determine if a scan can be executed before actually doing it.
-    Parameters   : valid (bool), action (str), step_name (str), job_name (str), step_id (int), job_id (int), expires_at (str), current_step_status (str), can_execute (bool), reason (str | None)
-    Returns      : N/A (data class)
-    Calls        : None
-    DB/API       : None
-    Side effects : None
-
-_get_job
-    Type         : Helper function
-    Purpose      : Safely retrieves a Job by ID with tenant_id filtering to prevent cross-tenant data access. Raises 404 if job doesn't exist or doesn't belong to the tenant.
-    Parameters   : db (Session) - SQLAlchemy database session, job_id (int) - job primary key, tenant_id (int) - tenant isolation filter
-    Returns      : Job model instance if found
-    Calls        : SQLAlchemy Job model query
-    DB/API       : Queries Job table with tenant_id filter
-    Side effects : Raises HTTPException(404) if job not found
-
-_get_step
-    Type         : Helper function
-    Purpose      : Safely retrieves a JobStep by ID with tenant_id filtering. Returns None instead of raising an exception, allowing callers to handle missing steps gracefully.
-    Parameters   : db (Session) - SQLAlchemy database session, step_id (int) - step primary key, tenant_id (int) - tenant isolation filter
-    Returns      : JobStep model instance if found, None otherwise
-    Calls        : SQLAlchemy JobStep model query
-    DB/API       : Queries JobStep table with tenant_id filter
-    Side effects : None
-
-generate_job_tokens
-    Type         : FastAPI POST endpoint
-    Purpose      : Authenticated endpoint that generates start and complete QR tokens for all steps in a job. Managers use this to print QR cards. Feature-flagged by qr_scan setting, returning a warm message if disabled.
-    Parameters   : job_id (int) - URL path parameter, db (Session) - injected database session, current_user - injected authenticated user
-    Returns      : JobTokensResponse containing job metadata and token pairs for all steps
-    Calls        : require_feature(), _get_job(), create_scan_token() from token_service
-    DB/API       : Queries JobStep table to get all steps for the job, ordered by sequence_no
-    Side effects : None (read-only operation)
-
-verify_token
-    Type         : FastAPI GET endpoint
-    Purpose      : Unauthenticated endpoint that verifies a Q
+V3.7: feature flag guard on token generation — returns warm message if qr_scan flag is False.
+      verify and execute endpoints are NOT guarded — a printed QR card must always be scannable.
 """
 
 from datetime import datetime, timezone

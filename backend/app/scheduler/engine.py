@@ -1,110 +1,18 @@
 """
-```python
-"""
-backend/app/scheduler/engine.py — Pure Python Scheduling Engine
+backend/app/scheduler/engine.py — Prompt 2 Part A
 
-FILE PURPOSE
-This file contains the core scheduling algorithm for the ZetaOps Copilot workforce and job scheduling system. It implements a greedy priority-based scheduler that takes jobs, steps, resources, and existing locked entries as input, then produces a schedule that assigns time slots to job steps while respecting resource constraints and sequential dependencies. This is a pure computational engine with zero database dependencies, following design principle #1 (Engine computes, AI only narrates). The file was introduced in the early versions of the system and serves as the mathematical heart of the scheduling functionality, converting business requirements into concrete time-based resource allocations.
+Pure Python scheduling engine — zero SQLAlchemy, zero DB calls.
+Input/output are plain dataclasses only.
 
-WHAT THIS FILE DOES — step by step
-1. Defines input dataclasses (ResourceSlot, StepInput, JobInput, LockedEntry) that represent the scheduling problem
-2. Defines output dataclasses (ScheduleEntry, ConflictEntry, SchedulerResult) that represent the scheduling solution
-3. Sets up priority ranking system for jobs (critical > urgent > low)
-4. Implements helper functions for datetime manipulation and resource conflict detection
-5. Builds occupancy maps from existing locked entries to track resource availability
-6. Sorts unlocked jobs by priority, profit, and deadline to establish scheduling order
-7. Iterates through each job's steps in sequence order, applying sequential gates and resource constraints
-8. Performs minute-by-minute scanning to find available time slots within shift windows
-9. Records successful assignments in the resolved list and conflicts in the unresolved list
-10. Returns a complete SchedulerResult containing both successful and failed scheduling attempts
-
-KEY FUNCTIONS / CLASSES / COMPONENTS
-
-Name         : ResourceSlot
-Type         : dataclass
-Purpose      : Represents a schedulable resource (machine or helper) with availability windows. Contains the resource's basic identification and shift timing constraints that determine when it can be scheduled.
-Parameters   : id (int) - unique resource identifier, name (str) - human-readable resource name, type (str) - either 'machine' or 'helper' for resource category, shift_start (time) - when resource becomes available, shift_end (time) - when resource becomes unavailable
-Returns      : N/A (dataclass)
-Calls        : None
-DB/API       : None (pure dataclass)
-Side effects : None
-
-Name         : StepInput
-Type         : dataclass
-Purpose      : Represents a single step within a job that needs to be scheduled. Contains all the resource requirements, timing constraints, and sequencing information needed to place this step in the schedule.
-Parameters   : id (int) - unique step identifier, job_id (int) - parent job reference, sequence_order (int) - position in job workflow, step_type (str) - 'regular' or 'setup' classification, duration_minutes (int) - how long step takes, required_machine_ids (List[int]) - machines needed for step, required_helper_ids (List[int]) - helpers needed for step, reserve_machine_id (Optional[int]) - exclusive machine reservation for setup steps
-Returns      : N/A (dataclass)
-Calls        : None
-DB/API       : None (pure dataclass)
-Side effects : None
-
-Name         : JobInput
-Type         : dataclass
-Purpose      : Represents a complete job containing multiple steps. Provides job-level metadata used for prioritization and scheduling decisions including business priority and profitability metrics.
-Parameters   : id (int) - unique job identifier, name (str) - human-readable job name, priority (str) - business priority level ('critical', 'urgent', 'low'), expected_profit (Optional[float]) - projected revenue for prioritization, deadline (datetime) - when job must complete, shift (str) - preferred shift timing ('morning', 'evening'), lock_status (bool) - whether job is already locked in schedule
-Returns      : N/A (dataclass)
-Calls        : None
-DB/API       : None (pure dataclass)
-Side effects : None
-
-Name         : LockedEntry
-Type         : dataclass
-Purpose      : Represents an already-scheduled time block that cannot be moved. Used to build the initial occupancy map so the scheduler respects existing commitments and locked assignments.
-Parameters   : job_id (int) - which job owns this time block, step_id (int) - which step this represents, resource_id (int) - which resource is occupied, resource_type (str) - classification ('machine', 'helper', 'reserve'), start (datetime) - when occupation begins, end (datetime) - when occupation ends
-Returns      : N/A (dataclass)
-Calls        : None
-DB/API       : None (pure dataclass)
-Side effects : None
-
-Name         : ScheduleEntry
-Type         : dataclass
-Purpose      : Represents a successfully scheduled step with concrete time assignments and resource allocations. This is the primary output format showing exactly when and where each step will execute.
-Parameters   : job_id (int) - parent job reference, step_id (int) - which step was scheduled, assigned_machine_ids (List[int]) - machines allocated to step, assigned_helper_ids (List[int]) - helpers allocated to step, scheduled_start (datetime) - when step begins execution, scheduled_end (datetime) - when step completes execution
-Returns      : N/A (dataclass)
-Calls        : None
-DB/API       : None (pure dataclass)
-Side effects : None
-
-Name         : ConflictEntry
-Type         : dataclass
-Purpose      : Represents a step that could not be scheduled due to resource conflicts, timing constraints, or dependency issues. Provides diagnostic information explaining why scheduling failed.
-Parameters   : job_id (int) - parent job reference, step_id (int) - which step failed, sequence_order (int) - step position for context, reason (str) - human-readable explanation of scheduling failure
-Returns      : N/A (dataclass)
-Calls        : None
-DB/API       : None (pure dataclass)
-Side effects : None
-
-Name         : SchedulerResult
-Type         : dataclass
-Purpose      : Container for complete scheduling results including both successful assignments and failures. Ensures every step of every unlocked job appears exactly once across resolved or unresolved lists.
-Parameters   : resolved (List[ScheduleEntry]) - successfully scheduled steps, unresolved (List[ConflictEntry]) - steps that could not be scheduled
-Returns      : N/A (dataclass)
-Calls        : None
-DB/API       : None (pure dataclass)
-Side effects : None
-
-Name         : _dt
-Type         : function
-Purpose      : Utility function that combines separate date and time objects into a single naive datetime. Used throughout the scheduler to convert shift timing information into schedulable datetime objects.
-Parameters   : d (date) - the date component, t (time) - the time component
-Returns      : datetime - naive datetime combining the date and time inputs
-Calls        : datetime constructor
-DB/API       : None
-Side effects : None
-
-Name         : _overlaps
-Type         : function
-Purpose      : Determines whether two half-open time intervals overlap using mathematical interval logic. Critical for detecting resource conflicts during scheduling by checking if proposed assignments conflict with existing occupancy.
-Parameters   : s1 (datetime) - start of first interval, e1 (datetime) - end of first interval, s2 (datetime) - start of second interval, e2 (datetime) - end of second interval
-Returns      : bool - True if intervals overlap, False if they don't conflict
-Calls        : None (pure mathematical comparison)
-DB/API       : None
-Side effects : None
-
-Name         : _is_free
-Type         : function
-Purpose      : Checks whether a specific resource is available during a proposed time window by scanning its occupancy map for conflicts. Returns True only if the entire proposed window is clear of existing assignments.
-Parameters   : occupancy (OccupancyMap) - current resource occupancy
+Algorithm:
+  1. Build occupancy map from locked_entries
+  2. Sort unlocked jobs by priority DESC → profit DESC → deadline ASC
+  3. For each job, walk steps in sequence_order:
+       a. Sequential gate  — all prior steps resolved or complete
+       b. Earliest start   — max(shift_start, prev_step_end, schedule_date_start)
+       c. Find slot        — minute-by-minute scan within shift window
+       d. Record or conflict
+  4. Every step appears in resolved OR unresolved — nothing silently skipped
 """
 
 from __future__ import annotations

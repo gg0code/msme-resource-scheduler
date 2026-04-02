@@ -1,89 +1,58 @@
 """
-```python
-"""
-FILE PURPOSE
-This file manages conversation history for WhatsApp messages using Redis as temporary storage.
-It provides a sliding window of the last 10 messages per factory owner with a 30-minute TTL
-(time to live), giving the AI memory within conversations so owners can reference previous
-messages like "reschedule that job". Introduced in v5-whatsapp branch as part of the WhatsApp
-Copilot feature. Sits in the services layer between WhatsApp message handlers and the AI service,
-providing session state management without requiring permanent database storage.
+FILE:    whatsapp_session.py
+PATH:    backend/app/services/whatsapp_session.py
+PURPOSE: Manages conversation history for WhatsApp messages using Redis.
+         Every factory owner gets a sliding window of their last 10 messages
+         stored in Redis with a 30 minute TTL (time to live).
 
-WHAT THIS FILE DOES — step by step
-1. Creates an async Redis client using UPSTASH_REDIS_URL from environment settings
-2. Falls back to in-memory dictionary storage when Redis URL is not configured (development mode)
-3. Defines session constants: 30-minute TTL, 10-message sliding window, Redis key prefix
-4. Provides functions to load, save, and clear conversation history per phone number
-5. Implements sliding window logic that drops oldest messages when limit is exceeded
-6. Handles Redis connection failures gracefully by returning empty history instead of crashing
-7. Logs all session operations with phone number masking for privacy (shows only last 4 digits)
+         This gives the AI memory within a conversation — the owner can say
+         "reschedule that job" and the AI knows which job was just discussed.
+         After 30 minutes of inactivity, the session expires and the next
+         message starts a fresh conversation.
 
-KEY FUNCTIONS / CLASSES / COMPONENTS
+         Redis is used instead of PostgreSQL for session state because:
+         - Redis TTL handles expiry automatically — no cleanup jobs needed
+         - Redis is much faster for frequent small reads/writes
+         - Session data is temporary — it does not need to survive a restart
+         - PostgreSQL is reserved for permanent data only
 
-Name         : _create_redis_client
-Type         : function (private helper)
-Purpose      : Creates and configures an async Redis client using the Upstash URL from settings.
-               Returns None if UPSTASH_REDIS_URL is not set, triggering mock mode for development.
-               Logs warning when running in mock mode so developers know sessions won't persist.
-Parameters   : None
-Returns      : aioredis.Redis client instance if Redis URL configured, None for mock mode
-Calls        : app.config.settings to read UPSTASH_REDIS_URL environment variable
-DB/API       : Connects to Upstash Redis service via URL
-Side effects : Logs warning message when UPSTASH_REDIS_URL is not configured
+         When UPSTASH_REDIS_URL is not set in .env (development mode),
+         this file falls back to an in-memory dictionary automatically.
+         No code changes needed when switching to real Redis — just set
+         the environment variable.
 
-Name         : _build_session_key
-Type         : function (private helper)
-Purpose      : Constructs Redis key string for a phone number's session using namespaced format.
-               Uses Redis colon convention for easy key discovery in Upstash dashboard.
-Parameters   : phone_number (str) - E.164 format phone number like +919876543210
-Returns      : Redis key string in format "whatsapp:session:+919876543210"
-Calls        : No other functions
-DB/API       : None
-Side effects : None - pure string formatting function
+BRANCH:  v5-whatsapp
+VERSION: v5.0
+CREATED: 2026-03
 
-Name         : get_session
-Type         : async function (public)
-Purpose      : Loads conversation history for a phone number from Redis or memory fallback.
-               Returns messages in chronological order (oldest first) as expected by Groq API.
-               Handles missing sessions gracefully by returning empty list for fresh conversations.
-Parameters   : phone_number (str) - E.164 format phone number like +919876543210
-Returns      : list[dict] - Message history with format [{"role": "user"|"assistant", "content": "..."}], empty list if no session
-Calls        : _build_session_key(), redis_client.get(), clear_session() on corrupted data
-DB/API       : Redis GET operation to retrieve JSON session data
-Side effects : Logs debug messages, may clear corrupted session data, returns copy of history to prevent mutations
+DEPENDENCIES:
+  redis (pip package)    — pip install redis
+  UPSTASH_REDIS_URL      — environment variable in .env
+                           Get from upstash.com after creating a Redis DB.
+                           Leave blank for development — mock mode activates.
+  app.config             — settings object that reads .env variables
 
-Name         : save_session
-Type         : async function (public)
-Purpose      : Saves conversation history to Redis with sliding window trimming and TTL reset.
-               Ensures active conversations never expire by resetting TTL on every save.
-               Applies MAX_SESSION_MESSAGES limit by dropping oldest messages when exceeded.
-Parameters   : phone_number (str) - E.164 format phone number, history (list[dict]) - full conversation including new message
-Returns      : bool - True if saved successfully, False if Redis operation failed
-Calls        : _build_session_key(), redis_client.set(), json.dumps() for serialization
-DB/API       : Redis SET operation with EX (expiry) parameter
-Side effects : Writes to Redis or _mock_sessions dict, resets TTL, trims history, logs operations
+USAGE:
+  from app.services.whatsapp_session import (
+      get_session, save_session, clear_session,
+      add_message_to_session, get_ai_history
+  )
 
-WHO CALLS THIS FILE
-- backend/app/services/whatsapp_service.py - imports get_session, save_session, add_message_to_session
-- backend/app/routers/whatsapp_router.py - imports session functions for message handling endpoints
-- backend/app/services/ai_service.py - imports get_ai_history to retrieve conversation context for Groq
+  # Load existing session (returns empty list if no session exists)
+  history = await get_session(phone_number="+919876543210")
 
-IMPORTS EXPLAINED
-- json: Serializes conversation history to JSON strings for Redis storage and deserializes on retrieval
-- logging: Provides module logger for debugging session operations with phone number masking for privacy
-- datetime, timezone: Used for timestamp handling in message history (imported but not used in shown code)
-- redis.asyncio as aioredis: Async Redis client library for non-blocking Redis operations with Upstash
-- app.config.settings: Application settings object that reads UPSTASH_REDIS_URL from environment variables
+  # Add a message and save in one call (most common usage)
+  history = await add_message_to_session(
+      phone_number="+919876543210",
+      role="user",
+      content="aaj ka schedule kya hai"
+  )
 
-INTERN NOTES
-- Easiest thing to break: Forgetting that get_session() returns a copy - modifying it won't save automatically, must call save_session()
-- Non-obvious design decision: Uses Redis instead of PostgreSQL because session data is temporary and Redis TTL handles cleanup automatically without background jobs
-- Most common mistake: Not handling Redis connection failures gracefully - always provide fallback behavior rather than crashing the conversation
-- Design principle #9: WhatsApp services use sync Session, but this file uses async Redis client bridged with run_in_executor() in calling code
-- What to check if behaving unexpectedly: Verify UPSTASH_REDIS_URL is set correctly and Upstash Redis instance is accessible, check Redis logs for connection errors
-- v5-whatsapp merge note: This entire file is v5-only and should not be merged into v4-dev until WhatsApp Copilot feature is complete and stable
-"""
-```
+  # Get history stripped of timestamps — safe to pass to Groq
+  ai_history = await get_ai_history(phone_number="+919876543210")
+
+  # Clear session (owner types reset/naya, or confirmation timeout)
+  await clear_session(phone_number="+919876543210")
 """
 
 import json

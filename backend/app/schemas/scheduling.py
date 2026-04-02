@@ -1,121 +1,8 @@
 """
-```python
-"""
-backend/app/schemas/scheduling.py
+app/schemas/scheduling.py — Prompt 1 Pydantic schemas
 
-FILE PURPOSE
-This file defines all Pydantic v2 request/response schemas for the scheduling system in ZetaOps Copilot.
-It exists to provide type-safe data validation and serialization for resources (machines/helpers), job steps,
-and scheduled jobs that flow between the FastAPI backend and React frontend. This file was introduced in
-early v4.x development and sits in the data validation layer between HTTP requests and SQLAlchemy models.
-
-WHAT THIS FILE DOES — step by step
-1. Imports Pydantic BaseModel, Field validators, and custom validation decorators
-2. Imports enums (ResourceType, SchedJobPriority, etc.) from app.models.scheduling
-3. Defines ResourceCreate/Update/Response schemas for machines and helper resources
-4. Validates shift times to ensure shift_start comes before shift_end
-5. Defines StepCreate/Update/Response schemas for individual job steps
-6. Enforces business rules: setup steps use reserve_machine_id, regular steps use required_machine_ids
-7. Provides StepStatusUpdate for updating step completion status
-8. Adds computed field is_setup_active to determine if a setup step is actively reserving a machine
-9. Defines JobCreate/Update/Response schemas for scheduled jobs with priority, deadline, and profit
-10. Configures all Response schemas with from_attributes=True for SQLAlchemy ORM compatibility
-
-KEY FUNCTIONS / CLASSES / COMPONENTS
-
-Name         : ResourceCreate
-Type         : Pydantic schema class
-Purpose      : Validates incoming data when creating new resources (machines or helpers). Enforces name length limits and validates that shift_start occurs before shift_end to prevent invalid work schedules.
-Parameters   : name (str, 1-150 chars), type (ResourceType enum), shift_start (time, default 8:00), shift_end (time, default 16:00)
-Returns      : Validated ResourceCreate instance ready for database insertion
-Calls        : Built-in Pydantic validation, no external files
-DB/API       : No direct calls, used by CRUD operations
-Side effects : Raises ValueError if shift times are invalid
-
-Name         : ResourceUpdate
-Type         : Pydantic schema class
-Purpose      : Validates partial updates to existing resources. All fields are optional to support PATCH-style updates. Validates shift times only when both are provided to avoid false positives during partial updates.
-Parameters   : name (Optional[str]), shift_start (Optional[time]), shift_end (Optional[time])
-Returns      : Validated ResourceUpdate instance for database updates
-Calls        : Built-in Pydantic validation, no external files
-DB/API       : No direct calls, used by CRUD operations
-Side effects : Raises ValueError if both shift times provided and invalid
-
-Name         : ResourceResponse
-Type         : Pydantic schema class
-Purpose      : Serializes database Resource models into JSON responses for the frontend. Includes all resource fields plus metadata like created_at for audit trails.
-Parameters   : Auto-populated from SQLAlchemy model attributes
-Returns      : JSON-serializable dict when converted
-Calls        : No external calls, pure data container
-DB/API       : Reads from database via from_attributes=True
-Side effects : None, read-only response schema
-
-Name         : StepCreate
-Type         : Pydantic schema class
-Purpose      : Validates new job step creation with complex business logic. Enforces that setup steps cannot have required_machine_ids (they use reserve_machine_id instead) and regular steps cannot reserve machines. This separation allows setup steps to block machines without actually running them.
-Parameters   : step_type (StepType enum), duration_minutes (int ≥1), required_machine_ids (List[int]), required_helper_ids (List[int]), reserve_machine_id (Optional[int])
-Returns      : Validated StepCreate instance with enforced business rules
-Calls        : Built-in Pydantic validation, no external files
-DB/API       : No direct calls, used by CRUD operations
-Side effects : Raises ValueError if step type rules are violated
-
-Name         : StepUpdate
-Type         : Pydantic schema class
-Purpose      : Validates partial updates to job steps while maintaining the same business rules as StepCreate. All fields optional for PATCH updates, but still enforces setup vs regular step constraints when step_type is being changed.
-Parameters   : All StepCreate fields as Optional types
-Returns      : Validated StepUpdate instance for database updates
-Calls        : Built-in Pydantic validation, no external files
-DB/API       : No direct calls, used by CRUD operations
-Side effects : Raises ValueError if step type rules are violated
-
-Name         : StepStatusUpdate
-Type         : Pydantic schema class
-Purpose      : Simple schema for updating only the status field of a job step. Used by job execution endpoints to mark steps as started, completed, or failed without touching other step data.
-Parameters   : status (StepStatus enum)
-Returns      : Validated status update for database
-Calls        : No external calls
-DB/API       : No direct calls, used by CRUD operations
-Side effects : None
-
-Name         : StepResponse
-Type         : Pydantic schema class
-Purpose      : Serializes database JobStep models into JSON responses with a computed field. The is_setup_active computed property helps the frontend quickly identify which setup steps are actively reserving machines for visual indicators and scheduling logic.
-Parameters   : Auto-populated from SQLAlchemy model attributes
-Returns      : JSON response with computed is_setup_active boolean
-Calls        : No external calls, computed field uses self attributes
-DB/API       : Reads from database via from_attributes=True
-Side effects : None, read-only response schema
-
-Name         : JobCreate
-Type         : Pydantic schema class
-Purpose      : Validates creation of new scheduled jobs with business constraints. Enforces positive expected_profit values and name length limits. Provides sensible defaults for priority (low) and shift (morning) while requiring explicit deadlines.
-Parameters   : name (str, 1-200 chars), priority (SchedJobPriority), expected_profit (Optional[float] ≥0), deadline (datetime), shift (SchedJobShift), lock_status (bool, default False)
-Returns      : Validated JobCreate instance for database insertion
-Calls        : Built-in Pydantic validation, no external files
-DB/API       : No direct calls, used by CRUD operations
-Side effects : None
-
-Name         : JobUpdate
-Type         : Pydantic schema class
-Purpose      : Validates partial updates to scheduled jobs with all optional fields. Allows updating job status, priority changes, deadline extensions, and profit adjustments. Maintains same validation rules as JobCreate for non-null values.
-Parameters   : All JobCreate fields as Optional, plus status (Optional[SchedJobStatus])
-Returns      : Validated JobUpdate instance for database updates
-Calls        : Built-in Pydantic validation, no external files
-DB/API       : No direct calls, used by CRUD operations
-Side effects : None
-
-Name         : JobResponse
-Type         : Pydantic schema class
-Purpose      : Serializes complete scheduled jobs with their associated steps for frontend display. Includes nested StepResponse objects to provide full job hierarchy in a single API response, reducing frontend API calls.
-Parameters   : Auto-populated from SQLAlchemy model attributes, steps as List[StepResponse]
-Returns      : Complete job data with nested steps for frontend
-Calls        : StepResponse schema for nested steps
-DB/API       : Reads from database via from_attributes=True, includes relationship data
-Side effects : None, read-only response schema
-
-WHO CALLS THIS FILE
-- backend/app/routers/scheduler_router.py imports these schemas for FastAPI endpoint type hints
-- backend/app/crud/scheduling.py uses these schemas in database
+Computed field on StepResponse:
+  is_setup_active: True when step_type=setup AND reserve_machine_id is set
 """
 
 from __future__ import annotations
@@ -240,6 +127,22 @@ class StepResponse(BaseModel):
         return self.step_type == StepType.setup and self.reserve_machine_id is not None
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_orm(cls, step) -> "StepResponse":
+        return cls(
+            id=step.id,
+            job_id=step.job_id,
+            sequence_order=step.sequence_order,
+            step_type=step.step_type,
+            duration_minutes=step.duration_minutes,
+            status=step.status,
+            required_machine_ids=[m.resource_id for m in step.machine_links],
+            required_helper_ids=[h.resource_id for h in step.helper_links],
+            reserve_machine_id=step.reserve_machine_id,
+            created_at=step.created_at,
+            updated_at=step.updated_at,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

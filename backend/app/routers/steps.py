@@ -1,125 +1,17 @@
 """
-```python
-"""
-backend/app/routers/steps.py — Step Intelligence Router (v3.7+)
+routers/steps.py — S1.0
+Step Intelligence: full CRUD for job steps + per-step resource assignment.
 
-FILE PURPOSE
-This FastAPI router provides complete CRUD operations for job steps and their resource assignments.
-It was introduced in v3.7 as part of the Step Intelligence feature, allowing users to break down
-jobs into sequential steps with individual resource requirements and status tracking. This sits
-in the API layer of our 3-tier architecture, handling HTTP requests for step management and
-delegating business logic to the database layer via SQLAlchemy ORM models.
-
-WHAT THIS FILE DOES — step by step
-1. Defines valid step status transitions and step/resource types as constants
-2. Creates Pydantic schemas for request/response validation (StepCreate, StepUpdate, etc.)
-3. Implements serializer functions to convert ORM models to JSON dictionaries
-4. Provides guard functions to ensure job/step belong to the current user's tenant
-5. Exposes 8 FastAPI endpoints for step and resource management
-6. Enforces business rules like "only last step can be deleted" and status transition validation
-7. Handles automatic step unlocking when previous steps complete
-8. Manages step resource assignments (employees, machines, materials)
-
-KEY FUNCTIONS / CLASSES / COMPONENTS
-
-Name         : VALID_TRANSITIONS
-Type         : constant dictionary
-Purpose      : Defines which step status transitions are allowed. Steps start as "locked" (except first step which is "ready"), can progress to "in_progress" when work begins, and finally "complete" when finished. This enforces the sequential workflow where steps must be completed in order.
-Parameters   : N/A (constant)
-Returns      : N/A (constant)
-Calls        : N/A
-DB/API       : N/A
-Side effects : Used by update_step_status to validate transitions
-
-Name         : StepCreate
-Type         : Pydantic BaseModel class
-Purpose      : Validates incoming requests to create new job steps. Ensures required fields like name are provided and sets sensible defaults for step_type ("production") and duration_minutes (60).
-Parameters   : name (str), step_type (str, optional), duration_minutes (int, optional), notes (str, optional)
-Returns      : Validated data object
-Calls        : Pydantic validation
-DB/API       : N/A
-Side effects : None
-
-Name         : resource_to_dict
-Type         : function
-Purpose      : Converts a StepResource ORM model to a JSON-serializable dictionary. Looks up employee/machine names from their respective tables to provide human-readable resource names instead of just IDs.
-Parameters   : r (StepResource ORM object), db (SQLAlchemy Session)
-Returns      : Dictionary with resource details including resolved names
-Calls        : SQLAlchemy queries to Employee and Machine tables
-DB/API       : Queries Employee and Machine tables by ID
-Side effects : None (read-only)
-
-Name         : step_to_dict
-Type         : function
-Purpose      : Converts a JobStep ORM model to a JSON-serializable dictionary. Includes all step details plus nested resources array. Formats timestamps as ISO strings for frontend consumption.
-Parameters   : step (JobStep ORM object), db (SQLAlchemy Session)
-Returns      : Dictionary with complete step details including nested resources
-Calls        : resource_to_dict for each step resource
-DB/API       : Indirect queries via resource_to_dict
-Side effects : None (read-only)
-
-Name         : _get_job
-Type         : function
-Purpose      : Security guard function that verifies a job exists and belongs to the current user's tenant. Implements design principle #2 (tenant scoping) by always filtering on tenant_id. Raises 404 if job not found or doesn't belong to tenant.
-Parameters   : job_id (int), tenant_id (int), db (SQLAlchemy Session)
-Returns      : Job ORM object if found and accessible
-Calls        : SQLAlchemy Job query
-DB/API       : Queries Job table with tenant_id filter
-Side effects : Raises HTTPException on security violation
-
-Name         : _get_step
-Type         : function
-Purpose      : Security guard function that verifies a step exists, belongs to the specified job, and belongs to the current user's tenant. Triple security check ensuring step→job→tenant ownership chain.
-Parameters   : step_id (int), job_id (int), tenant_id (int), db (SQLAlchemy Session)
-Returns      : JobStep ORM object if found and accessible
-Calls        : SQLAlchemy JobStep query
-DB/API       : Queries JobStep table with multi-column filter
-Side effects : Raises HTTPException on security violation
-
-Name         : list_steps
-Type         : FastAPI endpoint (GET)
-Purpose      : Returns all steps for a job, ordered by sequence_no. Feature-flagged behind "step_intelligence" flag. Provides complete step details including resources for frontend display.
-Parameters   : job_id (int from path), db (Session), current_user (User from JWT)
-Returns      : List of step dictionaries with nested resources
-Calls        : _get_job, step_to_dict, require_feature
-DB/API       : Queries JobStep table filtered by job_id and tenant_id
-Side effects : None (read-only)
-
-Name         : create_step
-Type         : FastAPI endpoint (POST)
-Purpose      : Creates a new step at the end of the sequence. Validates step_type and duration. First step gets "ready" status, subsequent steps get "locked" status to enforce sequential execution.
-Parameters   : job_id (int from path), body (StepCreate), db (Session), current_user (User)
-Returns      : Created step dictionary
-Calls        : _get_job, step_to_dict, require_feature
-DB/API       : Queries for max sequence_no, inserts new JobStep record
-Side effects : Creates new JobStep in database
-
-Name         : update_step
-Type         : FastAPI endpoint (PATCH)
-Purpose      : Updates step details like name, type, duration, notes. Validates step_type and duration constraints. Updates the updated_at timestamp automatically.
-Parameters   : job_id (int), step_id (int), body (StepUpdate), db (Session), current_user (User)
-Returns      : Updated step dictionary
-Calls        : _get_step, step_to_dict, require_feature
-DB/API       : Updates JobStep record
-Side effects : Modifies JobStep in database, sets updated_at timestamp
-
-Name         : delete_step
-Type         : FastAPI endpoint (DELETE)
-Purpose      : Deletes the last step in the sequence only. After deletion, renumbers remaining steps to maintain gap-free sequence. This business rule prevents deleting steps in the middle which would break the sequential workflow.
-Parameters   : job_id (int), step_id (int), db (Session), current_user (User)
-Returns      : Confirmation dictionary with deleted step ID
-Calls        : _get_job, _get_step, require_feature
-DB/API       : Deletes JobStep, updates sequence_no on remaining steps
-Side effects : Deletes step from database, renumbers remaining steps
-
-Name         : update_step_status
-Type         : FastAPI endpoint (PATCH)
-Purpose      : Changes step status following valid transition rules. When a step completes, automatically unlocks the next step (changes from "locked" to "ready"). If the last step completes, marks the entire job as "Completed".
-Parameters   : job_id (int), step_id (int), body (StepStatusUpdate), db (Session), current_user (User)
-Returns      : Updated step dictionary
-Calls        : _get_step, step_to_dict, require_feature
-DB/API       : Updates JobStep status, potentially updates next step and job status
-Side effects : Modifies step
+Endpoints:
+  GET    /api/jobs/{job_id}/steps                            — list all steps for a job
+  POST   /api/jobs/{job_id}/steps                            — create step (appends at end)
+  PATCH  /api/jobs/{job_id}/steps/{step_id}                  — update step name/type/duration/notes
+  DELETE /api/jobs/{job_id}/steps/{step_id}                  — delete last step only, renumber
+  PATCH  /api/jobs/{job_id}/steps/{step_id}/status           — transition status with rule enforcement
+  GET    /api/jobs/{job_id}/steps/{step_id}/resources        — list step resources
+  POST   /api/jobs/{job_id}/steps/{step_id}/resources        — add resource to step
+  DELETE /api/jobs/{job_id}/steps/{step_id}/resources/{rid}  — remove resource from step
+  POST   /api/jobs/{job_id}/steps/{step_id}/use-job-resources — reset step to job-level resources
 """
 
 from fastapi import APIRouter, Depends, HTTPException

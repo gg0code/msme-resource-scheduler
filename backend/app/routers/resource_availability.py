@@ -1,100 +1,20 @@
 """
-```python
-"""
-backend/app/routers/resource_availability.py
+resource_availability.py  (backend/app/routers/)
+Defines the GET /api/jobs/{job_id}/resource-availability endpoint.
+Returns computed real-time free capacity for every employee and machine assigned to a job,
+scoped to the job's specific date range. Replaces the static base_availability_pct display
+that was misleading users into thinking resources were free when they were already committed.
 
-FILE PURPOSE
-This FastAPI router module provides real-time resource availability computation for jobs 
-in the ZetaOps Copilot scheduling system. It exposes a single GET endpoint that calculates 
-which employees and machines assigned to a specific job are actually free during that job's 
-date range, replacing misleading static availability percentages with dynamic conflict detection. 
-Added in v3.9.4 on the v4-dev branch, this sits in the API layer between the frontend job 
-detail views and the availability computation logic in the services layer.
+Depends on:
+  app/schemas/resource_availability.py  — response shape
+  app/models/job.py                     — Job, JobAssignment
+  app/models/employee.py                — Employee
+  app/models/machine.py                 — Machine
+  app/services/availability_engine.py  — _date_range, _is_employee_busy, _is_machine_busy
+  app/core/dependencies.py             — get_current_user
+  app/database.py                      — get_db
 
-WHAT THIS FILE DOES — step by step
-1. Imports FastAPI routing components, database dependencies, and all required models/schemas
-2. Defines two helper functions that query the database for resource conflicts across job date ranges
-3. Implements the main GET endpoint that fetches a job, validates its date range, and computes availability
-4. For each employee assigned to the job, calculates free capacity by subtracting overlapping job allocations
-5. For each machine assigned to the job, determines if any other jobs are using it during overlapping dates
-6. Returns structured availability data with conflict details and blocking job information
-7. Handles edge cases like jobs without dates or missing resources with appropriate error responses
-
-KEY FUNCTIONS / CLASSES / COMPONENTS
-
-Name         : _get_employee_blocking_jobs
-Type         : function
-Purpose      : Calculates total allocation percentage an employee has on other jobs that overlap 
-               with the given job's date range. Returns both the numeric total and a list of 
-               specific blocking jobs with their allocation details for frontend display.
-Parameters   : db (Session) - database session for queries
-               employee_id (int) - ID of employee to check conflicts for  
-               job_id (int) - current job ID to exclude from conflict calculation
-               job_days (list) - list of date objects representing the job's date range
-               tenant_id (int) - tenant scope for security filtering
-Returns      : tuple[float, List[BlockingJob]] - total allocated percentage and list of conflicting jobs
-Calls        : SQLAlchemy query methods, _date_range from availability_engine.py
-DB/API       : Queries JobAssignment and Job tables with tenant filtering and job exclusion
-Side effects : None - pure read-only computation
-
-Name         : _get_machine_blocking_jobs  
-Type         : function
-Purpose      : Identifies other jobs that have the specified machine assigned during dates that 
-               overlap with the given job's date range. Unlike employees, machines are binary 
-               busy/free since they cannot be shared across multiple jobs simultaneously.
-Parameters   : db (Session) - database session for queries
-               machine_id (int) - ID of machine to check conflicts for
-               job_id (int) - current job ID to exclude from conflict calculation  
-               job_days (list) - list of date objects representing the job's date range
-               tenant_id (int) - tenant scope for security filtering
-Returns      : List[BlockingJob] - list of jobs that conflict with this machine usage
-Calls        : SQLAlchemy query methods, _date_range from availability_engine.py
-DB/API       : Queries Job and JobAssignment tables with machine and tenant filtering
-Side effects : None - pure read-only computation
-
-Name         : get_resource_availability
-Type         : FastAPI endpoint  
-Purpose      : Main API endpoint that computes and returns real-time availability for all employees 
-               and machines assigned to a specific job during its scheduled date range. Replaces 
-               static base_availability_pct displays with dynamic conflict-aware calculations that 
-               show users actual resource capacity considering existing job commitments.
-Parameters   : job_id (int) - ID of job to compute resource availability for
-               db (Session) - injected database dependency for queries
-               current_user - injected authenticated user for tenant scoping
-Returns      : ResourceAvailabilityResponse - structured availability data with employee free percentages,
-               machine busy/free status, blocking job details, and any error conditions
-Calls        : _get_employee_blocking_jobs, _get_machine_blocking_jobs, _date_range from availability_engine
-DB/API       : Queries Job, JobAssignment, Employee, and Machine tables with strict tenant filtering
-Side effects : None - pure read-only endpoint that does not modify any data
-
-WHO CALLS THIS FILE
-- frontend/src/pages/JobDetailPage.tsx - displays resource availability in job management interface
-- frontend/src/components/ResourceAvailabilityPanel.tsx - renders the availability data and conflict warnings
-- frontend/src/api/api_jobs.ts - contains the TypeScript API client function that calls this endpoint
-
-IMPORTS EXPLAINED
-- fastapi.APIRouter: Creates the router instance for registering this endpoint with the main FastAPI app
-- fastapi.Depends: Dependency injection decorator for database sessions and authentication
-- fastapi.HTTPException: Standard HTTP error responses for 404 job not found cases
-- sqlalchemy.orm.Session: Database session type for ORM queries with transaction management
-- typing.List: Type annotation for function return values containing lists of blocking jobs
-- app.core.dependencies.get_current_user: Authentication dependency that extracts JWT user and tenant info
-- app.database.get_db: Database dependency that provides SQLAlchemy session with connection pooling
-- app.models.job.Job/JobAssignment: ORM models for job data and resource assignment relationships
-- app.models.employee.Employee: ORM model for employee data including base availability percentages
-- app.models.machine.Machine: ORM model for machine data and status information
-- app.schemas.resource_availability.*: Pydantic response models that define API contract and JSON structure
-- app.services.availability_engine._date_range: Utility function that generates date lists from start/end dates
-
-INTERN NOTES
-- Easiest thing to break: Forgetting tenant_id filtering in database queries will leak data across companies and create major security vulnerabilities
-- Non-obvious design decision: Machines are binary busy/free while employees use percentage allocation because machines cannot be shared but workers can split time across multiple jobs
-- Most common mistake: Not excluding the current job_id from conflict calculations will make every job appear to conflict with itself
-- Design principle implemented: #2 (tenant scoping on ALL DB queries) - every single database query includes tenant_id filtering to prevent cross-tenant data access
-- What to check if behaving unexpectedly: Verify job has start_date and end_date set, check that JobAssignment records exist linking the job to employees/machines, confirm _date_range is generating correct date lists
-- This file is v4-dev only and should merge cleanly into master since it has no WhatsApp or v5-specific dependencies
-"""
-```
+Added in v3.9.4.
 """
 
 from __future__ import annotations

@@ -1,97 +1,10 @@
 """
-```python
-"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-backend/app/routers/employees.py — Employee Management API Router (v4-dev)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-FILE PURPOSE
-This FastAPI router handles all HTTP endpoints for employee management in the ZetaOps Copilot workforce scheduling 
-system. It was introduced in v1.1 with JWT authentication, tenant scoping, RBAC (Role-Based Access Control), and 
-plan limit enforcement. This file sits in the API layer of our 3-tier architecture, receiving HTTP requests from 
-the frontend React app, validating permissions and plan limits, then delegating to SQLAlchemy ORM models for 
-database operations. All employee data is strictly scoped by tenant_id to ensure multi-tenant security isolation.
-
-WHAT THIS FILE DOES — step by step
-1. Defines a FastAPI APIRouter instance with 5 HTTP endpoints for employee CRUD operations
-2. Imports all necessary dependencies: database session, ORM models, Pydantic schemas, auth functions, and plan limits
-3. Defines a private helper function _sync_skills() that manages employee skill associations in the database
-4. Implements GET / endpoint to list all employees for the current user's tenant, with optional status filtering
-5. Implements GET /{employee_id} endpoint to retrieve a single employee by ID within the tenant scope
-6. Implements POST / endpoint to create new employees with role-based permissions and plan limit checking
-7. Implements PATCH /{employee_id} endpoint to update existing employees with proper tenant scoping
-8. Implements DELETE /{employee_id} endpoint restricted to proprietor role only for employee deletion
-
-KEY FUNCTIONS / CLASSES / COMPONENTS
-
-Name         : _sync_skills
-Type         : Private helper function
-Purpose      : Synchronizes employee skill associations by completely replacing all existing skills with new ones. 
-               This function ensures that skill updates are atomic and prevents orphaned skill records.
-Parameters   : db (Session) - SQLAlchemy database session for executing queries
-               employee (Employee) - The Employee ORM instance to sync skills for
-               skills_data (list) - List of skill objects containing skill_id and skill_level
-               tenant_id (int) - Tenant ID for ensuring all skill records are properly scoped
-Returns      : None - This function performs side effects only and doesn't return data
-Calls        : SQLAlchemy ORM methods (db.query, db.add) and EmployeeSkill model
-DB/API       : Deletes all existing EmployeeSkill records for the employee, then inserts new ones
-Side effects : Modifies EmployeeSkill table by deleting and inserting records
-
-Name         : list_employees
-Type         : FastAPI GET endpoint (/api/employees/)
-Purpose      : Returns a list of all employees belonging to the current user's tenant, with optional filtering by 
-               employee status. This endpoint is accessible to any authenticated user regardless of role.
-Parameters   : status (str, optional) - Filter employees by their status field (active, inactive, etc.)
-               db (Session) - Injected database session via FastAPI dependency
-               current_user (User) - Injected current authenticated user via JWT token validation
-Returns      : List[EmployeeOut] - Pydantic serialized list of employee objects matching the tenant and status filter
-Calls        : SQLAlchemy query methods, Employee ORM model, and tenant scoping via current_user.tenant_id
-DB/API       : Executes SELECT query on Employee table with tenant_id filter and optional status filter
-Side effects : None - read-only operation that doesn't modify any data
-
-Name         : get_employee
-Type         : FastAPI GET endpoint (/api/employees/{employee_id})
-Purpose      : Retrieves a single employee by their ID, but only if they belong to the current user's tenant. 
-               Raises 404 if employee doesn't exist or belongs to a different tenant.
-Parameters   : employee_id (int) - Path parameter specifying which employee to retrieve
-               db (Session) - Injected database session via FastAPI dependency
-               current_user (User) - Injected current authenticated user via JWT token validation
-Returns      : EmployeeOut - Pydantic serialized employee object if found within tenant scope
-Calls        : SQLAlchemy query methods and Employee ORM model for database lookup
-DB/API       : Executes SELECT query on Employee table with both id and tenant_id filters
-Side effects : None - read-only operation, but raises HTTPException if employee not found
-
-Name         : create_employee
-Type         : FastAPI POST endpoint (/api/employees/)
-Purpose      : Creates a new employee record with associated skills, but only for users with scheduler or proprietor 
-               roles. Enforces plan limits to prevent free plan users from exceeding their employee quota.
-Parameters   : payload (EmployeeCreate) - Pydantic schema containing employee data and skills list
-               db (Session) - Injected database session via FastAPI dependency
-               current_user (User) - Injected user with scheduler+ role verification via require_role dependency
-Returns      : EmployeeOut - Pydantic serialized newly created employee object with database-generated ID
-Calls        : Employee ORM constructor, _sync_skills helper function, and plan limit checking via dependency
-DB/API       : Inserts new Employee record, then calls _sync_skills to insert associated EmployeeSkill records
-Side effects : Creates database records in both Employee and EmployeeSkill tables, commits transaction
-
-Name         : update_employee
-Type         : FastAPI PATCH endpoint (/api/employees/{employee_id})
-Purpose      : Updates an existing employee's data and optionally their skills, but only for scheduler+ roles and 
-               only within the user's tenant. Uses PATCH semantics to update only provided fields.
-Parameters   : employee_id (int) - Path parameter specifying which employee to update
-               payload (EmployeeUpdate) - Pydantic schema with optional fields to update
-               db (Session) - Injected database session via FastAPI dependency
-               current_user (User) - Injected user with scheduler+ role verification via require_role dependency
-Returns      : EmployeeOut - Pydantic serialized updated employee object reflecting all changes
-Calls        : SQLAlchemy query and update methods, _sync_skills helper if skills are provided
-DB/API       : Updates Employee record fields, optionally replaces all EmployeeSkill associations
-Side effects : Modifies Employee table record, potentially modifies EmployeeSkill table if skills included
-
-Name         : delete_employee
-Type         : FastAPI DELETE endpoint (/api/employees/{employee_id})
-Purpose      : Permanently deletes an employee record from the database, but only for proprietor role users and 
-               only within their tenant scope. This is the most restrictive endpoint due to data loss implications.
-Parameters   : employee_id (int) - Path parameter specifying which employee to delete
-               db (Session) - Injected database session via FastAPI dependency
+routers/employees.py — V1.1
+Added: JWT auth, tenant_id scoping, RBAC, plan limit enforcement
+  GET    — any authenticated user
+  POST   — scheduler+ (+ free plan: max 10 employees)
+  PATCH  — scheduler+
+  DELETE — proprietor only
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status

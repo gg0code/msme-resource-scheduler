@@ -1,120 +1,15 @@
 """
-FILE PURPOSE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-This file defines FastAPI REST endpoints for the scheduling system in ZetaOps Copilot,
-providing CRUD operations for resources, jobs, and job steps. It was introduced in v4-dev
-as part of the new scheduling engine architecture and serves as the HTTP API layer between
-the React frontend and the core scheduling engine. This router is mounted at /api in main.py
-and handles all tenant-scoped scheduling data operations.
+app/routers/scheduling.py — Prompt 1 API endpoints
 
-WHAT THIS FILE DOES — step by step
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Creates a FastAPI router instance for scheduling endpoints
-2. Defines helper functions for tenant authentication and response serialization
-3. Implements 5 resource endpoints: list, create, update, delete, with optional type filtering
-4. Implements 5 job endpoints under /jobs-v2/ prefix: list, create, get, update, delete
-5. Implements 6 job step endpoints: list, create, get, update, delete, plus status patch
-6. All endpoints enforce tenant isolation by extracting tenant_id from JWT auth
-7. Converts SQLAlchemy models to Pydantic response schemas before returning to client
-8. Handles errors by converting ValueError exceptions to HTTP 422 and missing records to HTTP 404
+Resources:  GET/POST /api/resources/   PUT/DELETE /api/resources/{id}
+Jobs:       GET/POST /api/jobs-v2/     GET/PUT/DELETE /api/jobs-v2/{id}
+Steps:      GET/POST /api/jobs-v2/{job_id}/steps/
+            GET/PUT/DELETE /api/jobs-v2/{job_id}/steps/{step_id}
+            PATCH /api/jobs-v2/{job_id}/steps/{step_id}/status
 
-KEY FUNCTIONS / CLASSES / COMPONENTS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Name         : _current_tenant
-Type         : dependency function
-Purpose      : FastAPI dependency that extracts the tenant_id from the current authenticated
-               user's JWT token. Used by all endpoints to enforce tenant isolation per 
-               design principle #2.
-Parameters   : current_user (User model) - injected by get_current_user dependency
-Returns      : int - the tenant_id of the authenticated user
-Calls        : app.core.dependencies.get_current_user
-DB/API       : None - just extracts field from User object
-Side effects : None
-
-Name         : _step_out
-Type         : helper function
-Purpose      : Converts a SQLAlchemy Step model instance to a StepResponse Pydantic schema.
-               Centralizes the model-to-schema conversion logic for consistency.
-Parameters   : step (Step model) - SQLAlchemy model instance from database
-Returns      : StepResponse - Pydantic schema suitable for JSON serialization
-Calls        : StepResponse.model_validate from app.schemas.scheduling
-DB/API       : None
-Side effects : None
-
-Name         : _job_out
-Type         : helper function
-Purpose      : Converts a SQLAlchemy Job model instance to a JobResponse Pydantic schema,
-               including nested conversion of all associated steps. Handles the complex
-               job-with-steps serialization that multiple endpoints need.
-Parameters   : job (Job model) - SQLAlchemy model instance with loaded steps relationship
-Returns      : JobResponse - Pydantic schema with nested steps array
-Calls        : JobResponse.model_validate, StepResponse.model_validate
-DB/API       : None
-Side effects : None
-
-Name         : list_resources
-Type         : FastAPI GET endpoint
-Purpose      : Returns all resources for the current tenant, optionally filtered by resource
-               type (EMPLOYEE or MACHINE). Supports the resource management UI in the frontend.
-Parameters   : type (Optional[ResourceType]) - query parameter to filter by resource type,
-               db (Session) - SQLAlchemy database session,
-               tenant_id (int) - extracted from JWT via _current_tenant dependency
-Returns      : List[ResourceResponse] - array of resource objects as JSON
-Calls        : app.crud.scheduling.list_resources
-DB/API       : Queries Resource table filtered by tenant_id and optional resource_type
-Side effects : None
-
-Name         : create_resource
-Type         : FastAPI POST endpoint
-Purpose      : Creates a new resource (employee or machine) for the current tenant. Validates
-               the resource data and returns the created resource with generated ID.
-Parameters   : data (ResourceCreate) - Pydantic schema with resource fields from request body,
-               db (Session) - SQLAlchemy database session,
-               tenant_id (int) - extracted from JWT via _current_tenant dependency
-Returns      : ResourceResponse - the created resource object as JSON with HTTP 201 status
-Calls        : app.crud.scheduling.create_resource
-DB/API       : Inserts new row into Resource table with tenant_id
-Side effects : Creates database record, may raise HTTPException 422 on validation error
-
-Name         : update_resource
-Type         : FastAPI PUT endpoint
-Purpose      : Updates an existing resource for the current tenant. Validates tenant ownership
-               and field constraints, returns the updated resource or 404 if not found.
-Parameters   : resource_id (int) - path parameter identifying the resource to update,
-               data (ResourceUpdate) - Pydantic schema with updated fields from request body,
-               db (Session) - SQLAlchemy database session,
-               tenant_id (int) - extracted from JWT via _current_tenant dependency
-Returns      : ResourceResponse - the updated resource object as JSON
-Calls        : app.crud.scheduling.update_resource
-DB/API       : Updates Resource table row where id=resource_id AND tenant_id=tenant_id
-Side effects : Modifies database record, may raise HTTPException 422/404 on error
-
-Name         : delete_resource
-Type         : FastAPI DELETE endpoint
-Purpose      : Deletes a resource for the current tenant. Returns 204 No Content on success
-               or 404 if the resource doesn't exist or belong to the tenant.
-Parameters   : resource_id (int) - path parameter identifying the resource to delete,
-               db (Session) - SQLAlchemy database session,
-               tenant_id (int) - extracted from JWT via _current_tenant dependency
-Returns      : None (HTTP 204 status code)
-Calls        : app.crud.scheduling.delete_resource
-DB/API       : Deletes from Resource table where id=resource_id AND tenant_id=tenant_id
-Side effects : Removes database record, may raise HTTPException 404 if not found
-
-Name         : list_jobs
-Type         : FastAPI GET endpoint
-Purpose      : Returns all jobs for the current tenant, optionally filtered by job status.
-               Each job includes its nested steps. Used by the main scheduling dashboard.
-Parameters   : status (Optional[SchedJobStatus]) - query parameter to filter by job status,
-               db (Session) - SQLAlchemy database session,
-               tenant_id (int) - extracted from JWT via _current_tenant dependency
-Returns      : List[JobResponse] - array of job objects with nested steps as JSON
-Calls        : app.crud.scheduling.list_jobs, _job_out helper function
-DB/API       : Queries Job table with joined Step table, filtered by tenant_id and optional status
-Side effects : None
-
-Name
+Note: router is mounted at /api so paths below are relative to that.
+The prefix "jobs-v2" avoids collision with the existing /api/jobs router.
+Rename to "jobs" once the old router is retired (or keep separate).
 """
 
 from typing import List, Optional

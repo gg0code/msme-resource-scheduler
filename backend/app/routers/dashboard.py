@@ -1,112 +1,12 @@
 """
-```python
-"""
-FILE PURPOSE
-────────────────────────────────────────────────────────────────────────────────────
-This file implements the main dashboard API endpoint for the ZetaOps Copilot manufacturing
-scheduling system. It provides a comprehensive overview of the tenant's current operations
-including job summaries, resource availability, upcoming work, and detailed job information
-with conflict detection and cost analysis. This endpoint was introduced in v2.0 and sits
-in the API layer between the React frontend dashboard and the core scheduling/availability
-services. Version 2.1 fixed critical SQLAlchemy 2.0 N+1 query performance issues.
+routers/dashboard.py — V2.1
+Fixed: SQLAlchemy 2.0 subquery (anon_1) error caused by lazy-loading
+  assignments/employee/machine inside _build_job_row loop.
 
-WHAT THIS FILE DOES — step by step
-────────────────────────────────────────────────────────────────────────────────────
-1. Defines FastAPI router with dashboard endpoint at GET /api/dashboard/
-2. Provides _derive_status_icon() helper to convert job status/timer into UI icon codes
-3. Provides _build_job_row() helper that constructs detailed job data including conflicts and costs
-4. Executes tenant-scoped database queries for summary statistics (jobs, machines, employees)
-5. Loads all tenant jobs with pre-loaded assignments/employee/machine relationships (performance optimized)
-6. Calculates jobs-by-status breakdown for dashboard charts
-7. Finds upcoming jobs within next 7 days for priority visibility
-8. Calls _build_job_row() for each job to add conflict detection and cost calculations
-9. Returns comprehensive dashboard JSON with summaries, upcoming work, and full job details
-
-KEY FUNCTIONS / CLASSES / COMPONENTS
-────────────────────────────────────────────────────────────────────────────────────
-Name         : _derive_status_icon
-Type         : function (private helper)
-Purpose      : Converts job status and timer_status fields into standardized icon codes
-               for the frontend dashboard UI. Handles completed, stopped, in_progress,
-               conflict, and ready states with proper precedence rules.
-Parameters   : job (Job) - SQLAlchemy Job model instance
-               has_conflict (bool) - whether availability engine detected conflicts
-Returns      : str - icon code ("completed", "stopped", "in_progress", "conflict", "ready")
-Calls        : None - pure logic function
-DB/API       : None
-Side effects : None
-
-Name         : _build_job_row
-Type         : function (private helper)
-Purpose      : Constructs detailed job information for dashboard display including conflict
-               detection, cost analysis, and assigned resources. Uses pre-loaded relationships
-               to avoid N+1 queries. This is the core data transformation for job display.
-Parameters   : db (Session) - SQLAlchemy database session
-               job (Job) - Job model with pre-loaded assignments/employee/machine
-               tenant_id (int) - tenant ID for scoping availability checks
-Returns      : dict - comprehensive job data including conflicts, costs, assignments, dates
-Calls        : app.services.availability_engine.check_availability()
-               app.services.cost_service.compute_tentative_cost()
-               app.services.cost_service.compute_actual_cost()
-DB/API       : None directly (uses pre-loaded data), but cost services may query
-Side effects : None
-
-Name         : get_dashboard
-Type         : FastAPI endpoint (GET /api/dashboard/)
-Purpose      : Main dashboard endpoint that provides comprehensive tenant operations overview.
-               Returns summary statistics, job breakdowns, upcoming work priorities, and
-               detailed job information with conflicts and costs for the React dashboard.
-Parameters   : db (Session) - injected database session via FastAPI dependency
-               current_user (User) - injected authenticated user via JWT dependency
-Returns      : dict - dashboard data with totals, breakdowns, upcoming jobs, full job list
-Calls        : _build_job_row() for each job
-               Database queries for counts and job loading
-DB/API       : Multiple tenant-scoped queries:
-               - Count active jobs (Scheduled/In Progress/Draft)
-               - Count operational machines
-               - Count active employees  
-               - Load all jobs with selectinload optimization
-               - Load upcoming jobs (next 7 days)
-Side effects : None (read-only endpoint)
-
-WHO CALLS THIS FILE
-────────────────────────────────────────────────────────────────────────────────────
-- backend/app/main.py - registers this router with "/api/dashboard" prefix
-- frontend/src/api/api_dashboard.ts - makes HTTP GET request to fetch dashboard data
-- frontend/src/pages/Dashboard.tsx - displays the dashboard UI using this endpoint's data
-
-IMPORTS EXPLAINED
-────────────────────────────────────────────────────────────────────────────────────
-- fastapi.APIRouter - creates FastAPI router instance for dashboard endpoints
-- fastapi.Depends - enables dependency injection for database session and authentication
-- sqlalchemy.orm.Session - database session type for SQLAlchemy queries
-- sqlalchemy.orm.selectinload - eager loading strategy to prevent N+1 query problems
-- sqlalchemy.func - SQL functions like count() for aggregate queries
-- datetime.date, timedelta - date arithmetic for "upcoming this week" filtering
-- app.database.get_db - dependency that provides database session to endpoints
-- app.models.job.Job, JobAssignment - SQLAlchemy models for job and assignment data
-- app.models.employee.Employee - SQLAlchemy model for employee data
-- app.models.machine.Machine - SQLAlchemy model for machine data
-- app.core.dependencies.get_current_user - authentication dependency that extracts JWT user
-- app.models.auth.User - SQLAlchemy model for authenticated user data
-- app.services.cost_service functions - calculate tentative and actual job costs
-- app.services.availability_engine.check_availability - detects scheduling conflicts
-
-INTERN NOTES
-────────────────────────────────────────────────────────────────────────────────────
-• Easiest thing to break: Removing selectinload() will cause N+1 query explosion and
-  SQLAlchemy 2.0 "anon_1 subquery" errors when _build_job_row accesses job.assignments
-• Non-obvious design decision: We load ALL jobs then filter in memory rather than separate
-  queries because the dashboard needs both summary stats and detailed job data anyway
-• Most common mistake: Forgetting tenant_id filter on database queries creates security
-  vulnerability allowing cross-tenant data access (violates design principle #2)
-• Design principle implemented: #2 (tenant scoping on ALL DB queries) and #1 (engine
-  computes, AI only narrates - this provides computed data for AI service consumption)  
-• What to check if unexpected behavior: Verify selectinload relationships are working,
-  check availability_engine and cost_service for exceptions, confirm tenant_id filtering
-• Not applicable to v5-whatsapp: This is core v4-dev functionality used by both branches
-"""
-```
+Fixes applied:
+  1. all_jobs query now uses selectinload for assignments → employee/machine
+  2. _build_job_row reads from pre-loaded job.assignments instead of re-querying
+  3. Eliminated N+1: no more db.query(Employee/Machine) per assignment per job
 """
 
 from fastapi import APIRouter, Depends

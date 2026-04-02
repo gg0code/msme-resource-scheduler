@@ -1,89 +1,36 @@
 """
-```python
+FILE:    whatsapp.py
+PATH:    backend/app/models/whatsapp.py
+PURPOSE: SQLAlchemy ORM models for the WhatsApp Copilot feature.
+         Defines two tables created in migration 017:
+
+         1. PhoneTenantMap  — maps a WhatsApp phone number to a ZetaOps
+            tenant and user. The doorway into the system for every
+            inbound WhatsApp message.
+
+         2. WhatsAppConversation — logs every message sent and received
+            during the 90-day pilot. This is the Factory GPT training
+            dataset. Each row is one message (user or assistant turn).
+
+BRANCH:  v5-whatsapp
+VERSION: v5.0
+CREATED: 2026-03
+
+DEPENDENCIES:
+  app/models/auth.py  — Tenant and User models (ForeignKey targets)
+  migration 017       — phone_tenant_map and whatsapp_conversations
+                        tables must exist before using these models
+
+NOTES:
+  - Follows the same column style as app/models/auth.py (text("now()"),
+    datetime.utcnow, Column/ForeignKey/relationship pattern).
+  - PhoneTenantMap.industry_type is a cached copy from Tenant.industry_type.
+    It is denormalised intentionally — avoids a join on every message.
+  - WhatsAppConversation has no ForeignKey to phone_tenant_map intentionally.
+    Conversations are append-only logs. If a phone is unlinked, the history
+    must remain intact for Factory GPT training purposes.
 """
-FILE PURPOSE
-This file defines SQLAlchemy ORM models for the WhatsApp Copilot feature in ZetaOps v5.x.
-It exists to enable factory owners to interact with their scheduling system via WhatsApp messages
-in Hindi/Hinglish, expanding access beyond the web interface. Introduced in v5-whatsapp branch
-as part of the AI-powered messaging system. These models sit at the data layer, providing the
-foundation for phone number authentication and conversation logging that feeds Factory GPT training.
 
-WHAT THIS FILE DOES — step by step
-1. Imports SQLAlchemy column types, relationship utilities, and the Base class from app/database
-2. Defines PhoneTenantMap model that maps WhatsApp phone numbers to ZetaOps tenants and users
-3. Sets up foreign key relationships to Tenant and User models from app/models/auth.py
-4. Includes consent tracking, activity monitoring, and alert preferences for each phone mapping
-5. Defines WhatsAppConversation model that logs every message sent and received during conversations
-6. Stores message content, role (user/assistant), language detection, and session grouping
-7. Provides safe __repr__ methods that mask phone numbers in logs to prevent data leaks
-
-KEY FUNCTIONS / CLASSES / COMPONENTS
-
-Name         : PhoneTenantMap
-Type         : SQLAlchemy ORM class
-Purpose      : Maps WhatsApp phone numbers to ZetaOps tenants and users, serving as the authentication
-               gateway for inbound messages. Stores consent status, activity tracking, and alert
-               preferences. Acts as the doorway that determines which tenant receives each WhatsApp message.
-Parameters   : N/A (ORM model)
-Returns      : N/A (ORM model)  
-Calls        : N/A (data model only)
-DB/API       : Creates phone_tenant_map table via migration 017
-Side effects : Stores phone mappings, consent records, and last activity timestamps
-
-Name         : PhoneTenantMap.__repr__
-Type         : instance method
-Purpose      : Provides safe string representation for logging that masks sensitive phone numbers.
-               Shows only last 4 digits to allow identification while preventing data leaks in logs.
-Parameters   : self (PhoneTenantMap instance)
-Returns      : str - masked phone representation like "PhoneTenantMap(phone=****3210, tenant_id=1, active=True)"
-Calls        : Built-in string formatting
-DB/API       : None
-Side effects : None (read-only)
-
-Name         : WhatsAppConversation  
-Type         : SQLAlchemy ORM class
-Purpose      : Stores complete conversation history between factory owners and ZetaOps AI for Factory GPT
-               training. Each row represents one message turn (user input or assistant response). This is
-               the primary dataset for training industry-specific AI models on real Hindi/Hinglish factory conversations.
-Parameters   : N/A (ORM model)
-Returns      : N/A (ORM model)
-Calls        : N/A (data model only) 
-DB/API       : Creates whatsapp_conversations table via migration 017
-Side effects : Logs all message content, language detection, and session metadata for ML training
-
-Name         : WhatsAppConversation.__repr__
-Type         : instance method  
-Purpose      : Provides safe string representation that masks phone numbers and truncates message content
-               to prevent sensitive data exposure in application logs while maintaining debugging utility.
-Parameters   : self (WhatsAppConversation instance)
-Returns      : str - masked representation like "WhatsAppConversation(phone=****3210, role=user, content='aaj ka schedule kya...')"
-Calls        : Built-in string slicing and formatting
-DB/API       : None
-Side effects : None (read-only)
-
-WHO CALLS THIS FILE
-- backend/app/services/whatsapp_auth.py imports PhoneTenantMap for phone number lookups
-- backend/app/services/whatsapp_session.py imports WhatsAppConversation for message logging  
-- backend/app/routers/whatsapp_router.py imports both models for API endpoints
-- backend/app/crud/whatsapp_crud.py imports both models for database operations
-- backend/alembic/versions/017_create_whatsapp_tables.py references these table definitions
-
-IMPORTS EXPLAINED
-- sqlalchemy column types (Boolean, Column, DateTime, etc.): Define database column types and constraints for phone mappings and message storage
-- sqlalchemy.dialects.postgresql.JSONB: Stores alert preferences as flexible JSON in PostgreSQL for per-user notification settings
-- sqlalchemy.orm.relationship: Creates object relationships to Tenant and User models for easy navigation without explicit joins
-- app.database.Base: The declarative base class that all ORM models inherit from, providing SQLAlchemy table creation functionality
-
-INTERN NOTES
-- Easiest thing to break: Writing WhatsAppConversation rows when consent_given=False - this violates privacy requirements and breaks compliance
-- Non-obvious design decision: PhoneTenantMap.industry_type is intentionally denormalized from Tenant to avoid joins on every inbound message, trading storage for performance
-- Most common mistake: Forgetting to mask phone numbers in logs or error messages - always use the __repr__ methods or manual masking
-- Design principle implemented: #2 (tenant scoping) - both models include tenant_id for proper data isolation, and #8 (feature flags) via WhatsApp-specific gating
-- What to check if behaving unexpectedly: Verify migration 017 ran successfully, check that consent_given is True before logging conversations, ensure phone numbers are in E.164 format (+919876543210)
-- v5-whatsapp merge consideration: These models are additive-only and safe to merge - they don't modify existing v4-dev tables, only add new WhatsApp-specific functionality
-"""
-```
-"""
 
 from sqlalchemy import (
     Boolean, Column, DateTime, ForeignKey,
