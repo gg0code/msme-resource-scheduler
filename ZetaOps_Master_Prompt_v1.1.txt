@@ -1,0 +1,696 @@
+ZetaOps Copilot -- Master Development & Code Quality Prompt
+Version: 1.1 | Applies to: v4-dev and v5-whatsapp branches
+Paste this at the start of every Claude session involving code changes.
+============================================================================
+You are working on ZetaOps Copilot -- a multi-tenant production scheduling SaaS for Indian MSMEs.
+Stack: FastAPI + SQLAlchemy 2.0 (backend), React 18 + TypeScript + Vite + TailwindCSS (frontend), PostgreSQL, Alembic migrations.
+Repo: C:\Users\gaura\Desktop\Projects\sch\msme-resource-scheduler
+Backend:  backend/
+Frontend: frontend/
+Active branch: v5-whatsapp (v4-dev is production-stable)
+
+================================================================================
+SECTION 1 -- DOCUMENTATION STANDARDS
+================================================================================
+Every folder must have a README.txt.
+Every file must have a header comment.
+Every major function/class must have an inline comment block.
+
+-- FOLDER README.txt FORMAT ----------------------------------------------------
+AUTO-GENERATED -- path/to/folder/
+Branch: v4-dev | v5-whatsapp (specify which)
+------------------------------------------------------------
+FOLDER:  path/to/folder/
+PURPOSE: One sentence describing what this folder contains.
+
+WHAT IT DOES
+2-3 sentences on the folder's role in the system.
+
+FILES
+filename.py  - One line description. Branch: both/v4-dev/v5-whatsapp.
+filename2.py - One line description.
+
+ARCHITECTURE NOTES
+How files in this folder relate to each other and to other folders.
+
+DESIGN PRINCIPLES
+Which numbered design principles apply here and how.
+
+DEPENDENCIES
+This folder imports from: ...
+This folder is imported by: ...
+
+GOTCHAS
+Numbered list of non-obvious things that will bite a new developer.
+
+-- FILE HEADER FORMAT (Python .py) ---------------------------------------------
+# path/from/repo/root/filename.py - Version
+# Branch: v4-dev | v5-whatsapp (both)
+#
+# FILE PURPOSE
+# What this file does, why it exists, what version introduced it.
+# Which layer it sits in (router/service/model/schema/core).
+#
+# WHAT THIS FILE DOES - step by step
+# 1. First thing it does
+# 2. Second thing
+# ...
+#
+# KEY FUNCTIONS / CLASSES
+# Name       : function_or_class_name
+# Type       : function / class / FastAPI router
+# Purpose    : What it does
+# Parameters : param: type - description
+# Returns    : return type and what it means
+# Calls      : other functions/services it calls
+# DB/API     : SQL queries or external API calls made
+# Side effects : DB writes, cache invalidation, email sent etc
+#
+# WHO CALLS THIS FILE
+# - path/to/caller.py - why it calls this
+#
+# INTERN NOTES
+# - Non-obvious decisions explained
+# - Common mistakes to avoid
+# - If X happens, check Y
+
+-- FILE HEADER FORMAT (TypeScript .ts / .tsx) ----------------------------------
+// path/from/repo/root/filename.tsx - Version
+// Branch: v4-dev | v5-whatsapp (both)
+//
+// FILE PURPOSE
+// What this file does, why it exists, what version introduced it.
+//
+// WHAT THIS FILE DOES - step by step
+// 1. First thing
+// 2. Second thing
+//
+// KEY FUNCTIONS / COMPONENTS
+//
+// Name        : ComponentOrFunction
+// Type        : React component / hook / utility function
+// Purpose     : What it does
+// Parameters  : prop: type - description
+// Returns     : JSX.Element / return type
+// Calls       : API endpoints or other hooks/components
+// DB/API      : GET/POST /api/endpoint
+// Side effects: State changes, cache invalidation
+//
+// WHO CALLS THIS FILE
+// - path/to/caller.tsx
+//
+// INTERN NOTES
+// - Non-obvious decisions
+// - Common mistakes
+// - Design principles that apply
+
+-- INLINE FUNCTION COMMENTS ----------------------------------------------------
+For every function longer than 10 lines, add:
+
+Python:
+def my_function(param: type) -> return_type:
+    """
+    One line summary.
+    Longer explanation if needed.
+    Why this approach was chosen.
+    What callers need to know.
+
+    Args:
+        param: what it is, valid values, units
+    Returns:
+        What the return value means
+    Raises:
+        SpecificError: when this happens
+    """
+
+TypeScript:
+/**
+ * One line summary.
+ * Longer explanation if needed.
+ * @param param - what it is
+ * @returns what the return value means
+ */
+
+-- CRITICAL HEADER RULES -------------------------------------------------------
+NEVER use these characters in any comment or header - they break parsers:
+- Em dash: -- (U+2014) -> use hyphen - instead
+- En dash: - (U+2013) -> use hyphen - instead
+- Box drawing: --- === | (U+2500-U+257F) -> use plain - or = instead
+- Left arrow: <- (U+2190) -> use <- instead
+- Backtick fence: ``` -> never use inside source files
+- Curly quotes: " " ' ' -> use straight quotes " ' instead
+
+Python files: headers are # comments only. Never use """ docstrings as file
+headers - they cause SyntaxError in some Python versions when placed at module
+level with special characters.
+
+================================================================================
+SECTION 2 -- BACKEND DESIGN PRINCIPLES
+================================================================================
+1.  BACKEND COMPUTES, FRONTEND DISPLAYS
+    The backend engine computes all scheduling logic, cost calculations,
+    conflict detection, and availability. Frontend only renders what the backend
+    returns. Never recompute backend logic in frontend components.
+
+2.  TENANT ISOLATION IS MANDATORY
+    Every DB query must filter by tenant_id. No exceptions.
+    Pattern: db.query(Model).filter(Model.tenant_id == current_user.tenant_id)
+    If you forget tenant_id, one tenant sees another's data. This is a critical bug.
+
+3.  SECRETS NEVER IN CODE
+    SECRET_KEY, GROQ_API_KEY, DATABASE_URL, ANTHROPIC_API_KEY all come from
+    .env via Settings (pydantic-settings). Never hardcode.
+    Settings uses extra="ignore" so unknown .env keys don't cause ValidationError.
+
+4.  ALL API ROUTES HAVE /api/ PREFIX
+    Exception: /auth/* and /dashboard/plan-limits (registered without prefix).
+    Every new router must be registered in main.py with prefix="/api/routername".
+
+5.  RESOURCE AVAILABILITY != SCHEDULING CONFLICTS
+    Availability (amber/red %) = how much of a resource is free on given dates.
+    Scheduling conflict = the engine cannot fit a step due to overlap or deadline.
+    These are different systems. availability_engine.py != scheduler/engine.py.
+
+6.  MIGRATIONS ARE APPEND-ONLY
+    Never edit an existing migration file. Always create a new one.
+    Migration chain must always have exactly ONE head.
+    After adding a migration: alembic heads -> must show exactly one revision.
+    Naming: NNN_description.py where NNN is next sequential number.
+
+7.  PYDANTIC V2 STYLE EVERYWHERE
+    Use model_config = {...} not class Config.
+    Use datetime.now(UTC) not datetime.utcnow().
+    Use Optional[str] = None not str = None for optional fields.
+
+8.  FEATURE FLAGS GATE EVERYTHING
+    New features start with flag=False in features_config.py.
+    Backend: use @require_feature("flag_name") decorator.
+    Frontend: check useFeatureFlags() before rendering.
+    Never ship a feature without a flag.
+
+9.  PLAN LIMITS ARE ENFORCED DUAL-LAYER
+    Backend: returns HTTP 402 when limit reached.
+    Frontend: LimitedButton + PlanLimitBanner disable UI before the API call.
+    Both layers must be kept in sync.
+
+10. SCAN PAGE IS ALWAYS PUBLIC
+    /scan route has no auth. Never add authentication to ScanPage.tsx or the
+    /api/scan/* endpoints. Printed QR codes must always be scannable.
+
+================================================================================
+SECTION 3 -- FRONTEND DESIGN PRINCIPLES
+================================================================================
+11. TYPESCRIPT STRICT MODE - ZERO ERRORS
+    npx tsc --noEmit must show ZERO errors before any commit.
+    No any types. No unused variables. No missing return types on functions
+    longer than 5 lines.
+    Use types from frontend/src/types/types_index.ts.
+    Never create a new types file - add to types_index.ts.
+
+12. QUERY KEYS ARE CONTRACTS
+    TanStack Query keys must be consistent across the entire app:
+    ['employees'], ['machines'], ['skills'], ['jobs'], ['dashboard']
+    GettingStarted.tsx reads these keys for onboarding detection.
+    Delete mutations must invalidate BOTH the resource key AND ['dashboard'].
+    Never change a query key without grepping for all usages.
+
+13. INDUSTRY LABELS NOT HARDCODED STRINGS
+    Never hardcode "Jobs", "Employees", "Machines" in UI text.
+    Always use: const labels = useLabels()
+    then labels.jobs, labels.employees etc.
+    CSS theme colours come from CSS variables (--brand-primary etc) set by
+    IndustryContext on body. Never apply theme colours as inline Tailwind classes.
+
+14. API IMPORT PATHS USE UNDERSCORE PREFIX
+    All API files: api_employees.ts, api_machines.ts, api_jobs.ts etc.
+    hooks_index.ts imports from '../api/api_employees' not '../api/employees'.
+    If you see an import without the underscore prefix, fix it.
+
+15. COMPONENT HIERARCHY - NO CIRCULAR IMPORTS
+    pages/      imports from components/, api/, hooks/, context/, types/
+    components/ imports from api/, context/, types/ - NEVER from pages/
+    hooks/      imports from api/ only
+    context/    imports from api/ and auth/ only
+    Never import a page from another page or a component.
+
+================================================================================
+SECTION 4 -- TYPESCRIPT ERROR HANDLING RULES (added v1.1)
+================================================================================
+These rules come from real bugs found and fixed in the codebase. Violating
+them causes TypeScript errors in strict mode or silent runtime failures.
+
+16. ALWAYS USE axios.isAxiosError() IN CATCH BLOCKS
+    TypeScript strict mode types catch block errors as unknown.
+    Never access .response on an unknown error directly.
+
+    WRONG - causes TS error and may crash at runtime:
+      } catch (err) {
+        const msg = err?.response?.data?.detail  // TS error: err is unknown
+      }
+
+    WRONG - unsafe cast, TypeScript won't catch mismatches:
+      } catch (err) {
+        const msg = (err as { response?: { data?: { detail?: string } } })
+          ?.response?.data?.detail
+      }
+
+    CORRECT - type-safe, runtime-safe:
+      import axios from 'axios'
+      } catch (err: unknown) {
+        const msg = axios.isAxiosError(err)
+          ? err.response?.data?.detail
+          : undefined
+        setError(msg ?? 'Something went wrong')
+      }
+
+    CORRECT - for non-Axios errors (e.g. localStorage, JSON.parse):
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Unknown error'
+      }
+
+    RULE: Every catch block that accesses err must use one of:
+      - axios.isAxiosError(err) for Axios/API errors
+      - err instanceof Error for generic JS errors
+      Never use "as" casts on caught errors.
+
+17. ALWAYS IMPORT axios WHEN USING isAxiosError
+    axios.isAxiosError() requires axios to be imported in the same file.
+    If you add error handling to a file, add the import too.
+
+    import axios from 'axios'  // required for isAxiosError
+
+    Files that MUST have this import (all make API calls):
+    - All pages/ files with try/catch around apiClient calls
+    - All components/ files with try/catch around apiClient calls
+    - Any file using useMutation with onError handler
+
+18. CATCH BLOCK PATTERNS BY USE CASE
+
+    API call - show error to user:
+      } catch (err: unknown) {
+        const msg = axios.isAxiosError(err)
+          ? (err.response?.data?.detail ?? 'Request failed')
+          : 'Something went wrong'
+        setError(msg)
+      }
+
+    API call - show toast notification:
+      } catch (err: unknown) {
+        const msg = axios.isAxiosError(err)
+          ? (err.response?.data?.detail ?? `Failed to ${action}`)
+          : `Failed to ${action}`
+        showToast(msg, 'error')
+      }
+
+    API call in onError (TanStack mutation):
+      onError: (err: unknown) => {
+        const msg = axios.isAxiosError(err)
+          ? (err.response?.data?.detail ?? 'Operation failed')
+          : 'Operation failed'
+        setError(msg)
+      }
+
+    Non-fatal / silent catch (localStorage, optional fetch):
+      } catch { }           // empty catch - no variable needed, no TS error
+      } catch (_) { }       // underscore prefix - explicitly ignored
+
+    DOM / browser API errors:
+      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load'))
+
+    Token refresh in axios interceptor (client.ts):
+      } catch (refreshError: unknown) {   // must type as unknown
+        processQueue(refreshError, null)
+        tokenStore.set(null)
+        window.location.href = '/login'
+      }
+
+19. COMPONENT PROPS MUST BE TYPED BEFORE USE
+    Every React component must have an explicit props interface defined
+    BEFORE the component function. Never write props inline or omit them.
+
+    WRONG:
+      export default function MyComponent() {  // no props = TS error when
+      }                                        // caller passes props
+
+    CORRECT:
+      interface MyComponentProps {
+        count:        number
+        label?:       string   // optional with default
+        onAction?:    () => void
+      }
+      export default function MyComponent({
+        count,
+        label   = 'default',
+        onAction,
+      }: MyComponentProps) {
+      }
+
+    RULE: Define the interface first, then the component. The interface is
+    the contract. Optional props use ? and must have default values in
+    destructuring.
+
+20. NEVER USE "as const" ON UNION TYPE FIELDS IN OBJECT LITERALS
+    "as const" narrows a value to its exact literal type, making it
+    incompatible with the wider union type the field expects.
+
+    WRONG - over-narrows to literal 'pick_a_date', breaks assignment:
+      const emptyForm = {
+        start_mode: 'pick_a_date' as const,  // type: 'pick_a_date'
+      }
+
+    CORRECT - cast to the full union type:
+      const emptyForm = {
+        start_mode: 'pick_a_date' as 'right_away' | 'pick_a_date' | 'flexible',
+      }
+
+    OR import and use the named type:
+      import type { StartMode } from '../types/types_index'
+      const emptyForm = {
+        start_mode: 'pick_a_date' as StartMode,
+      }
+
+    RULE: Use "as const" only for truly readonly config objects where you
+    WANT the narrowest type. For form state or mutable fields, cast to the
+    full union type.
+
+21. REACT EVENTS VS NATIVE DOM EVENTS - NEVER MIX
+    React synthetic events (JSX handlers) and native DOM events
+    (window/document listeners) are different TypeScript types.
+
+    JSX handler -> React synthetic event:
+      function handleClick(e: React.MouseEvent<HTMLButtonElement>) { }
+      <button onMouseDown={handleClick} />   // correct
+
+    window.addEventListener -> native DOM event:
+      function onMouseMove(e: globalThis.MouseEvent) { }  // NOT React.MouseEvent
+      window.addEventListener('mousemove', onMouseMove)   // correct
+
+    WRONG - mixing types causes TS error:
+      import { type MouseEvent } from 'react'
+      function onMouseMove(e: MouseEvent) { }         // React type
+      window.addEventListener('mousemove', onMouseMove) // TS error
+
+    RULE:
+    - JSX props (onClick, onMouseDown etc) -> React.MouseEvent<Element, ...>
+    - window/document.addEventListener   -> globalThis.MouseEvent
+    - Never import React's MouseEvent and use it for window listeners.
+    - Remove React MouseEvent from imports if only used for window listeners.
+
+22. showToast SIGNATURE - ALWAYS MATCH DEFINITION
+    showToast is defined locally in each page with this signature:
+      const showToast = (msg: string, _type: 'success' | 'error' = 'success') => {
+        setToast(msg)
+        setTimeout(() => setToast(''), 3500)
+      }
+
+    The second argument _type is prefixed with _ because it is not yet wired
+    to styling. This silences the noUnusedParameters TypeScript error.
+    Call it as: showToast('message') or showToast('message', 'error')
+    Never call it with a third argument.
+    Never remove the _type parameter - callers pass it for future use.
+
+23. ALL SHARED TYPES GO IN types_index.ts - NEVER INLINE
+    If the same interface is defined in more than one file, it belongs in
+    frontend/src/types/types_index.ts.
+
+    Common types that MUST be in types_index.ts (not inline):
+    - SkillReq, RawMaterial, AssignedEmployee, AssignedMachine
+    - Job, DashboardJob, DashboardData
+    - FeasibilityResult, FeasibilityConflict
+    - StartMode, TimerStatus, JobStatus
+    - Employee, Machine, Skill, EmployeeSkill
+    - PlanLimits, JobStep, AvailabilityOverride
+
+    When adding a new shared type:
+    1. Add it to types_index.ts with export
+    2. Import it in all files that need it
+    3. Delete any duplicate inline definitions
+
+    When fixing "Property X does not exist on type Y":
+    - First check if X is missing from types_index.ts
+    - Add the missing field (nullable if API may not return it: string | null)
+    - Never add the field only to the local inline interface
+
+24. API FILES MUST LIVE IN frontend/src/api/ ONLY
+    All API module files belong in frontend/src/api/.
+    File naming convention: api_<resource>.ts
+      api_employees.ts, api_machines.ts, api_jobs.ts,
+      api_skills.ts, api_dashboard.ts, api_timer.ts,
+      api_resource_availability.ts, api_gantt.ts
+
+    WRONG - file at project root or wrong folder:
+      msme-resource-scheduler/api_employees.ts  // root - wrong
+      frontend/api_employees.ts                  // wrong folder
+
+    CORRECT:
+      frontend/src/api/api_employees.ts          // correct
+
+    If a file exists at the project root AND in frontend/src/api/:
+    - Compare file sizes and dates
+    - Keep the newer/larger version in frontend/src/api/
+    - Delete the root copy
+
+25. LUCIDE ICONS MUST BE IMPORTED BEFORE USE
+    Every icon used in JSX must be in the import statement for that file.
+    TypeScript will error with "Cannot find name 'X'" if missing.
+
+    Common icons used across this codebase - add any you use:
+      import {
+        Pause, Play, Square, RotateCcw, CheckCircle2,
+        AlertCircle, Loader2, Clock, CalendarDays,
+        Zap, BriefcaseBusiness, TrendingUp, TrendingDown,
+        ChevronUp, ChevronDown, Factory, Users,
+        Plus, Pencil, Trash2, X, Check, Search,
+      } from 'lucide-react'
+
+    RULE: When adding a new icon to a component, add the import immediately
+    before writing any JSX. Do not leave imports for later.
+    Current lucide-react version: ^0.577.0 - all common icons available.
+
+================================================================================
+SECTION 5 -- PRE-COMMIT CHECKLIST (run every time before git commit)
+================================================================================
+Run these in order. Fix everything before committing.
+
+STEP 1 - TYPESCRIPT (frontend)
+  cd frontend
+  npx tsc --noEmit
+  MUST: zero errors, zero exceptions. One error = do not commit.
+
+STEP 2 - ERROR HANDLING SCAN (frontend) - added v1.1
+  Check for unsafe error casts (should return empty):
+  Get-ChildItem -Recurse frontend\src -Filter "*.tsx" | Where-Object { $_.FullName -notmatch "node_modules" } | Select-String -Pattern "as \{response\?" | Format-List Path, Line
+  Get-ChildItem -Recurse frontend\src -Filter "*.ts"  | Where-Object { $_.FullName -notmatch "node_modules" } | Select-String -Pattern "as \{response\?" | Format-List Path, Line
+
+  Check for direct .response access on unknown (should return empty):
+  Get-ChildItem -Recurse frontend\src -Filter "*.tsx" | Where-Object { $_.FullName -notmatch "node_modules" } | Select-String -Pattern "err\?\.response|e\?\.response" | Format-List Path, Line
+
+  MUST: all three commands return empty output.
+
+STEP 3 - BACKEND SYNTAX (backend)
+  cd backend
+  python -m py_compile app/main.py
+  python -m py_compile app/routers/*.py
+  python -m py_compile app/services/*.py
+  python -m py_compile app/models/*.py
+  MUST: no output = all clean.
+
+STEP 4 - PYTEST (backend)
+  pytest tests/ -v
+  MUST: all tests pass. Zero failures.
+  Warnings about Pydantic v1 style and utcnow() are acceptable for now.
+
+STEP 5 - MIGRATION CHAIN (backend)
+  alembic heads
+  MUST: exactly one revision shown (018 or latest).
+  alembic check
+  MUST: "No new upgrade operations detected" (or run upgrade head if needed).
+
+STEP 6 - ROUTE/FILE CONSISTENCY (frontend)
+  Every file in frontend/src/pages/ must have a route in App.tsx.
+  Every route in App.tsx must have a file in frontend/src/pages/.
+  Check: Get-ChildItem frontend\src\pages\ -Name
+  Check: Get-Content frontend\src\App.tsx | Select-String "import|Route"
+
+STEP 7 - DEAD CODE AUDIT
+  No unused imports: npx tsc --noEmit catches most of these.
+  No orphan files: every .ts/.tsx file in src/ must be imported somewhere.
+  No dead routes: every route in App.tsx renders a real component.
+  No hardcoded secrets: grep -r "sk-ant|gsk_|password.*=" frontend/src/
+
+STEP 8 - PROVIDER STACK (frontend)
+  Every new React Context Provider must be added to App.tsx provider stack.
+  Provider order matters:
+  QueryClient > Auth > FeatureFlags > Industry > Scheduler > Onboarding > Layout
+  Never add a Provider inside a page component.
+
+STEP 9 - REFERENCE INTEGRITY
+  If a file was renamed: grep old name across entire repo and fix all references.
+  If a feature was replaced: delete old file in same commit, not a later one.
+  If a hook/utility was written: at least one file must import it.
+  Check: git diff --stat -> verify no unexpected files, no missing deletions.
+
+STEP 10 - GIT DIFF REVIEW
+  git diff --stat
+  git status
+  Review every changed file. Ask: does this change make sense?
+  No local-only debug files (test.py, scratch.js, temp.txt).
+  No .env files committed ever.
+  No __pycache__ or node_modules committed.
+
+================================================================================
+SECTION 6 -- GIT COMMIT STRATEGY
+================================================================================
+BRANCH STRATEGY
+  v4-dev       Production-stable. All fixes go here first.
+  v5-whatsapp  WhatsApp Copilot feature branch. Merges from v4-dev regularly.
+  master       Release branch. Only merge when deploying to production.
+               Never commit directly to master.
+
+COMMIT MESSAGE FORMAT
+  <type>: <short description> (<files changed if helpful>)
+
+  Types:
+  feat:     New feature or endpoint
+  fix:      Bug fix
+  docs:     Comments, README.txt, header blocks only
+  refactor: Code restructure, no behaviour change
+  test:     pytest additions or fixes
+  chore:    Config changes, dependency updates, migration files
+  perf:     Performance improvement
+
+  Examples:
+  feat: add plan-limits endpoint to dashboard router
+  fix:  restore alembic migration files - remove broken doc headers
+  fix:  add deadline constraint check to scheduler engine slot-finding loop
+  docs: add file headers and README.txt to all frontend source files
+  test: add auth_headers fixture to conftest, fix test_skills auth
+  chore: update config.py - add extra=ignore, GROQ_API_KEY as Optional
+
+COMMIT SCOPE RULES
+  One logical change per commit.
+  Do not mix feature + fix + docs in one commit.
+  If fixing a bug caused by a previous commit, reference it:
+    fix: repair dashboard icon imports broken in 6035c8e
+
+STANDARD COMMIT SEQUENCE
+  After all pre-commit checks pass:
+  git add -A
+  git status   # review one more time
+  git commit -m "type: description"
+  git push origin v4-dev
+
+  Sync to v5-whatsapp:
+  git checkout v5-whatsapp
+  git merge v4-dev --no-ff -m "merge: description from v4-dev"
+  git push origin v5-whatsapp
+  git checkout v4-dev
+
+WHAT NEVER GOES IN GIT
+  .env files (contains secrets)
+  __pycache__/ directories
+  node_modules/
+  *.pyc files
+  Local test scripts (seed_test.py, scratch.js etc)
+  Log files
+  Any file with a real API key or password
+
+================================================================================
+SECTION 7 -- ALEMBIC MIGRATION RULES
+================================================================================
+BEFORE WRITING A MIGRATION
+  alembic heads    # must show single head
+  alembic current  # shows current DB revision
+  alembic history  # shows full chain
+
+CREATING A NEW MIGRATION
+  Always create manually - never use autogenerate in production
+  Copy the last migration file, increment the number
+  File naming: NNN_describe_what_changes.py
+  Set revision and down_revision correctly
+  Write both upgrade() and downgrade()
+
+AFTER WRITING A MIGRATION
+  alembic upgrade head                                         # apply to dev DB
+  alembic heads                                                # must still show single head
+  python -m py_compile alembic/versions/NNN_new_migration.py  # no syntax errors
+
+MIGRATION FILE HEADER (clean, no special chars)
+  # alembic/versions/NNN_description.py
+  # Migration: short description
+  # Introduced in: v4.0.X
+  # What it does: adds X column to Y table
+
+NEVER
+  Edit an existing migration that has been run in any environment.
+  Delete a migration file.
+  Use non-ASCII characters in migration files.
+  Merge two migration files into one.
+
+================================================================================
+SECTION 8 -- WARNINGS TO RESOLVE (known technical debt)
+================================================================================
+These warnings appear in pytest but do not fail tests.
+Fix them when time allows:
+
+1. PydanticDeprecatedSince20: class-based Config in schemas/
+   Files: app/schemas/employee.py, app/schemas/machine.py
+   Fix: Replace class Config: from_attributes = True
+        with model_config = ConfigDict(from_attributes=True)
+
+2. DeprecationWarning: datetime.utcnow() in SQLAlchemy column defaults
+   Files: any model using server_default with utcnow
+   Fix: Replace datetime.utcnow with lambda: datetime.now(UTC)
+        from datetime import UTC
+
+These are tracked but not blocking. Do not mix these fixes with feature commits.
+Create a separate commit: "chore: fix Pydantic v2 deprecation warnings in schemas"
+
+================================================================================
+SECTION 9 -- PRE-DEPLOYMENT CHECKLIST
+================================================================================
+Run ALL of these before merging to master or deploying to server:
+
+  cd frontend && npx tsc --noEmit                          # zero TS errors
+  cd frontend && npm run build                             # production bundle must succeed
+  cd backend  && pytest tests/ -v                          # all tests pass
+  cd backend  && alembic heads                             # single head
+  cd backend  && alembic check                             # no pending migrations
+  cd backend  && python -c "from app.main import app; print(len(app.routes), 'routes')"
+  git log --oneline -5                                     # review recent commits
+  git status                                               # nothing uncommitted
+  grep -r "localhost:8000" frontend/src/                   # no hardcoded dev URLs
+  grep -r "console.log"    frontend/src/                   # remove debug logs
+
+ENVIRONMENT VARIABLES AUDIT (check .env has all required keys):
+  DATABASE_URL       - points to production DB
+  SECRET_KEY         - long random string, not "changeme"
+  GROQ_API_KEY       - valid Groq API key
+  ANTHROPIC_API_KEY  - valid Anthropic key (for generate_docs.py only)
+  ALLOWED_ORIGINS    - production frontend URL, not localhost
+  UPSTASH_REDIS_URL  - set if using WhatsApp session persistence
+
+================================================================================
+SECTION 10 -- HOW TO START A DEV SESSION
+================================================================================
+TERMINAL 1 - Backend:
+  cd backend
+  venv\Scripts\activate
+  alembic upgrade head
+  alembic heads          # confirm single head
+  uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+  Watch for: "Application startup complete"
+
+TERMINAL 2 - Frontend:
+  cd frontend
+  npx tsc --noEmit       # fix any errors before starting
+  npm run dev
+  Watch for: "VITE ready" at http://localhost:3000
+
+BROWSER:
+  http://localhost:3000       # app
+  http://localhost:8000/docs  # API explorer
+
+================================================================================
+END OF PROMPT -- paste this at the start of every Claude dev session
+================================================================================
