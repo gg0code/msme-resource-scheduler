@@ -4,7 +4,8 @@
 // Week view : 10px per day (~3x zoom out)
 // Month view:  4px per day (~7x zoom out, full picture)
 
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import { fetchGanttData } from '../api/api_gantt'
 import type { GanttJob } from '../api/api_gantt'
 import { CoachMark } from '../components/onboarding'
@@ -13,7 +14,6 @@ import { useLabels } from '../context/IndustryContext'
 
 // --- Constants ---------------------------------------------------------------
 const ROW_H    = 52
-const LABEL_W  = 220
 const HEADER_H = 56
 
 const ZOOM_COL_W: Record<string, number> = {
@@ -150,7 +150,7 @@ export default function GanttPage() {
     })
   }
 
-  function onDragStart(e: MouseEvent) {
+  function onDragStart(e: ReactMouseEvent) {
     isDragging.current = true
     dragStartX.current = e.clientX
     dragStartW.current = labelWidth
@@ -227,7 +227,7 @@ export default function GanttPage() {
     const isComplete = ['Completed', 'Cancelled', 'Stopped'].includes(job.status ?? '')
     if (isComplete) return '#6b7280'          // grey - done
     if (job.has_conflict) return '#7c3aed'   // purple - conflict
-    const end = parseDate(job.end_date)
+    const end = parseDate(job.end_date ?? undefined)
     if (end) {
       const daysLeft = daysBetween(today, end)
       if (end < today) return '#ef4444'       // red - overdue
@@ -298,8 +298,8 @@ export default function GanttPage() {
 
   // -- Bar renderer -------------------------------------------------------------
   const renderBar = (job: GanttJob, rowY: number) => {
-    const start = parseDate(job.start_date)
-    const end   = parseDate(job.end_date)
+    const start = parseDate(job.start_date ?? undefined)
+    const end   = parseDate(job.end_date ?? undefined)
     if (!start || !end) return null
     if (end < rangeStart || start > rangeEnd) return null
 

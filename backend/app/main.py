@@ -8,7 +8,10 @@ from app.config import settings
 from app.routers import (
     auth, assignments, availability, dashboard,
     employees, import_csv, jobs, machines, skills,
+    features,
 )
+from app.routers import whatsapp as whatsapp_router
+from app.services.whatsapp_alerts import start_scheduler, stop_scheduler
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -25,6 +28,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup():
+    start_scheduler()
+
+@app.on_event("shutdown")
+async def shutdown():
+    stop_scheduler()
+
 @app.get("/health", tags=["health"])
 def health_check():
     return {"status": "ok", "version": settings.APP_VERSION}
@@ -38,3 +49,5 @@ app.include_router(import_csv.router,   prefix="/api/import",       tags=["impor
 app.include_router(jobs.router,         prefix="/api/jobs",         tags=["jobs"])
 app.include_router(machines.router,     prefix="/api/machines",     tags=["machines"])
 app.include_router(skills.router,       prefix="/api/skills",       tags=["skills"])
+app.include_router(features.router,     prefix="/api",              tags=["features"])
+app.include_router(whatsapp_router.router)

@@ -78,9 +78,9 @@ export default function LinkWhatsApp() {
       // Backend returns { phones: LinkedPhone[] }
       setLinkedPhones(data.phones ?? [])
     } catch (err: unknown) {
-      const _errMsg = err instanceof Error ? err.message : 'Unknown error'
+      const errMsg = err instanceof Error ? err.message : 'Unknown error'
       // Non-fatal - show empty list, user can still link
-      console.error('[LinkWhatsApp] fetchLinkedPhones failed:', err.message)
+      console.error('[LinkWhatsApp] fetchLinkedPhones failed:', errMsg)
       setLinkedPhones([])
     } finally {
       setLoadingList(false)

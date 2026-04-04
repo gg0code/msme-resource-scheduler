@@ -24,11 +24,11 @@ import {
 import { CoachMark } from '../components/onboarding'
 import { useFeatureFlags } from '../context/FeatureFlags'
 import {
-  Plus, Pencil, Trash2, Loader2, AlertCircle, CalendarDays, IndianRupee,
-  X, Check, Search, ChevronRight, ChevronLeft, ChevronDown, ChevronUp,
+  Plus, Pencil, Trash2, Loader2, AlertCircle, IndianRupee,
+  X, Check, Search, ChevronRight, ChevronLeft,
   Users, ClipboardCheck, AlertTriangle, UserCheck, Factory,
-  Play, Pause, Square, RotateCcw, Clock, Package,
-  Lock, Unlock, Zap, Tag, FolderOpen, ListTodo, CheckCircle2, Circle, Wrench,
+  Play, Pause, Square, Clock, Package,
+  Lock, Unlock, Zap, FolderOpen, ListTodo, CheckCircle2, Circle,
 } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner, RawMaterialLimitHint } from '../components/PlanLimitGuard'
 import { useSchedulerContext } from '../scheduler/SchedulerContext'
@@ -124,25 +124,16 @@ const priorityColour: Record<string,string> = {
   Medium:'bg-yellow-100 text-yellow-700 border-yellow-200',
   Low:'bg-gray-100 text-gray-600 border-gray-200',
 }
-const statusColour: Record<string,string> = {
-  'Scheduled':'bg-green-100 text-green-700','Pending Assignment':'bg-blue-100 text-blue-700',
-  'In Progress':'bg-purple-100 text-purple-700','Draft':'bg-gray-100 text-gray-600',
-  'Completed':'bg-teal-100 text-teal-700','Cancelled':'bg-red-100 text-red-600',
-}
 const scoreColour = (s: number) =>
   s === 100 ? { bar:'bg-green-500', text:'text-green-700', bg:'bg-green-50', badge:'bg-green-500', label:'Feasible' }
   : s >= 60  ? { bar:'bg-orange-400', text:'text-orange-700', bg:'bg-orange-50', badge:'bg-orange-400', label:'Partial' }
   : { bar:'bg-red-500', text:'text-red-700', bg:'bg-red-50', badge:'bg-red-500', label:'Conflicts' }
 
-const timerColour: Record<string,string> = {
-  idle:'text-gray-400', running:'text-green-600', paused:'text-yellow-600', ended:'text-teal-600'
-}
-
 const emptyDetails = () => ({
   name:'', customer:'', notes:'', start_date:'', end_date:'',
   estimated_hours_per_day: 8, tentative_profit:'', order_value:'', misc_cost:'',
   priority:'Medium', status:'Draft',
-  start_mode: 'pick_a_date' as const,
+  start_mode: 'pick_a_date' as 'right_away' | 'pick_a_date' | 'flexible',
   earliest_date:'', latest_date:'',
   delivery_date:'',
   invoice_number:'', invoice_date:'', payment_status:'Unpaid', payment_amount:'', payment_date:'',
@@ -276,52 +267,7 @@ function TimelineBar({ job }: { job: Job }) {
   )
 }
 
-// -- Lock badge -----------------------------------------
-function LockBadge({ locked }: { locked: boolean }) {
-  if (locked) return (
-    <span className="flex items-center gap-0.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
-      <Lock size={9}/> Locked
-    </span>
-  )
-  return (
-    <span className="flex items-center gap-0.5 text-xs text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-full">
-      <Unlock size={9}/> Flexible
-    </span>
-  )
-}
-
 // -- Timer display --------------------------------------
-function TimerDisplay({ job }: { job: Job }) {
-  const [elapsed, setElapsed] = useState('')
-  useEffect(() => {
-    if (job.timer_status !== 'running' || !job.actual_start_at) { setElapsed(''); return }
-    const tick = () => {
-      const start = new Date(job.actual_start_at!).getTime()
-      const secs  = Math.floor((Date.now() - start) / 1000) - (job.paused_seconds || 0)
-      const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = secs%60
-      setElapsed(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`)
-    }
-    tick()
-    const t = setInterval(tick, 1000)
-    return () => clearInterval(t)
-  }, [job.timer_status, job.actual_start_at, job.paused_seconds])
-  if (job.timer_status === 'idle') return null
-  return (
-    <div className={`flex items-center gap-1.5 text-xs font-mono font-semibold ${timerColour[job.timer_status]}`}>
-      <Clock size={12}/>
-      {job.timer_status === 'running' && elapsed ? elapsed
-        : job.timer_status === 'paused' ? 'Paused'
-        : job.timer_status === 'ended' && job.actual_start_at && job.actual_end_at
-          ? (() => {
-              const net = Math.floor((new Date(job.actual_end_at).getTime() - new Date(job.actual_start_at).getTime()) / 1000) - (job.paused_seconds||0)
-              return `Done - ${Math.floor(net/3600)}h ${Math.floor((net%3600)/60)}m`
-            })()
-          : job.timer_status
-      }
-    </div>
-  )
-}
-
 // -- Start Mode selector --------------------------------
 function StartModeSelector({
   value, onChange, startDate, onStartDateChange, earliestDate, onEarliestChange, latestDate, onLatestChange
@@ -408,7 +354,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string }) {
   const qc = useQueryClient()
-  const { markDirty } = useSchedulerContext()
+  const { markDirty: _markDirty } = useSchedulerContext()
   const isJobDone = ['Completed','Cancelled','completed','cancelled'].includes(jobStatus)
   const [showAdd, setShowAdd] = useState(false)
   const [newStep, setNewStep] = useState({ name: '', step_type: 'production', duration_minutes: 60 })
@@ -545,7 +491,6 @@ export default function Jobs() {
   const labels = useLabels()
   const flags = useFeatureFlags() 
   const navigate = useNavigate()
-  const today = new Date().toISOString().split('T')[0]
 
   // Filters
   const [search, setSearch]               = useState('')
@@ -595,7 +540,7 @@ export default function Jobs() {
   const [pdfJob,   setPdfJob]             = useState<Job | null>(null)
   const [toast, setToast]                 = useState('')
 
-  const [viewMode, setViewMode] = useState<'list'>('list')
+  const [_viewMode, _setViewMode] = useState<'list'>('list')
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500) }
 
@@ -606,7 +551,7 @@ export default function Jobs() {
   const { data: skills = [] } = useQuery<Skill[]>({
     queryKey:['skills'], queryFn:() => apiClient.get('/api/skills/').then(r => r.data),
   })
-  const { data: employees = [] } = useQuery<Employee[]>({
+  const { data: _employees = [] } = useQuery<Employee[]>({
     queryKey:['employees'], queryFn:() => apiClient.get('/api/employees/').then(r => r.data),
   })
   const { data: machines = [] } = useQuery<Machine[]>({
@@ -619,8 +564,6 @@ export default function Jobs() {
   })
   const jobPrefix = tenantInfo?.job_id_prefix ?? null
   const { planLimits } = usePlanLimits()
-
-  const getSkillName = useCallback((id: number) => skills.find(s => s.id === id)?.name ?? `Skill#${id}`, [skills])
 
   // -- Availability checks -------------------------------
   const runAvailCheck = useCallback(async (jobId: number) => {
@@ -678,8 +621,8 @@ export default function Jobs() {
       if ((selectedEmps.length > 0 || selectedMachines.length > 0) && newJobId) {
         try { await apiClient.post('/api/assignments/', { job_id:newJobId, employee_ids:selectedEmps, machine_ids:selectedMachines }) }
         catch (err: unknown) {
-          const msg = err?.response?.data?.detail || 'Could not assign resources.'
-          showToast(msg, 'error') 
+          const msg = (err as any)?.response?.data?.detail || 'Could not assign resources.'
+          showToast(msg)
         }
       }
       qc.invalidateQueries({queryKey:['jobs']})
@@ -1318,6 +1261,7 @@ export default function Jobs() {
                         {(() => {
                           const checkResult = typeof availCache[job.id] === 'object'
                                     ? availCache[job.id] as {
+                                        feasible?: boolean
                                         skill_requirements?: {
                                           skill_id: number
                                           min_skill_level: string
@@ -1334,7 +1278,7 @@ export default function Jobs() {
                                 <ClipboardCheck size={11} className="text-blue-400"/> Skill Coverage
                               </p>
                               <div className="space-y-1.5">
-                                {skillReqs.map((req: { skill_id: number; min_skill_level: string; employees_required: number; id?: number; available_employee_ids?: number[] }) => {
+                                {skillReqs.map((req: { skill_id: number; skill_name?: string; min_skill_level: string; employees_required: number; id?: number; available_employee_ids?: number[] }) => {
                                   // Count how many assigned employees actually cover this skill
                                   const assignedIds = job.assigned_employees.map(e => e.id)
                                   const coveredCount = (req.available_employee_ids ?? [])
@@ -1688,7 +1632,7 @@ export default function Jobs() {
               {filtered.length > 0 && (() => {
                 const totalOV     = filtered.reduce((s,j) => s + (j.order_value??0), 0)
                 const totalCosts  = filtered.reduce((s,j) => s + jobCost(j), 0)
-                const totalProfit = totalOV - totalCosts
+                void (totalOV - totalCosts) // reserved for future footer display
                 return (
                   <tfoot>
                     <tr className="bg-gray-50 border-t-2 border-gray-200">
@@ -1850,7 +1794,7 @@ export default function Jobs() {
                               onClick={()=>{
                                 if (sel) {
                                   setSelectedMachines(p=>p.filter(x=>x!==m.id))
-                                  setSkillReqs(prev => prev.filter(r => !(r as SkillReq & {fromMachine?:number}).fromMachine === m.id))
+                                  setSkillReqs(prev => prev.filter(r => (r as SkillReq & {fromMachine?:number}).fromMachine !== m.id))
                                 } else {
                                   setSelectedMachines(p=>[...p,m.id])
                                   const newReqs = (m.skill_requirements||[]).map(sr=>({...sr, fromMachine: m.id}))

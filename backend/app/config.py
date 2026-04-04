@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     UPSTASH_REDIS_URL: Optional[str] = None
 
+    # v5-whatsapp settings
+    WHATSAPP_MOCK_MODE: bool = True
+    WHATSAPP_VERIFY_TOKEN: str = "zetaops_verify_token_2026"
+    WHATSAPP_APP_SECRET: Optional[str] = None
+    WHATSAPP_ACCESS_TOKEN: Optional[str] = None
+    WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
+    INTERAKT_API_KEY: Optional[str] = None
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

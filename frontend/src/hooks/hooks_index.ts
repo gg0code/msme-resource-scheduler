@@ -1,11 +1,11 @@
 // Shared React Query hooks - use these in pages instead of inline queryFn calls
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { employeesApi } from '../api/employees'
-import { machinesApi }  from '../api/machines'
-import { skillsApi }    from '../api/skills'
-import { jobsApi }      from '../api/jobs'
-import { dashboardApi } from '../api/dashboard'
+import { employeesApi } from '../api/api_employees'
+import { machinesApi }  from '../api/api_machines'
+import { skillsApi }    from '../api/api_skills'
+import { jobsApi }      from '../api/api_jobs'
+import { dashboardApi } from '../api/api_dashboard'
 
 // -- Employees -----------------------------------------
 export function useEmployees() {

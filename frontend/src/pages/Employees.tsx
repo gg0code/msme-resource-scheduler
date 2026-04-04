@@ -22,6 +22,8 @@ import {
   ChevronDown,
   IndianRupee,
   ChevronRight,
+  Briefcase,
+  CalendarDays,
 } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner } from '../components/PlanLimitGuard'
 import UnavailabilityPanel from '../components/common/UnavailabilityPanel'

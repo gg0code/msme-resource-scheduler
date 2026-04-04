@@ -311,8 +311,9 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
       } : prev)
 
     } catch (err: unknown) {
-      const status  = err?.response?.status
-      const detail  = err?.response?.data?.detail ?? ''
+      const axiosErr = err as any
+      const status  = axiosErr?.response?.status
+      const detail  = axiosErr?.response?.data?.detail ?? ''
 
       if (status === 429) {
         // Two types of 429 - our own plan limit, or Groq upstream rate limit
