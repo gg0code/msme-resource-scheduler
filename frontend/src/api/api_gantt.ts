@@ -63,6 +63,7 @@
  */
 
 import apiClient from './client'
+import { GANTT } from './api_endpoints'
 
 export interface GanttJob {
   id: number
@@ -84,6 +85,6 @@ export interface GanttJob {
 }
 
 export async function fetchGanttData(): Promise<GanttJob[]> {
-  const res = await apiClient.get<GanttJob[]>('/api/gantt/')
+  const res = await apiClient.get<GanttJob[]>(GANTT.list)
   return res.data
 }

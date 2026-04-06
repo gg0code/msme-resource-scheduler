@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner } from '../components/PlanLimitGuard'
 import UnavailabilityPanel from '../components/common/UnavailabilityPanel'
+import { ASSIGNMENTS, MACHINES, SKILLS } from '../api/api_endpoints'
 
 interface Skill { id: number; name: string }
 interface MachineSkillReq { id: number; skill_id: number; min_skill_level: string; employees_required: number }
@@ -74,11 +75,11 @@ function AssignmentRows({ machineId }: { machineId: number }) {
 
   const { data: assignments = [], isLoading, isError } = useQuery<Assignment[]>({
     queryKey: ['machine-assignments', machineId],
-    queryFn:  () => apiClient.get(`/api/assignments/machine/${machineId}`).then(r => r.data),
+    queryFn:  () => apiClient.get(ASSIGNMENTS.byMachine(machineId)).then(r => r.data),
   })
 
   const removeAssignment = useMutation({
-    mutationFn: (id: number) => apiClient.delete(`/api/assignments/${id}`),
+    mutationFn: (id: number) => apiClient.delete(ASSIGNMENTS.delete(id)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['machine-assignments', machineId] })
       qc.invalidateQueries({ queryKey: ['jobs'] })
@@ -202,11 +203,11 @@ export default function Machines() {
 
   const { data: machines = [], isLoading, isError } = useQuery<Machine[]>({
     queryKey: ['machines'],
-    queryFn:  () => apiClient.get('/api/machines/').then(r => r.data),
+    queryFn:  () => apiClient.get(MACHINES.list).then(r => r.data),
   })
   const { data: skills = [] } = useQuery<Skill[]>({
     queryKey: ['skills'],
-    queryFn:  () => apiClient.get('/api/skills/').then(r => r.data),
+    queryFn:  () => apiClient.get(SKILLS.list).then(r => r.data),
   })
   const { planLimits } = usePlanLimits()
   const labels = useLabels()
@@ -225,15 +226,15 @@ export default function Machines() {
   }), [machines, search, filterType, filterBay, filterStatus, filterSkill])
 
   const createMachine = useMutation({
-    mutationFn: (p: object) => apiClient.post('/api/machines/', p),
+    mutationFn: (p: object) => apiClient.post(MACHINES.list, p),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); qc.invalidateQueries({ queryKey: ['plan-limits'] }); closeForm(); showToast(`${labels.machine} added!`) },
   })
   const updateMachine = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: object }) => apiClient.patch(`/api/machines/${id}`, payload),
+    mutationFn: ({ id, payload }: { id: number; payload: object }) => apiClient.patch(MACHINES.update(id), payload),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); closeForm(); showToast(`${labels.machine} updated!`) },
   })
   const deleteMachine = useMutation({
-    mutationFn: (id: number) => apiClient.delete(`/api/machines/${id}`),
+    mutationFn: (id: number) => apiClient.delete(MACHINES.update(id)),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); qc.invalidateQueries({ queryKey: ['plan-limits'] }); setDeleteId(null); showToast(`${labels.machine} deleted!`) },
   })
 

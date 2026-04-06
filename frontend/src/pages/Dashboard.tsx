@@ -17,16 +17,16 @@ import {
   CalendarDays,
   Zap,
   BriefcaseBusiness,
+  Factory,
+  Users,
+  Play,
   TrendingUp,
   TrendingDown,
-  Play,
   RotateCcw,
   CheckCircle2,
   Square,
   ChevronUp,
   ChevronDown,
-  Factory,
-  Users,
 } from 'lucide-react'
 import apiClient from '../api/client'
 import { useLabels } from '../context/IndustryContext'
@@ -36,6 +36,7 @@ import EndJobModal from '../components/EndJobModal'
 import type { DashboardData, DashboardJob } from '../api/api_dashboard'
 import GettingStarted from '../components/onboarding/GettingStarted'
 import EmptyState from '../components/EmptyState'
+import { DASHBOARD, EMPLOYEES, JOBS, MACHINES } from '../api/api_endpoints'
 
 // --- Poll interval ---------------------------------------------------------
 // Change this value to adjust how often dashboard checks for conflict resolution.
@@ -158,7 +159,7 @@ function JobCard({ job, onAction, actionLoading }: JobCardProps) {
   useEffect(() => {
     if (!expanded || jobDetail) return
     setDetailLoading(true)
-    apiClient.get(`/api/jobs/${job.id}`)
+    apiClient.get(JOBS.detail(job.id))
       .then(r => setJobDetail(r.data))
       .catch(() => {})
       .finally(() => setDetailLoading(false))
@@ -401,6 +402,8 @@ export default function Dashboard() {
   const [dataError, setDataError] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
   const [endModalJobId, setEndModalJobId] = useState<number | null>(null)
+  const [empCount,  setEmpCount]  = useState(0)
+  const [machCount, setMachCount] = useState(0)
 
   // Live clock
   useEffect(() => {
@@ -410,10 +413,12 @@ export default function Dashboard() {
 
   // Fetch dashboard data
   const fetchData = useCallback(() => {
-    apiClient.get('/api/dashboard/')
+    apiClient.get(DASHBOARD.root)
       .then(r => { setData(r.data); setDataError(false) })
       .catch(() => setDataError(true))
       .finally(() => setLoadingData(false))
+    apiClient.get(EMPLOYEES.list).then(r => setEmpCount(r.data?.length ?? 0)).catch(() => {})
+    apiClient.get(MACHINES.list).then(r => setMachCount(r.data?.length ?? 0)).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -529,7 +534,17 @@ export default function Dashboard() {
 
 
         {/* Getting Started checklist - V3.8 */}
-      <GettingStarted />
+      <GettingStarted
+        employeeCount={empCount}
+        machineCount={machCount}
+        jobCount={jobs.length}
+        assignedJobCount={jobs.filter(j =>
+          (j.assigned_employees?.length ?? 0) > 0 && (j.assigned_machines?.length ?? 0) > 0
+        ).length}
+        activeJobCount={jobs.filter(j =>
+          j.status === 'In Progress' || j.status === 'Completed'
+        ).length}
+      />
 
       {/* Smart Alerts */}
       <CoachMark id="dashboard-conflicts" title="Smart Alerts" description="Real-time alerts for conflicts, overdue jobs, idle shop floor and more." position="bottom" step={2} totalSteps={3}>

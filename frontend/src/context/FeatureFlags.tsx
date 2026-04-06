@@ -8,9 +8,10 @@
 //   const flags = useFeatureFlags()
 //   {flags.gantt && <NavItem to="/gantt" label="Production Timeline" />}
 
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, type ReactNode, useContext, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '../api/client'
+import { FEATURES, runDevHealthCheck } from '../api/api_endpoints'
 
 // -- Types ------------------------------------------------------------------
 export interface FeatureFlags {
@@ -39,9 +40,11 @@ const FeatureFlagContext = createContext<FeatureFlags>(DEFAULT_FLAGS)
 
 // -- Provider ---------------------------------------------------------------
 export function FeatureFlagProvider({ children }: { children: ReactNode }) {
+  // Fire dev health check once on first provider mount
+  useState(() => { runDevHealthCheck() })
   const { data: flags } = useQuery<FeatureFlags>({
     queryKey: ['features'],
-    queryFn: () => apiClient.get('/api/features').then(r => r.data),
+    queryFn: () => apiClient.get(FEATURES.flags).then(r => r.data),
     // Flags rarely change - cache for the session, refetch on window focus
     staleTime: 5 * 60 * 1000,   // 5 minutes
     retry: 2,

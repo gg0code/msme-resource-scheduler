@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner } from '../components/PlanLimitGuard'
 import UnavailabilityPanel from '../components/common/UnavailabilityPanel'
+import { ASSIGNMENTS, EMPLOYEES, SKILLS } from '../api/api_endpoints'
 
 interface Skill         { id: number; name: string }
 interface EmployeeSkill { id: number; skill_id: number; skill_level: string }
@@ -85,11 +86,11 @@ function AssignmentRows({ employeeId }: { employeeId: number }) {
 
   const { data: assignments = [], isLoading, isError } = useQuery<Assignment[]>({
     queryKey: ['emp-assignments', employeeId],
-    queryFn: () => apiClient.get(`/api/assignments/employee/${employeeId}`).then(r => r.data),
+    queryFn: () => apiClient.get(ASSIGNMENTS.byEmployee(employeeId)).then(r => r.data),
   })
 
   const removeAssignment = useMutation({
-    mutationFn: (assignmentId: number) => apiClient.delete(`/api/assignments/${assignmentId}`),
+    mutationFn: (assignmentId: number) => apiClient.delete(ASSIGNMENTS.delete(assignmentId)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['emp-assignments', employeeId] })
       qc.invalidateQueries({ queryKey: ['jobs'] })
@@ -199,10 +200,10 @@ export default function Employees() {
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
   const { data: employees = [], isLoading, isError } = useQuery<Employee[]>({
-    queryKey:['employees'], queryFn:() => apiClient.get('/api/employees/').then(r => r.data),
+    queryKey:['employees'], queryFn:() => apiClient.get(EMPLOYEES.list).then(r => r.data),
   })
   const { data: skills = [] } = useQuery<Skill[]>({
-    queryKey:['skills'], queryFn:() => apiClient.get('/api/skills/').then(r => r.data),
+    queryKey:['skills'], queryFn:() => apiClient.get(SKILLS.list).then(r => r.data),
   })
   const { planLimits } = usePlanLimits()
   const labels = useLabels()
@@ -238,15 +239,15 @@ export default function Employees() {
   }, [employees, skills, search, filterDept, filterStatus, filterAvail, sortKey, sortAsc])
 
   const createEmp = useMutation({
-    mutationFn: (p: object) => apiClient.post('/api/employees/', p),
+    mutationFn: (p: object) => apiClient.post(EMPLOYEES.list, p),
     onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); closeForm(); showToast(`${labels.employee} added!`) },
   })
   const updateEmp = useMutation({
-    mutationFn: ({id,payload}:{id:number;payload:object}) => apiClient.patch(`/api/employees/${id}`, payload),
+    mutationFn: ({id,payload}:{id:number;payload:object}) => apiClient.patch(EMPLOYEES.update(id), payload),
     onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); closeForm(); showToast(`${labels.employee} updated!`) },
   })
   const deleteEmp = useMutation({
-    mutationFn: (id: number) => apiClient.delete(`/api/employees/${id}`),
+    mutationFn: (id: number) => apiClient.delete(EMPLOYEES.update(id)),
     onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); setDeleteId(null); showToast(`${labels.employee} deleted!`) },
   })
 

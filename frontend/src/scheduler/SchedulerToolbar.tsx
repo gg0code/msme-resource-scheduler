@@ -14,6 +14,7 @@ import {
 import { useSchedulerContext } from './SchedulerContext'
 import type { ConflictEntry } from './useScheduler'
 import apiClient from '../api/client'
+import { JOBS } from '../api/api_endpoints'
 import { useQueryClient } from '@tanstack/react-query'
 
 // --- Priority badge -----------------------------------------------------------
@@ -256,7 +257,7 @@ export default function SchedulerToolbar() {
   const jobMap = Object.fromEntries(cachedJobs.map(j => [j.id, { name: j.name, priority: j.priority }]))
 
   async function handleLockJob(jobId: number) {
-    await apiClient.patch(`/api/jobs/${jobId}`, { is_locked: true })
+    await apiClient.patch(JOBS.update(jobId), { is_locked: true })
     qc.invalidateQueries({ queryKey: ['jobs'] })
     setPanelOpen(false)
   }

@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../../api/client'
 import { Plus, Trash2, Loader2, CalendarOff, X, Check, AlertCircle } from 'lucide-react'
+import { UNAVAILABILITY } from '../../api/api_endpoints'
 
 interface Period {
   id: number
@@ -37,8 +38,8 @@ export default function UnavailabilityPanel({ resourceType, resourceId, accentCo
     : { bg: 'bg-green-50', border: 'border-green-100', badge: 'bg-green-100 text-green-700', icon: 'text-green-600', btn: 'bg-green-600 hover:bg-green-700' }
 
   const apiPath = isEmp
-    ? `/api/unavailability/employees/${resourceId}/leaves`
-    : `/api/unavailability/machines/${resourceId}/downtimes`
+    ? UNAVAILABILITY.employeeLeaves(resourceId)
+    : UNAVAILABILITY.machineDowntimes(resourceId)
   const queryKey = isEmp
     ? ['emp-leaves', resourceId]
     : ['mach-downtimes', resourceId]
@@ -70,7 +71,7 @@ export default function UnavailabilityPanel({ resourceType, resourceId, accentCo
   })
 
   const deletePeriod = useMutation({
-    mutationFn: (id: number) => apiClient.delete(`${apiPath}/${id}`),
+    mutationFn: (id: number) => apiClient.delete(isEmp ? UNAVAILABILITY.employeeLeave(resourceId, id) : UNAVAILABILITY.machineDowntime(resourceId, id)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey })
       setDeletingId(null)

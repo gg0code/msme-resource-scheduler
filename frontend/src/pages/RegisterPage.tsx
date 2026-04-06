@@ -5,6 +5,7 @@ import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import apiClient from '../api/client'
 import { CheckCircle2, XCircle, ChevronRight, ChevronLeft } from 'lucide-react'
+import { AUTH } from '../api/api_endpoints'
 
 // -- Industry options ----------------------------------------------------------
 
@@ -125,7 +126,7 @@ export default function RegisterPage() {
     }
     setLoading(true)
     try {
-      const res = await apiClient.post('/auth/register', {
+      const res = await apiClient.post(AUTH.register, {
         company_name:  form.company_name,
         slug:          form.slug.toLowerCase().replace(/\s+/g, '-'),
         email:         form.email,

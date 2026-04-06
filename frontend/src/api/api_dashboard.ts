@@ -1,4 +1,5 @@
 import apiClient from './client'
+import { DASHBOARD } from './api_endpoints'
 
 export interface CostBreakdown {
   hours: number
@@ -54,5 +55,5 @@ export interface DashboardData {
 }
 
 export const dashboardApi = {
-  get: () => apiClient.get<DashboardData>('/api/dashboard/').then(r => r.data),
+  get: () => apiClient.get<DashboardData>(DASHBOARD.root).then(r => r.data),
 }

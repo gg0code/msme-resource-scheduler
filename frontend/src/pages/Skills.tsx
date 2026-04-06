@@ -10,6 +10,7 @@ import { useLabels } from '../context/IndustryContext'
 import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
 import { Plus, Loader2, AlertCircle, CheckCircle } from 'lucide-react'
+import { SKILLS } from '../api/api_endpoints'
 
 interface Skill {
   id: number
@@ -29,11 +30,11 @@ export default function Skills() {
 
   const { data: skills = [], isLoading, isError } = useQuery<Skill[]>({
     queryKey: ['skills'],
-    queryFn: () => apiClient.get('/api/skills/').then(r => r.data),
+    queryFn: () => apiClient.get(SKILLS.list).then(r => r.data),
   })
 
   const createSkill = useMutation({
-    mutationFn: (payload: typeof form) => apiClient.post('/api/skills/', payload),
+    mutationFn: (payload: typeof form) => apiClient.post(SKILLS.list, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['skills'] })
       setForm({ name: '', category: 'generic', is_premium: false, description: '' })

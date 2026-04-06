@@ -1,5 +1,6 @@
 // src/api/api_timer.ts - V2.0
 import apiClient from './client'
+import { TIMER } from './api_endpoints'
 
 export interface CostBreakdown {
   hours: number
@@ -62,22 +63,22 @@ export interface EndJobPayload {
 
 const timerApi = {
   start:   (jobId: number) =>
-    apiClient.post<TimerJobState>(`/api/timer/${jobId}/start`, {}).then(r => r.data),
+    apiClient.post<TimerJobState>(TIMER.start(jobId), {}).then(r => r.data),
 
   pause:   (jobId: number) =>
-    apiClient.post<TimerJobState>(`/api/timer/${jobId}/pause`, {}).then(r => r.data),
+    apiClient.post<TimerJobState>(TIMER.pause(jobId), {}).then(r => r.data),
 
   resume:  (jobId: number) =>
-    apiClient.post<TimerJobState>(`/api/timer/${jobId}/resume`, {}).then(r => r.data),
+    apiClient.post<TimerJobState>(TIMER.resume(jobId), {}).then(r => r.data),
 
   stop:    (jobId: number) =>
-    apiClient.post<TimerJobState>(`/api/timer/${jobId}/stop`, {}).then(r => r.data),
+    apiClient.post<TimerJobState>(TIMER.stop(jobId), {}).then(r => r.data),
 
   summary: (jobId: number) =>
-    apiClient.get<JobSummaryResponse>(`/api/timer/${jobId}/summary`).then(r => r.data),
+    apiClient.get<JobSummaryResponse>(TIMER.summary(jobId)).then(r => r.data),
 
   end:     (jobId: number, payload: EndJobPayload) =>
-    apiClient.post<TimerJobState>(`/api/timer/${jobId}/end`, payload).then(r => r.data),
+    apiClient.post<TimerJobState>(TIMER.end(jobId), payload).then(r => r.data),
 }
 
 export default timerApi

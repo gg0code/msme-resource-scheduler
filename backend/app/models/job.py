@@ -5,7 +5,7 @@ Added tenant_id to Job, JobSkillRequirement, JobAssignment.
 
 from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
 
 
@@ -34,8 +34,8 @@ class Job(Base):
     paused_seconds  = Column(Integer, nullable=False, default=0)
     timer_log       = Column(JSON, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     skill_requirements = relationship("JobSkillRequirement", back_populates="job", cascade="all, delete-orphan")
     assignments        = relationship("JobAssignment", back_populates="job", cascade="all, delete-orphan")
@@ -63,7 +63,8 @@ class JobAssignment(Base):
     job_id      = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     employee_id = Column(Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True)
     machine_id  = Column(Integer, ForeignKey("machines.id", ondelete="SET NULL"), nullable=True)
-    assigned_at = Column(DateTime, default=datetime.utcnow)
+    assigned_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    allocation_pct = Column(Float, nullable=True)  # v1.2 - % of resource time allocated to this job, NULL=100%
 
     job      = relationship("Job", back_populates="assignments")
     employee = relationship("Employee", back_populates="assignments")
