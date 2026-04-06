@@ -5,6 +5,7 @@
 import { useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
+import { SCHEDULER } from '../api/api_endpoints'
 
 // --- Types --------------------------------------------------------------------
 
@@ -98,7 +99,7 @@ export function useScheduler() {
     setState(s => ({ ...s, running: true, error: null, summary: null }))
     try {
       const body = scheduleDate ? { schedule_date: scheduleDate } : {}
-      const { data } = await apiClient.post('/api/scheduler/run', body)
+      const { data } = await apiClient.post(SCHEDULER.run, body)
 
       const conflicts: ConflictEntry[]  = data.unresolved ?? []
       const resolved:  ResolvedEntry[]  = data.resolved   ?? []

@@ -10,7 +10,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '../api/client'
-import {
+import { ASSIGNMENTS, EMPLOYEES, JOBS, SKILLS, import { ASSIGNMENTS } from '../api/api_endpoints'
   CheckCircle2, XCircle, AlertTriangle, Loader2, ChevronRight,
   Users, CalendarDays, Gauge, Search
 } from 'lucide-react'
@@ -59,13 +59,13 @@ export default function Checker() {
   const [error, setError]                 = useState('')
 
   const { data: jobs = [] } = useQuery<Job[]>({
-    queryKey:['jobs'], queryFn:() => apiClient.get('/api/jobs/').then(r => r.data),
+    queryKey:['jobs'], queryFn:() => apiClient.get(JOBS.list).then(r => r.data),
   })
   const { data: skills = [] } = useQuery<Skill[]>({
-    queryKey:['skills'], queryFn:() => apiClient.get('/api/skills/').then(r => r.data),
+    queryKey:['skills'], queryFn:() => apiClient.get(SKILLS.list).then(r => r.data),
   })
   const { data: employees = [] } = useQuery<Employee[]>({
-    queryKey:['employees'], queryFn:() => apiClient.get('/api/employees/').then(r => r.data),
+    queryKey:['employees'], queryFn:() => apiClient.get(EMPLOYEES.list).then(r => r.data),
   })
 
   const getSkillName = (id: number) => skills.find(s => s.id === id)?.name ?? `Skill#${id}`
@@ -84,7 +84,7 @@ export default function Checker() {
     setResult(null)
     setError('')
     try {
-      const res = await apiClient.get(`/assignments/check/${selectedJobId}`)
+      const res = await apiClient.get(ASSIGNMENTS.check(selectedJobId))
       setResult(res.data)
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail

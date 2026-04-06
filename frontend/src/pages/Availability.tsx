@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import { Plus, Pencil, Trash2, Loader2, AlertCircle, X, Check, Search, Users, Factory, CalendarOff } from 'lucide-react'
 import { useLabels } from '../context/IndustryContext'
+import { AVAILABILITY, EMPLOYEES, MACHINES } from '../api/api_endpoints'
 
 interface Employee { id: number; full_name: string; department: string | null }
 interface Machine  { id: number; name: string }
@@ -41,13 +42,13 @@ export default function Availability() {
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
   const { data: overrides = [], isLoading, isError } = useQuery<Override[]>({
-    queryKey:['availability'], queryFn:() => apiClient.get('/api/availability/').then(r => r.data),
+    queryKey:['availability'], queryFn:() => apiClient.get(AVAILABILITY.list).then(r => r.data),
   })
   const { data: employees = [] } = useQuery<Employee[]>({
-    queryKey:['employees'], queryFn:() => apiClient.get('/api/employees/').then(r => r.data),
+    queryKey:['employees'], queryFn:() => apiClient.get(EMPLOYEES.list).then(r => r.data),
   })
   const { data: machines = [] } = useQuery<Machine[]>({
-    queryKey:['machines'], queryFn:() => apiClient.get('/api/machines/').then(r => r.data),
+    queryKey:['machines'], queryFn:() => apiClient.get(MACHINES.list).then(r => r.data),
   })
 
   const getEmpName = (id: number) => employees.find(e => e.id === id)?.full_name ?? `Employee #${id}`
@@ -68,15 +69,15 @@ export default function Availability() {
 
   // --- Mutations ---
   const createOverride = useMutation({
-    mutationFn: (p: object) => apiClient.post('/api/availability/', p),
+    mutationFn: (p: object) => apiClient.post(AVAILABILITY.list, p),
     onSuccess: () => { qc.invalidateQueries({queryKey:['availability']}); closeForm(); showToast('Override saved!') },
   })
   const updateOverride = useMutation({
-    mutationFn: ({id,payload}:{id:number;payload:object}) => apiClient.patch(`/availability/${id}`, payload),
+    mutationFn: ({id,payload}:{id:number;payload:object}) => apiClient.patch(AVAILABILITY.update(id), payload),
     onSuccess: () => { qc.invalidateQueries({queryKey:['availability']}); closeForm(); showToast('Override updated!') },
   })
   const deleteOverride = useMutation({
-    mutationFn: (id: number) => apiClient.delete(`/availability/${id}`),
+    mutationFn: (id: number) => apiClient.delete(AVAILABILITY.update(id)),
     onSuccess: () => { qc.invalidateQueries({queryKey:['availability']}); setDeleteId(null); showToast('Override deleted!') },
   })
 

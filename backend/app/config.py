@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     UPSTASH_REDIS_URL: Optional[str] = None
+    WHATSAPP_MOCK_MODE: bool = True   # True = no real WhatsApp API calls, safe for dev
 
     @property
     def allowed_origins_list(self) -> list[str]:

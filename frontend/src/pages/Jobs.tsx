@@ -33,6 +33,7 @@ import {
 import { usePlanLimits, LimitedButton, PlanLimitBanner, RawMaterialLimitHint } from '../components/PlanLimitGuard'
 import { useSchedulerContext } from '../scheduler/SchedulerContext'
 import { useLabels } from '../context/IndustryContext'
+import { ASSIGNMENTS, AUTH, EMPLOYEES, JOBS, MACHINES, SKILLS, TIMER } from '../api/api_endpoints'
 
 // -- Types ----------------------------------------------
 interface Skill    { id: number; name: string; is_premium: boolean }
@@ -416,14 +417,14 @@ function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string 
 
   const { data: steps = [], isLoading } = useQuery<JobStep[]>({
     queryKey: ['steps', jobId],
-    queryFn: () => apiClient.get(`/api/jobs/${jobId}/steps`).then(r => r.data),
+    queryFn: () => apiClient.get(JOBS.steps(jobId)).then(r => r.data),
   })
 
   const addStep = async () => {
     if (!newStep.name.trim()) return
     setSaving(true)
     try {
-      await apiClient.post(`/api/jobs/${jobId}/steps`, newStep)
+      await apiClient.post(JOBS.steps(jobId), newStep)
       qc.invalidateQueries({ queryKey: ['steps', jobId] })
       setNewStep({ name: '', step_type: 'production', duration_minutes: 60 })
       setShowAdd(false)
@@ -431,13 +432,13 @@ function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string 
   }
 
   const updateStatus = async (stepId: number, status: string) => {
-    await apiClient.patch(`/api/jobs/${jobId}/steps/${stepId}/status`, { status })
+    await apiClient.patch(JOBS.stepStatus(jobId, stepId), { status })
     qc.invalidateQueries({ queryKey: ['steps', jobId] })
     qc.invalidateQueries({ queryKey: ['jobs'] })
   }
 
   const deleteStep = async (stepId: number) => {
-    await apiClient.delete(`/api/jobs/${jobId}/steps/${stepId}`)
+    await apiClient.delete(JOBS.step(jobId, stepId))
     qc.invalidateQueries({ queryKey: ['steps', jobId] })
   }
 
@@ -601,21 +602,21 @@ export default function Jobs() {
 
   // -- Queries ------------------------------------------
   const { data: jobs = [], isLoading, isError } = useQuery<Job[]>({
-    queryKey:['jobs'], queryFn:() => apiClient.get('/api/jobs/').then(r => r.data),
+    queryKey:['jobs'], queryFn:() => apiClient.get(JOBS.list).then(r => r.data),
   })
   const { data: skills = [] } = useQuery<Skill[]>({
-    queryKey:['skills'], queryFn:() => apiClient.get('/api/skills/').then(r => r.data),
+    queryKey:['skills'], queryFn:() => apiClient.get(SKILLS.list).then(r => r.data),
   })
   const { data: employees = [] } = useQuery<Employee[]>({
-    queryKey:['employees'], queryFn:() => apiClient.get('/api/employees/').then(r => r.data),
+    queryKey:['employees'], queryFn:() => apiClient.get(EMPLOYEES.list).then(r => r.data),
   })
   const { data: machines = [] } = useQuery<Machine[]>({
-    queryKey:['machines'], queryFn:() => apiClient.get('/api/machines/').then(r => r.data),
+    queryKey:['machines'], queryFn:() => apiClient.get(MACHINES.list).then(r => r.data),
   })
   // Fetch tenant info for job_id_prefix
   const { data: tenantInfo } = useQuery<{ job_id_prefix?: string | null }>({
     queryKey:['tenant-info'],
-    queryFn:() => apiClient.get('/auth/me').then(r => r.data?.tenant ?? {}),
+    queryFn:() => apiClient.get(AUTH.me).then(r => r.data?.tenant ?? {}),
   })
   const jobPrefix = tenantInfo?.job_id_prefix ?? null
   const { planLimits } = usePlanLimits()
@@ -626,7 +627,7 @@ export default function Jobs() {
   const runAvailCheck = useCallback(async (jobId: number) => {
     setAvailCache(c => ({ ...c, [jobId]: 'loading' }))
     try {
-      const res = await apiClient.get(`/api/assignments/check/${jobId}`)
+      const res = await apiClient.get(ASSIGNMENTS.check(jobId))
       setAvailCache(c => ({ ...c, [jobId]: res.data }))
     } catch {
       setAvailCache(c => ({ ...c, [jobId]: null }))
@@ -672,11 +673,11 @@ export default function Jobs() {
 
   // -- Mutations -----------------------------------------
   const createJob = useMutation({
-    mutationFn: (p: object) => apiClient.post('/api/jobs/', p),
+    mutationFn: (p: object) => apiClient.post(JOBS.list, p),
     onSuccess: async (res) => {
       const newJobId = res.data.id
       if ((selectedEmps.length > 0 || selectedMachines.length > 0) && newJobId) {
-        try { await apiClient.post('/api/assignments/', { job_id:newJobId, employee_ids:selectedEmps, machine_ids:selectedMachines }) }
+        try { await apiClient.post(ASSIGNMENTS.create, { job_id:newJobId, employee_ids:selectedEmps, machine_ids:selectedMachines }) }
         catch (err: unknown) {
           const msg = err?.response?.data?.detail || 'Could not assign resources.'
           showToast(msg, 'error') 
@@ -693,7 +694,7 @@ export default function Jobs() {
   })
 
   const updateJob = useMutation({
-    mutationFn: ({id,p}:{id:number;p:object}) => apiClient.patch(`/api/jobs/${id}`, p),
+    mutationFn: ({id,p}:{id:number;p:object}) => apiClient.patch(JOBS.update(id), p),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({queryKey:['jobs']})
       setEditJob(null)
@@ -708,7 +709,7 @@ export default function Jobs() {
 
   const toggleLock = useMutation({
     mutationFn: ({id, locked}:{id:number; locked:boolean}) =>
-      apiClient.patch(`/api/jobs/${id}`, { is_locked: !locked }),
+      apiClient.patch(JOBS.update(id), { is_locked: !locked }),
     onSuccess: () => {
       qc.invalidateQueries({queryKey:['jobs']})
       markDirty()  // lock/unlock affects schedule
@@ -716,7 +717,7 @@ export default function Jobs() {
   })
 
   const deleteJobMut = useMutation({
-    mutationFn: (id: number) => apiClient.delete(`/api/jobs/${id}`),
+    mutationFn: (id: number) => apiClient.delete(JOBS.detail(id)),
     onSuccess: () => {
       qc.invalidateQueries({queryKey:['jobs']})
       qc.invalidateQueries({queryKey:['dashboard']})
@@ -728,7 +729,7 @@ export default function Jobs() {
   })
 
   const timerMut = useMutation({
-    mutationFn: ({id,action}:{id:number;action:string}) => apiClient.post(`/api/jobs/${id}/timer`, {action}),
+    mutationFn: ({id,action}:{id:number;action:string}) => apiClient.post(JOBS.timer(id), {action}),
     onSuccess: () => {
       qc.invalidateQueries({queryKey:['jobs']})
       qc.invalidateQueries({queryKey:['dashboard']})
@@ -737,7 +738,7 @@ export default function Jobs() {
 
   const outageMut = useMutation({
     mutationFn: ({id, action, reason}: {id: number; action: string; reason?: string}) =>
-      apiClient.post(`/api/timer/${id}/outage`, {action, reason}),
+      apiClient.post(TIMER.outage(id), {action, reason}),
     onSuccess: () => {
       qc.invalidateQueries({queryKey:['jobs']})
       showToast('Outage logged.')
@@ -749,7 +750,7 @@ export default function Jobs() {
   })
 
   const assignMut = useMutation({
-    mutationFn: (p: object) => apiClient.post('/api/assignments/', p),
+    mutationFn: (p: object) => apiClient.post(ASSIGNMENTS.create, p),
     onSuccess: (res) => {
       qc.invalidateQueries({queryKey:['jobs']})
       qc.invalidateQueries({queryKey:['dashboard']})
@@ -776,7 +777,7 @@ export default function Jobs() {
     if (skillReqs.length === 0) { setWizardCheck(null); return }
     setWizardChecking(true); setWizardCheck(null)
     try {
-      const empData = await apiClient.get('/api/employees/').then(r => r.data) as (Employee & { skills:{skill_id:number;skill_level:string}[] })[]
+      const empData = await apiClient.get(EMPLOYEES.list).then(r => r.data) as (Employee & { skills:{skill_id:number;skill_level:string}[] })[]
       const RANK: Record<string,number> = { Generic:1, Intermediate:2, Premium:3 }
       const newMap: Record<string,number[]> = {}
       skillReqs.forEach((req,i) => {
@@ -877,7 +878,7 @@ export default function Jobs() {
     setAssignJob(job); setAssignEmps([]); setAssignMachines([]); setAssignError('')
     setAssignCheck(null); setAssignChecking(true); setAssignTab('machines')
     try {
-      const res = await apiClient.get(`/api/assignments/check/${job.id}`)
+      const res = await apiClient.get(ASSIGNMENTS.check(job.id))
       const data: CheckResult = res.data
       setAssignEmps(data.currently_assigned_employee_ids)
       setAssignMachines(data.currently_assigned_machine_ids)
@@ -1301,7 +1302,7 @@ export default function Jobs() {
                                     allocation_pct: allocPct[`m-${job.id}-${m.id}`] ?? (m.allocation_pct ?? 100)
                                   })),
                                 ]
-                                await apiClient.patch(`/api/assignments/${job.id}/allocation`, { allocations: patches })
+                                await apiClient.patch(ASSIGNMENTS.allocation(job.id), { allocations: patches })
                                 qc.invalidateQueries({ queryKey: ['jobs'] })
                                 // Refresh availability after saving allocation
                                 const updated = await getResourceAvailability(job.id)

@@ -1,16 +1,32 @@
-"""
-routers/assignments.py — V1.1
-Added: JWT auth, tenant_id scoping on all endpoints + passed to availability engine
-  POST /api/assignments/                        — scheduler+
-  GET  /api/assignments/check/{job_id}          — any authenticated user
-  GET  /api/assignments/employee/{employee_id}  — any authenticated user
-  GET  /api/assignments/machine/{machine_id}    — any authenticated user
-"""
+# app/routers/assignments.py - Version 1.2
+# Branch: both
+#
+# FILE PURPOSE
+# Handles all job resource assignment operations.
+# Layer: router
+#
+# WHAT THIS FILE DOES
+# 1. POST /        - assign employees and machines to a job
+# 2. GET  /check/{job_id}     - full availability check with conflict details
+# 3. GET  /employee/{id}      - list all assignments for an employee
+# 4. GET  /machine/{id}       - list all assignments for a machine
+# 5. DELETE /{id}             - remove a single assignment row (v1.2)
+# 6. PATCH /{job_id}/allocation - bulk update allocation_pct on assignments (v1.2)
+#
+# WHO CALLS THIS FILE
+# - app/main.py - registered at prefix /api/assignments
+# - frontend Employees.tsx, Machines.tsx - DELETE /{id}
+# - frontend Jobs.tsx - PATCH /{job_id}/allocation
+#
+# INTERN NOTES
+# - Every query filters by tenant_id - never cross-tenant
+# - DELETE checks tenant ownership before deleting
+# - allocation_pct added to JobAssignment in migration 020
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 from app.database import get_db
 from app.core.dependencies import get_current_user, require_role
@@ -28,11 +44,25 @@ from app.models.availability import AvailabilityOverride
 router = APIRouter()
 
 
+# -- Schemas ------------------------------------------------------------------
+
 class AssignRequest(BaseModel):
     job_id: int
     employee_ids: List[int] = []
     machine_ids: List[int] = []
 
+
+class AllocationItem(BaseModel):
+    type: str            # "employee" or "machine"
+    resource_id: int
+    allocation_pct: float
+
+
+class AllocationPatchRequest(BaseModel):
+    allocations: List[AllocationItem]
+
+
+# -- POST / -------------------------------------------------------------------
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def create_assignment(
@@ -52,6 +82,85 @@ def create_assignment(
     except AssignmentError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
+
+# -- DELETE /{id} -------------------------------------------------------------
+
+@router.delete("/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_assignment(
+    assignment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("proprietor", "scheduler")),
+):
+    """
+    Remove a single assignment row.
+    Verifies tenant ownership before deletion - never cross-tenant.
+    """
+    assignment = db.query(JobAssignment).filter(
+        JobAssignment.id == assignment_id,
+        JobAssignment.tenant_id == current_user.tenant_id,
+    ).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    db.delete(assignment)
+    db.commit()
+
+
+# -- PATCH /{job_id}/allocation -----------------------------------------------
+
+@router.patch("/{job_id}/allocation")
+def update_allocation(
+    job_id: int,
+    payload: AllocationPatchRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("proprietor", "scheduler")),
+):
+    """
+    Bulk update allocation_pct for all assignments on a job.
+
+    Frontend sends:
+      { allocations: [{ type: "employee"|"machine", resource_id, allocation_pct }] }
+
+    Finds the matching JobAssignment row for each item and updates allocation_pct.
+    Only updates rows belonging to this tenant.
+    Returns count of rows updated.
+    """
+    tid = current_user.tenant_id
+
+    # Verify job belongs to tenant
+    job = db.query(Job).filter(
+        Job.id == job_id,
+        Job.tenant_id == tid,
+    ).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    updated = 0
+    for item in payload.allocations:
+        if item.type == "employee":
+            row = db.query(JobAssignment).filter(
+                JobAssignment.job_id == job_id,
+                JobAssignment.employee_id == item.resource_id,
+                JobAssignment.tenant_id == tid,
+            ).first()
+        elif item.type == "machine":
+            row = db.query(JobAssignment).filter(
+                JobAssignment.job_id == job_id,
+                JobAssignment.machine_id == item.resource_id,
+                JobAssignment.tenant_id == tid,
+            ).first()
+        else:
+            continue
+
+        if row:
+            row.allocation_pct = max(0.0, min(100.0, item.allocation_pct))
+            updated += 1
+
+    db.commit()
+    return {"updated": updated}
+
+
+# -- GET /check/{job_id} ------------------------------------------------------
 
 @router.get("/check/{job_id}")
 def check_job_availability(
@@ -74,7 +183,6 @@ def check_job_availability(
     days = _date_range(job.start_date, job.end_date)
     tid = current_user.tenant_id
 
-    # --- Machines scoped to tenant ---
     all_machines = db.query(Machine).filter(
         Machine.tenant_id == tid,
         Machine.status == "Operational",
@@ -103,7 +211,6 @@ def check_job_availability(
             ],
         })
 
-    # --- Employees scoped to tenant ---
     all_employees = db.query(Employee).filter(
         Employee.tenant_id == tid,
         Employee.status == "Active",
@@ -131,7 +238,6 @@ def check_job_availability(
             ],
         })
 
-    # --- Skill requirements ---
     skill_reqs = db.query(JobSkillRequirement).filter(
         JobSkillRequirement.job_id == job_id,
     ).all()
@@ -147,7 +253,6 @@ def check_job_availability(
             "available_employee_ids": avail_ids,
         })
 
-    # --- Currently assigned ---
     current = db.query(JobAssignment).filter(
         JobAssignment.job_id == job_id,
         JobAssignment.tenant_id == tid,
@@ -170,6 +275,8 @@ def check_job_availability(
         "currently_assigned_machine_ids": current_machine_ids,
     }
 
+
+# -- GET /employee/{employee_id} ----------------------------------------------
 
 @router.get("/employee/{employee_id}")
 def get_employee_assignments(
@@ -204,11 +311,14 @@ def get_employee_assignments(
             "end_date": str(r.job.end_date),
             "status": r.job.status,
             "priority": r.job.priority,
+            "allocation_pct": r.allocation_pct,
             "assigned_at": r.assigned_at.isoformat() if r.assigned_at else None,
         }
         for r in rows
     ]
 
+
+# -- GET /machine/{machine_id} ------------------------------------------------
 
 @router.get("/machine/{machine_id}")
 def get_machine_assignments(
@@ -243,6 +353,7 @@ def get_machine_assignments(
             "end_date": str(r.job.end_date),
             "status": r.job.status,
             "priority": r.job.priority,
+            "allocation_pct": r.allocation_pct,
             "assigned_at": r.assigned_at.isoformat() if r.assigned_at else None,
         }
         for r in rows

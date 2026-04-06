@@ -6,6 +6,7 @@ import { Upload, Download, CheckCircle2, XCircle, AlertTriangle, X, Loader2, Fil
 import apiClient from '../../api/client'
 import { useLabels } from '../../context/IndustryContext'
 import type { ImportResult } from '../../types/types_index'
+import { IMPORT } from '../../api/api_endpoints'
 
 interface Props {
   resource: 'employees' | 'machines' | 'skills'
@@ -30,8 +31,8 @@ export default function CsvImport({ resource, onSuccess }: Props) {
     try {
       const isXlsx = format === 'xlsx' && resource !== 'skills'
       const url = isXlsx
-        ? `/api/import/template-xlsx/${resource}`
-        : `/api/import/template/${resource}`
+        ? IMPORT.template(resource)
+        : IMPORT.template(resource)
       const res = await apiClient.get(url, { responseType: 'blob' })
       const blob = new Blob([res.data])
       const a = document.createElement('a')
@@ -57,7 +58,7 @@ export default function CsvImport({ resource, onSuccess }: Props) {
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await apiClient.post<ImportResult>(`/import/${resource}`, fd)
+      const res = await apiClient.post<ImportResult>(IMPORT[resource as 'employees' | 'machines' | 'skills'], fd)
       setResult(res.data)
       if (res.data.rows_imported > 0) onSuccess()
     } catch (err: unknown) {

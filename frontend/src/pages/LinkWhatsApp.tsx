@@ -11,11 +11,12 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { MessageCircle, Phone, Trash2, Plus, CheckCircle, AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { tokenStore } from '../api/client'
+import { WHATSAPP } from '../api/api_endpoints'
 
 // -- Constants -----------------------------------------------------------------
 const API_BASE        = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-const LINK_URL        = `${API_BASE}/api/v1/whatsapp/link-phone`
-const LINKED_LIST_URL = `${API_BASE}/api/v1/whatsapp/linked-phones`
+const LINK_URL = `${API_BASE}${WHATSAPP.linkPhone}`
+const LINKED_LIST_URL = `${API_BASE}${WHATSAPP.linkedPhones}`
 
 // Roles a phone number can have in the factory
 const PHONE_ROLE_OPTIONS = [
@@ -153,7 +154,7 @@ export default function LinkWhatsApp() {
   async function handleDeactivate(id: number) {
     if (!confirm('Deactivate this number? It will no longer receive alerts or be able to chat.')) return
     try {
-      const res = await fetch(`${API_BASE}/api/v1/whatsapp/linked-phones/${id}/deactivate`, {
+      const res = await fetch(`${API_BASE}${WHATSAPP.deactivatePhone(id)}`, {
         method: 'PATCH',
         headers: authHeaders(),
       })

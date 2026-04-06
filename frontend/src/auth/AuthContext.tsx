@@ -4,16 +4,9 @@
 // Refresh token lives in httpOnly cookie (set by backend).
 // On page reload, /auth/refresh is called automatically to restore session.
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react"
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { tokenStore } from "../api/client"  // single HTTP client source of truth
+import { AUTH } from "../api/api_endpoints"
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -83,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // -- Silent refresh (called on load + timer) --------------------------------
   const silentRefresh = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
+      const res = await fetch(`${API_BASE}${AUTH.refresh}`, {
         method: "POST",
         credentials: "include", // sends httpOnly cookie
       });
@@ -105,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // -- Auth actions -----------------------------------------------------------
   const login = useCallback(async (email: string, password: string) => {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await fetch(`${API_BASE}${AUTH.login}`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -121,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [setAuth]);
 
   const register = useCallback(async (payload: RegisterPayload) => {
-    const res = await fetch(`${API_BASE}/auth/register`, {
+    const res = await fetch(`${API_BASE}${AUTH.register}`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -137,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [setAuth]);
 
   const logout = useCallback(async () => {
-    await fetch(`${API_BASE}/auth/logout`, {
+    await fetch(`${API_BASE}${AUTH.logout}`, {
       method: "POST",
       credentials: "include",
     });
@@ -165,7 +158,7 @@ export function useAuth(): AuthContextValue {
 
 // -- Internal helper -----------------------------------------------------------
 async function fetchMe(accessToken: string): Promise<AuthUser> {
-  const res = await fetch(`${API_BASE}/auth/me`, {
+  const res = await fetch(`${API_BASE}${AUTH.me}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error("Failed to fetch user");

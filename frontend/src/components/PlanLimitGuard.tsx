@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import { Lock } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { DASHBOARD } from '../api/api_endpoints'
 
 const CONTACT_EMAIL = 'abc@abc.com'
 const CONTACT_PHONE = '+91 999 99 99 999'
@@ -30,7 +31,7 @@ export interface PlanLimits {
 export function usePlanLimits() {
   const { data: planLimits, isLoading } = useQuery<PlanLimits>({
     queryKey: ['plan-limits'],
-    queryFn: () => apiClient.get('/dashboard/plan-limits').then(r => r.data),
+    queryFn: () => apiClient.get(DASHBOARD.planLimits).then(r => r.data),
     staleTime: 30_000,
   })
 

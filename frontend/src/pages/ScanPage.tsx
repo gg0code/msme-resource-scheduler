@@ -7,6 +7,7 @@
 
 import { useEffect, useState, type CSSProperties } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { SCAN } from '../api/api_endpoints'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -32,7 +33,7 @@ export default function ScanPage() {
       setState({ stage: 'error', reason: 'invalid' })
       return
     }
-    fetch(`${API}/api/scan/verify?token=${encodeURIComponent(token)}`)
+    fetch(`${API}${SCAN.verify(token)}`)
       .then(r => r.json())
       .then(data => {
         if (!data.valid) {
@@ -54,7 +55,7 @@ export default function ScanPage() {
   const execute = async () => {
     setSubmitting(true)
     try {
-      const res = await fetch(`${API}/api/scan/execute`, {
+      const res = await fetch(`${API}${SCAN.execute}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),

@@ -8,6 +8,7 @@
  */
 
 import apiClient from './client'
+import { JOBS } from './api_endpoints'
 
 // ---------------------------------------------------------------------------
 // Types - mirror the backend schemas/resource_availability.py shapes
@@ -83,7 +84,7 @@ export async function getResourceAvailability(
   jobId: number
 ): Promise<ResourceAvailabilityResponse> {
   const response = await apiClient.get<ResourceAvailabilityResponse>(
-    `/api/jobs/${jobId}/resource-availability`
+    JOBS.resourceAvailability(jobId)
   )
   return response.data
 }

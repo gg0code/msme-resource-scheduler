@@ -9,6 +9,7 @@ import { X, Send, Bot, Sparkles, ChevronRight, Zap, MessageSquare } from 'lucide
 import { getAITools, AI_TOOL_CATEGORIES } from '../data/aiTools'
 import apiClient from '../api/client'
 import { useLabels } from '../context/IndustryContext'
+import { AI, JOBS } from '../api/api_endpoints'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -218,7 +219,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
 
   const fetchGreeting = async () => {
     try {
-      const res = await apiClient.get('/api/ai/greeting')
+      const res = await apiClient.get(AI.greeting)
       setMessages([{
         role: 'assistant' as const,
         content: res.data.message,
@@ -240,7 +241,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
 
   const fetchUsage = async () => {
     try {
-      const res = await apiClient.get('/api/ai/usage')
+      const res = await apiClient.get(AI.usage)
       setUsage(res.data)
     } catch { /* silent */ }
   }
@@ -270,7 +271,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
         if (jobName) {
           try {
             // Search for job by name in the cached jobs list
-            const jobsRes = await apiClient.get('/api/jobs/')
+            const jobsRes = await apiClient.get(JOBS.list)
             const jobs: { id: number; name: string }[] = jobsRes.data
             const match = jobs.find(j =>
               j.name.toLowerCase().includes(jobName.toLowerCase()) ||
@@ -280,11 +281,11 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
             if (match) {
               if (intent === 'material') {
                 console.log('[v3.9.9] fetching material-estimate for job', match.id)
-                const dataRes = await apiClient.get(`/api/jobs/${match.id}/material-estimate`)
+                const dataRes = await apiClient.get(JOBS.materialEstimate(match.id))
                 structuredData = { _type: 'material_estimate', ...dataRes.data }
               } else if (intent === 'schedule') {
                 console.log('[v3.9.9] fetching schedule-suggestions for job', match.id)
-                const dataRes = await apiClient.get(`/api/jobs/${match.id}/schedule-suggestions`)
+                const dataRes = await apiClient.get(JOBS.scheduleSuggestions(match.id))
                 structuredData = { _type: 'schedule_suggestions', ...dataRes.data }
               }
             }
@@ -295,7 +296,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
         }
       }
 
-      const res = await apiClient.post('/api/ai/chat', {
+      const res = await apiClient.post(AI.chat, {
         messages: updated.map(m => ({ role: m.role, content: m.content })),
         page_context: pageContext,
         structured_data: structuredData,
