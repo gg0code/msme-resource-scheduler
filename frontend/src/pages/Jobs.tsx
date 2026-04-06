@@ -409,7 +409,6 @@ const STATUS_COLOR: Record<string, string> = {
 
 function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string }) {
   const qc = useQueryClient()
-  const { markDirty } = useSchedulerContext()
   const isJobDone = ['Completed','Cancelled','completed','cancelled'].includes(jobStatus)
   const [showAdd, setShowAdd] = useState(false)
   const [newStep, setNewStep] = useState({ name: '', step_type: 'production', duration_minutes: 60 })
@@ -542,7 +541,6 @@ function JobStepsPanel({ jobId, jobStatus }: { jobId: number; jobStatus: string 
 // ------------------------------------------------------
 export default function Jobs() {
   const qc = useQueryClient()
-  const { markDirty, checkAllLocked } = useSchedulerContext()
   const labels = useLabels()
   const flags = useFeatureFlags() 
   const navigate = useNavigate()
@@ -644,8 +642,7 @@ export default function Jobs() {
 
   // v3.9.5 - keep greyed-locked state in sync with jobs list
   useEffect(() => {
-    checkAllLocked(jobs.map(j => ({ lock_status: j.is_locked })))
-  }, [jobs, checkAllLocked])
+  }, [jobs])
 
   function openPdfExport(job: Job) { setPdfJob(job) }
 
@@ -686,7 +683,6 @@ export default function Jobs() {
       qc.invalidateQueries({queryKey:['jobs']})
       qc.invalidateQueries({queryKey:['dashboard']})
       qc.invalidateQueries({queryKey:['plan-limits']})
-      markDirty()  // new job affects schedule
       setTimeout(() => runAvailCheck(newJobId), 500)
       closeWizard()
       showToast('Job created!')
@@ -702,7 +698,6 @@ export default function Jobs() {
       // Only mark dirty if scheduling-relevant fields were changed
       const schedFields = new Set(['priority','start_date','end_date','estimated_hours_per_day','start_mode','earliest_date'])
       const changedFields = Object.keys((vars as {p: object}).p ?? {})
-      if (changedFields.some(f => schedFields.has(f))) markDirty()
       showToast('Job updated!')
     },
   })
@@ -712,7 +707,6 @@ export default function Jobs() {
       apiClient.patch(JOBS.update(id), { is_locked: !locked }),
     onSuccess: () => {
       qc.invalidateQueries({queryKey:['jobs']})
-      markDirty()  // lock/unlock affects schedule
     },
   })
 
@@ -722,7 +716,6 @@ export default function Jobs() {
       qc.invalidateQueries({queryKey:['jobs']})
       qc.invalidateQueries({queryKey:['dashboard']})
       qc.invalidateQueries({queryKey:['plan-limits']})
-      markDirty()  // deleted job affects schedule
       setDeleteId(null)
       showToast('Job deleted!')
     },
@@ -754,7 +747,6 @@ export default function Jobs() {
     onSuccess: (res) => {
       qc.invalidateQueries({queryKey:['jobs']})
       qc.invalidateQueries({queryKey:['dashboard']})
-      markDirty()  // new assignments affect schedule
       if (assignJob) runAvailCheck(assignJob.id)
       setAssignJob(null)
       showToast(`${res.data.assignments.length} resource(s) assigned!`)
