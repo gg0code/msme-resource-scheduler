@@ -8,7 +8,7 @@ from app.config import settings
 from app.routers import (
     auth, assignments, availability, dashboard,
     employees, import_csv, jobs, machines, skills,
-    features,
+    features,ai_chat,
 )
 from app.routers import whatsapp as whatsapp_router
 from app.services.whatsapp_alerts import start_scheduler, stop_scheduler
@@ -50,4 +50,5 @@ app.include_router(jobs.router,         prefix="/api/jobs",         tags=["jobs"
 app.include_router(machines.router,     prefix="/api/machines",     tags=["machines"])
 app.include_router(skills.router,       prefix="/api/skills",       tags=["skills"])
 app.include_router(features.router,     prefix="/api",              tags=["features"])
+app.include_router(ai_chat.router,      prefix="/api/ai",           tags=["ai"])
 app.include_router(whatsapp_router.router)
