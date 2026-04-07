@@ -79,6 +79,9 @@ export interface ScheduledJobSummary {
   step_count:     number
   earliest_start: string
   latest_end:     string
+  // True when scheduler moved the job's dates from original request
+  // False when job was scheduled on its original requested dates
+  dates_changed:  boolean
 }
 
 // Full run summary shown in the result panel after scheduler completes
@@ -229,12 +232,23 @@ export function useScheduler() {
           const jobId  = Number(jobIdStr)
           const starts = entries.map(e => e.scheduled_start).sort()
           const ends   = entries.map(e => e.scheduled_end).sort()
+          // Detect if scheduler moved dates by comparing to original_end_date
+          const jobData = cachedJobs.find(j => j.id === jobId)
+          const origEnd   = jobData?.original_end_date   ?? null
+          const origStart = jobData?.original_start_date ?? null
+          const newStart  = starts[0].split('T')[0]
+          const newEnd    = ends[ends.length - 1].split('T')[0]
+          const datesChanged = !!(
+            (origStart && origStart !== newStart) ||
+            (origEnd   && origEnd   !== newEnd)
+          )
           return {
             job_id:         jobId,
             job_name:       jobNameMap[jobId] ?? `Job #${jobId}`,
             step_count:     entries.length,
             earliest_start: starts[0],
             latest_end:     ends[ends.length - 1],
+            dates_changed:  datesChanged,
           }
         })
 

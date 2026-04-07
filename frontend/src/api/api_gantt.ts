@@ -82,6 +82,11 @@ export interface GanttJob {
   status_icon: string
   tentative_cost: number | null
   tentative_profit: number | null
+  /** ISO date strings (YYYY-MM-DD) of confirmed schedule entry days.
+   *  Empty = not yet scheduled. Used by GanttPage to render solid segments
+   *  for scheduled days and a dashed gap outline for unscheduled gap days.
+   */
+  scheduled_dates: string[]
 }
 
 export async function fetchGanttData(): Promise<GanttJob[]> {

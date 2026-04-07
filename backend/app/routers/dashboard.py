@@ -1,15 +1,21 @@
-"""
-routers/dashboard.py — V2.2
-Fixed: SQLAlchemy 2.0 subquery (anon_1) error caused by lazy-loading
-  assignments/employee/machine inside _build_job_row loop.
+# app/routers/dashboard.py - Version 2.3
+# Branch: both
+#
+# FILE PURPOSE
+# Dashboard API - aggregates job, resource, and cost state for the dashboard.
+#
+# KEY DESIGN DECISIONS
+# - Conflict detection uses schedule_entries (same as Jobs page), not the
+#   availability engine. Date-range overlap != scheduling conflict after
+#   auto-schedule has run and resolved jobs into non-overlapping time slots.
+# - _build_entry_count_map: loads ALL entry counts in one query (O(1) not O(N))
+#   avoids N+1 DB calls that caused login/dashboard slowdown.
+# - selectinload used for assignments to avoid lazy-load N+1 on job.assignments.
+#
+# WHO CALLS THIS FILE
+# - GET /api/dashboard/            - Dashboard.tsx
+# - GET /api/dashboard/plan-limits - PlanLimitGuard component
 
-Fixes applied:
-  1. all_jobs query now uses selectinload for assignments -> employee/machine
-  2. _build_job_row reads from pre-loaded job.assignments instead of re-querying
-  3. Eliminated N+1: no more db.query(Employee/Machine) per assignment per job
-
-v2.2: Added /plan-limits endpoint for PlanLimitGuard frontend component.
-"""
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, selectinload
@@ -23,7 +29,6 @@ from app.models.machine import Machine
 from app.core.dependencies import get_current_user
 from app.models.auth import User
 from app.services.cost_service import compute_tentative_cost, compute_actual_cost
-from app.services.availability_engine import check_availability
 
 router = APIRouter()
 
@@ -42,18 +47,40 @@ def _derive_status_icon(job: Job, has_conflict: bool) -> str:
     return "ready"
 
 
-def _build_job_row(db: Session, job: Job, tenant_id: int) -> dict:
+
+def _build_entry_count_map(db, tenant_id: int) -> dict:
+    """Load schedule entry counts for ALL jobs in one query - O(1) not O(N).
+    Returns {job_id: entry_count}. Call once per request."""
+    from app.routers.scheduler_router import ScheduleEntryModel
+    from sqlalchemy import select as _sel, func as _func
+    rows = db.execute(
+        _sel(ScheduleEntryModel.job_id, _func.count().label("cnt"))
+        .where(ScheduleEntryModel.tenant_id == tenant_id)
+        .group_by(ScheduleEntryModel.job_id)
+    ).all()
+    return {row[0]: row[1] for row in rows}
+
+
+def _has_scheduling_conflict(job, entry_count_map: dict) -> tuple:
+    """Check conflict using pre-loaded counts. No extra DB query per job."""
+    count = entry_count_map.get(job.id, 0)
+    if count == 0:
+        return False, []
+    if job.start_date and job.end_date:
+        ref_start = job.original_start_date or job.start_date
+        ref_end   = job.original_end_date   or job.end_date
+        expected  = max(1, (ref_end - ref_start).days + 1)
+        if count < expected:
+            return True, [
+                f"{expected - count} of {expected} scheduled days unresolved - "
+                f"run Auto-Schedule to push to next available slot"
+            ]
+    return False, []
+
+def _build_job_row(db: Session, job: Job, tenant_id: int, entry_count_map: dict) -> dict:
     """Build a single job row — uses pre-loaded job.assignments (no extra queries)."""
 
-    # Conflict check
-    has_conflict = False
-    conflict_reasons = []
-    try:
-        avail = check_availability(db, job.id, tenant_id)
-        has_conflict = not avail.feasible
-        conflict_reasons = [c.reason for c in avail.conflicts]
-    except Exception:
-        pass
+    has_conflict, conflict_reasons = _has_scheduling_conflict(job, entry_count_map)
 
     # Costs
     tentative = compute_tentative_cost(db, job)
@@ -149,6 +176,8 @@ def get_dashboard(
         .all()
     )
 
+    entry_count_map = _build_entry_count_map(db, tid)
+
     return {
         "total_active_jobs":      total_active_jobs,
         "available_machines":     available_machines,
@@ -165,7 +194,7 @@ def get_dashboard(
             }
             for j in upcoming_jobs
         ],
-        "jobs": [_build_job_row(db, j, tid) for j in all_jobs],
+        "jobs": [_build_job_row(db, j, tid, entry_count_map) for j in all_jobs],
     }
 
 

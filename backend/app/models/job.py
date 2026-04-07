@@ -1,9 +1,36 @@
+# app/models/job.py - Version 1.3
+# Branch: both
+#
+# FILE PURPOSE
+# SQLAlchemy ORM models for jobs, job steps, and job assignments.
+# Layer: model
+#
+# WHAT THIS FILE DOES
+# 1. Defines Job - the core production order entity with timer, lock, and cost fields
+# 2. Defines JobSkillRequirement - skill requirements attached to a job
+# 3. Defines JobAssignment - maps employees and machines to jobs
+#
+# KEY MODELS
+# - Job              : table jobs - one per production order
+# - JobSkillRequirement : table job_skill_requirements - skill gates per job
+# - JobAssignment    : table job_assignments - resource allocation rows
+#
+# WHO CALLS THIS FILE
+# - app/routers/jobs.py, dashboard.py, assignments.py, scheduler_router.py
+# - app/services/cost_service.py, availability_engine.py
+#
+# INTERN NOTES
+# - All models have tenant_id - every query must filter by tenant_id
+# - is_locked=True means scheduler preserves this job's slot and skips re-scheduling
+# - allocation_pct on JobAssignment is nullable - NULL means 100% (full allocation)
+# - updated_at uses lambda: datetime.now(timezone.utc) not datetime.utcnow (py3.12+)
+
 """
 models/job.py — V1.1
 Added tenant_id to Job, JobSkillRequirement, JobAssignment.
 """
 
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import Boolean, Column, Integer, String, Float, Date, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -32,6 +59,16 @@ class Job(Base):
     actual_start_at = Column(DateTime, nullable=True)
     actual_end_at   = Column(DateTime, nullable=True)
     paused_seconds  = Column(Integer, nullable=False, default=0)
+    is_locked            = Column(Boolean, nullable=False, default=False)  # v4.0.9 - locked jobs keep their schedule slot, scheduler skips them
+
+    # Rescheduled date tracking - added v4.0.9
+    # original_start_date and original_end_date are set by the scheduler the
+    # first time it moves a job's dates from the user's requested dates.
+    # A non-null value means "scheduler moved this job - user should review".
+    # Cleared to NULL whenever the user edits any aspect of the job, signalling
+    # the job is back to user-specified dates and is a fresh scheduling candidate.
+    original_start_date  = Column(Date, nullable=True)
+    original_end_date    = Column(Date, nullable=True)
     timer_log       = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

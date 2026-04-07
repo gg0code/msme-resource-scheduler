@@ -180,11 +180,11 @@ function ResultSummaryPanel({
           {summary.scheduled.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                <CheckCircle size={11} className="text-green-500"/> Scheduled
+                <CheckCircle size={11} className="text-green-500"/> Scheduled ({summary.scheduled.filter(j => j.dates_changed).length} rescheduled, {summary.scheduled.filter(j => !j.dates_changed).length} confirmed)
               </p>
               <div className="space-y-2">
                 {summary.scheduled.map(job => (
-                  <div key={job.job_id} className="border border-green-200 bg-green-50 rounded-xl px-4 py-3">
+                  <div key={job.job_id} className={`rounded-xl px-4 py-3 border ${job.dates_changed ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-gray-800 truncate">{job.job_name}</p>
@@ -192,11 +192,12 @@ function ResultSummaryPanel({
                           {job.step_count} step{job.step_count !== 1 ? 's' : ''} scheduled
                         </p>
                       </div>
-                      <span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full shrink-0">
-                        Done
-                      </span>
+                      {job.dates_changed
+                        ? <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full shrink-0">Rescheduled</span>
+                        : <span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full shrink-0">On Schedule</span>
+                      }
                     </div>
-                    <div className="mt-2 flex items-center gap-1.5 text-xs text-green-700">
+                    <div className={`mt-2 flex items-center gap-1.5 text-xs ${job.dates_changed ? 'text-amber-700' : 'text-green-700'}`}>
                       <Clock size={11}/>
                       {fmt(job.earliest_start)} → {fmt(job.latest_end)}
                     </div>
