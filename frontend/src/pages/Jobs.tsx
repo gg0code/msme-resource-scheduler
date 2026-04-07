@@ -29,6 +29,7 @@ import {
   Users, ClipboardCheck, AlertTriangle, UserCheck, Factory,
   Play, Pause, Square, RotateCcw, Clock, Package,
   Lock, Unlock, Zap, Tag, FolderOpen, ListTodo, CheckCircle2, Circle, Wrench,
+  CalendarClock,
 } from 'lucide-react'
 import { usePlanLimits, LimitedButton, PlanLimitBanner, RawMaterialLimitHint } from '../components/PlanLimitGuard'
 import { useSchedulerContext } from '../scheduler/SchedulerContext'
@@ -47,6 +48,8 @@ interface AssignedMachine  { id: number; name: string; machine_type: string | nu
 interface Job {
   id: number; name: string; customer: string | null
   start_date: string; end_date: string; estimated_hours_per_day: number
+  original_start_date: string | null   // set by scheduler when dates were moved
+  original_end_date:   string | null   // null = user-specified dates, not rescheduled
   tentative_profit: number | null; order_value: number | null; misc_cost: number | null
   priority: string; status: string
   notes: string | null; skill_requirements: (SkillReq & { id: number })[]
@@ -131,9 +134,9 @@ const statusColour: Record<string,string> = {
   'Completed':'bg-teal-100 text-teal-700','Cancelled':'bg-red-100 text-red-600',
 }
 const scoreColour = (s: number) =>
-  s === 100 ? { bar:'bg-green-500', text:'text-green-700', bg:'bg-green-50', badge:'bg-green-500', label:'Feasible' }
-  : s >= 60  ? { bar:'bg-orange-400', text:'text-orange-700', bg:'bg-orange-50', badge:'bg-orange-400', label:'Partial' }
-  : { bar:'bg-red-500', text:'text-red-700', bg:'bg-red-50', badge:'bg-red-500', label:'Conflicts' }
+  s === 100 ? { bar:'bg-green-500', text:'text-green-700', bg:'bg-green-50', badge:'bg-green-500', label:'Feasibility' }
+  : s >= 60  ? { bar:'bg-orange-400', text:'text-orange-700', bg:'bg-orange-50', badge:'bg-orange-400', label:'Feasibility' }
+  : { bar:'bg-red-500', text:'text-red-700', bg:'bg-red-50', badge:'bg-red-500', label:'Feasibility' }
 
 const timerColour: Record<string,string> = {
   idle:'text-gray-400', running:'text-green-600', paused:'text-yellow-600', ended:'text-teal-600'
@@ -178,20 +181,26 @@ function AvailBadge({ result, loading, status }: { result?: AvailResult | null; 
   )
   if (loading) return <span className="w-3 h-3 rounded-full bg-gray-300 animate-pulse inline-block"/>
   if (!result)  return null
-  const c = scoreColour(result.feasibility_score)
+  // If job has no skill requirements, feasibility is 100% by definition -
+  // there are no skill gates to fail. The engine returns 0 for 0/0 which
+  // is misleading. Override to 100 when no requirements exist.
+  const displayScore = result.skill_requirements?.length === 0
+    ? 100
+    : result.feasibility_score
+  const c = scoreColour(displayScore)
   return (
     <div ref={ref} className="relative inline-block">
       <button onClick={() => setShowTip(t => !t)}
         className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold text-white ${c.badge} hover:opacity-80`}
         title="Feasibility shows whether assigned employees and machines are available for this job's dates. Click for details.">
-        {result.feasibility_score}% {c.label}
+        {displayScore}% {c.label}
       </button>
       {showTip && (
         <div className="absolute right-0 top-7 z-30 bg-white border border-gray-200 rounded-xl shadow-xl p-3 w-72">
           <div className={`${c.bg} rounded-lg px-3 py-2 mb-2`}>
             <div className="flex items-center justify-between">
-              <span className={`text-xs font-bold ${c.text}`}>Availability: {c.label}</span>
-              <span className={`text-sm font-black ${c.text}`}>{result.feasibility_score}%</span>
+              <span className={`text-xs font-bold ${c.text}`}>Feasibility</span>
+              <span className={`text-sm font-black ${c.text}`}>{displayScore}%</span>
             </div>
             <div className="w-full bg-white/60 rounded-full h-1.5 mt-1">
               <div className={`${c.bar} h-1.5 rounded-full`} style={{ width:`${result.feasibility_score}%` }}/>
@@ -200,9 +209,9 @@ function AvailBadge({ result, loading, status }: { result?: AvailResult | null; 
           {result.conflicts.length === 0
             ? <p className="text-xs text-green-600 flex items-center gap-1"><Check size={12}/>All requirements met</p>
             : <>
-                <p className="text-xs font-semibold text-gray-600 mb-1">{result.conflicts.length} conflict(s):</p>
+                <p className="text-xs font-semibold text-gray-600 mb-1">Resource conflicts ({result.conflicts.length}) - auto-scheduler will resolve:</p>
                 {result.conflicts.slice(0,4).map((c,i) => (
-                  <p key={i} className="text-xs text-red-600 mb-0.5">· <span className="font-medium">{c.resource_name}</span>: {c.reason}</p>
+                  <p key={i} className="text-xs text-amber-700 mb-0.5">· <span className="font-medium">{c.resource_name}</span>: {c.reason}</p>
                 ))}
                 {result.conflicts.length > 4 && <p className="text-xs text-gray-400">+{result.conflicts.length-4} more</p>}
               </>
@@ -227,17 +236,17 @@ function ConflictBadge({ reasons }: { reasons?: string[] }) {
   return (
     <div ref={ref} className="relative inline-block">
       <button onClick={() => setShow(s => !s)}
-        className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold border border-red-200 hover:bg-red-200">
-        <AlertTriangle size={10}/> Conflict
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold border border-amber-200 hover:bg-amber-200">
+        <AlertTriangle size={10}/> Needs Scheduling
       </button>
       {show && (
-        <div className="absolute left-0 top-7 z-30 bg-white border border-red-200 rounded-xl shadow-xl p-3 w-64">
-          <p className="text-xs font-semibold text-red-700 mb-1 flex items-center gap-1"><AlertTriangle size={11}/>Conflict Details</p>
+        <div className="absolute left-0 top-7 z-30 bg-white border border-amber-200 rounded-xl shadow-xl p-3 w-64">
+          <p className="text-xs font-semibold text-amber-700 mb-1 flex items-center gap-1"><AlertTriangle size={11}/>Scheduling Conflicts</p>
           {reasons && reasons.length > 0
-            ? reasons.map((r,i) => <p key={i} className="text-xs text-red-600 mb-0.5">· {r}</p>)
-            : <p className="text-xs text-gray-500">Resource conflict detected - check assignments</p>
+            ? reasons.map((r,i) => <p key={i} className="text-xs text-amber-700 mb-0.5">· {r}</p>)
+            : <p className="text-xs text-gray-500">Resource conflicts detected - run Auto-Schedule to resolve</p>
           }
-          <p className="text-xs text-gray-400 mt-2 border-t pt-2">Resolve conflicts to enable Start</p>
+          <p className="text-xs text-gray-400 mt-2 border-t pt-2">Run Auto-Schedule to resolve conflicts automatically</p>
         </div>
       )}
     </div>
@@ -1025,8 +1034,23 @@ export default function Jobs() {
 
           {/* Timeline */}
           <td className="px-3 py-3 w-44">
-            <div className="text-xs font-medium text-gray-700">
+            <div className="text-xs font-medium text-gray-700 flex items-center gap-1">
               {job.start_mode === 'flexible' && job.earliest_date ? job.earliest_date : job.start_date}
+              {/* Rescheduled icon - shown when scheduler moved job dates from user-requested dates.
+                  Disappears automatically when user edits the job (backend clears original dates). */}
+              {/* Rescheduled badge: show when scheduler moved ANY date (start OR end) AND job has no conflicts.
+                  Checks both start and end because a job can be pushed to later dates with same start.
+                  Hidden when job still has conflicts - scheduling is incomplete. */}
+              {(job.original_start_date || job.original_end_date) &&
+               (job.original_start_date !== job.start_date || job.original_end_date !== job.end_date) &&
+               !job.has_conflict && (
+                <span
+                  title={`Auto-rescheduled from ${job.original_start_date} → ${job.original_end_date}. Edit job to reconsider.`}
+                  className="inline-flex items-center gap-0.5 text-[10px] text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded-full font-medium"
+                >
+                  <CalendarClock size={9}/> Rescheduled
+                </span>
+              )}
             </div>
             <div className="text-xs text-gray-400">→ {job.end_date} · {job.estimated_hours_per_day}h/d</div>
             {job.delivery_date && (
@@ -2042,16 +2066,25 @@ export default function Jobs() {
                           const sel = assignMachines.includes(m.id)
                           return (
                             <div key={m.id}
-                              onClick={() => !m.available && !sel ? null : setAssignMachines(p => p.includes(m.id) ? p.filter(x=>x!==m.id) : [...p, m.id])}
-                              className={`rounded-xl border p-3 cursor-pointer transition-all ${sel?'border-green-500 bg-green-50 ring-1 ring-green-300':!m.available?'border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed':'border-gray-200 hover:border-green-300'}`}>
+                              onClick={() => setAssignMachines(p => p.includes(m.id) ? p.filter(x=>x!==m.id) : [...p, m.id])}
+                              className={`rounded-xl border p-3 cursor-pointer transition-all ${
+                                sel
+                                  ? 'border-green-500 bg-green-50 ring-1 ring-green-300'
+                                  : !m.available
+                                    ? 'border-amber-200 bg-amber-50 hover:border-amber-400'
+                                    : 'border-gray-200 hover:border-green-300'
+                              }`}
+                              title={!m.available ? `Conflict: ${m.busy_reason} - Auto-scheduler will resolve` : ''}>
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                  <Factory size={14} className={sel?'text-green-600':'text-gray-400'}/>
+                                  <Factory size={14} className={sel ? 'text-green-600' : !m.available ? 'text-amber-500' : 'text-gray-400'}/>
                                   <span className="text-sm font-semibold text-gray-800">{m.name}</span>
                                   {sel && <Check size={13} className="text-green-600"/>}
                                 </div>
                                 {!m.available
-                                  ? <span className="text-xs text-red-500 bg-red-50 px-2 py-0.5 rounded-full">{m.busy_reason}</span>
+                                  ? <span className="text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                      <AlertCircle size={10}/>{m.busy_reason} - scheduler will resolve
+                                    </span>
                                   : <span className="text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full">Available</span>
                                 }
                               </div>
@@ -2100,12 +2133,24 @@ export default function Jobs() {
                 {assignTab === 'extras' && (
                   <div className="p-5 space-y-3">
                     <p className="text-xs text-gray-500">Add helpers or support staff without specific skills.</p>
-                    {assignCheck.employees.filter(e => e.available).map(emp => (
-                      <label key={emp.id} className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border cursor-pointer text-xs transition-colors ${assignEmps.includes(emp.id)?'border-blue-400 bg-blue-50':'border-gray-200 hover:bg-gray-50'}`}>
+                    {assignCheck.employees.map(emp => (
+                      <label key={emp.id} className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border cursor-pointer text-xs transition-colors ${
+                        assignEmps.includes(emp.id)
+                          ? 'border-blue-400 bg-blue-50'
+                          : !emp.available
+                            ? 'border-amber-200 bg-amber-50 hover:border-amber-400'
+                            : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                        title={!emp.available ? `Conflict: ${emp.busy_reason} - Auto-scheduler will resolve` : ''}>
                         <input type="checkbox" checked={assignEmps.includes(emp.id)}
                           onChange={() => setAssignEmps(p => p.includes(emp.id) ? p.filter(e=>e!==emp.id) : [...p,emp.id])} className="rounded"/>
                         <span className="font-medium text-gray-800">{emp.full_name}</span>
                         {emp.department && <span className="text-gray-400">{emp.department}</span>}
+                        {!emp.available && (
+                          <span className="ml-auto text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                            <AlertCircle size={9}/> busy
+                          </span>
+                        )}
                       </label>
                     ))}
                   </div>

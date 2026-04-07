@@ -94,6 +94,9 @@ def job_to_dict(job: Job) -> dict:
         "paused_seconds": job.paused_seconds,
         "timer_log": job.timer_log or [],
         "created_at": job.created_at.isoformat() if job.created_at else None,
+        # Rescheduled date tracking - non-null means scheduler moved this job
+        "original_start_date": str(job.original_start_date) if job.original_start_date else None,
+        "original_end_date":   str(job.original_end_date)   if job.original_end_date   else None,
         "skill_requirements": [
             {"id": r.id, "skill_id": r.skill_id, "min_skill_level": r.min_skill_level, "employees_required": r.employees_required}
             for r in job.skill_requirements
@@ -188,6 +191,20 @@ def update_job(
                     min_skill_level=r["min_skill_level"], employees_required=r["employees_required"]))
         else:
             setattr(job, field, value)
+
+    # When the job is edited, restore dates to originals and clear tracking.
+    # This makes the job a true fresh scheduling candidate:
+    #   - start_date / end_date go back to user's original request
+    #   - original_start_date / original_end_date cleared so scheduler
+    #     treats this as a brand-new job on the next run
+    # Only restore if originals exist (i.e. scheduler had moved the dates)
+    if job.original_start_date is not None:
+        job.start_date = job.original_start_date
+        job.original_start_date = None
+    if job.original_end_date is not None:
+        job.end_date = job.original_end_date
+        job.original_end_date = None
+
     db.commit()
     db.refresh(job)
     return job_to_dict(job)

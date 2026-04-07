@@ -5,6 +5,7 @@
 // Month view:  4px per day (~7x zoom out, full picture)
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { fetchGanttData } from '../api/api_gantt'
 import type { GanttJob } from '../api/api_gantt'
 import { CoachMark } from '../components/onboarding'
@@ -126,9 +127,18 @@ type FilterPriority = 'all' | 'high' | 'medium' | 'low'
 
 export default function GanttPage() {
   const labels = useLabels()
-  const [jobs, setJobs]               = useState<GanttJob[]>([])
-  const [loading, setLoading]         = useState(true)
-  const [error, setError]             = useState<string | null>(null)
+  // Use TanStack Query with key 'sched-jobs' so Gantt auto-refreshes
+  // when the scheduler runs (useScheduler invalidates 'sched-jobs' after each run)
+  const {
+    data:    jobs    = [],
+    isLoading: loading,
+    error:   queryError,
+  } = useQuery<GanttJob[]>({
+    queryKey: ['sched-jobs'],
+    queryFn:  fetchGanttData,
+    staleTime: 0,
+  })
+  const error = queryError ? (queryError as Error).message ?? 'Failed to load' : null
   const [activeTab, setActiveTab]     = useState<TabType>('jobs')
   const [zoom, setZoom]               = useState<ZoomLevel>('day')
   const [filterPriority, setFilterPriority] = useState<FilterPriority>('all')
@@ -189,12 +199,7 @@ export default function GanttPage() {
   const totalDays  = daysBetween(rangeStart, rangeEnd) + 1
   const days       = Array.from({ length: totalDays }, (_, i) => addDays(rangeStart, i))
 
-  useEffect(() => {
-    fetchGanttData()
-      .then(setJobs)
-      .catch(e => setError(e?.message ?? 'Failed to load'))
-      .finally(() => setLoading(false))
-  }, [])
+  // Data fetching handled by useQuery above
 
   // Scroll to today on load or zoom change
   useEffect(() => {
@@ -297,17 +302,17 @@ export default function GanttPage() {
   }
 
   // -- Bar renderer -------------------------------------------------------------
+  // Renders a job as:
+  //   - Multiple solid bars for each contiguous group of scheduled days
+  //   - A dashed outline box spanning the gap between the first and last scheduled day
+  //     when the job has non-contiguous scheduled slots (e.g. pushed around a higher-
+  //     priority job). The dashed box says "this job will run here, just not yet".
+  //   - A single solid bar from start_date to end_date when no schedule_entries exist yet.
   const renderBar = (job: GanttJob, rowY: number) => {
     const start = parseDate(job.start_date)
     const end   = parseDate(job.end_date)
     if (!start || !end) return null
     if (end < rangeStart || start > rangeEnd) return null
-
-    const clampedStart = start < rangeStart ? rangeStart : start
-    const clampedEnd   = end   > rangeEnd   ? rangeEnd   : end
-    const x = daysBetween(rangeStart, clampedStart) * COL_W
-    const w = (daysBetween(clampedStart, clampedEnd) + 1) * COL_W - 2
-    if (w <= 0) return null
 
     // Health colour logic
     const isComplete  = ['Completed', 'Cancelled', 'Stopped'].includes(job.status ?? '')
@@ -320,25 +325,109 @@ export default function GanttPage() {
     const isSelected  = selectedJob?.id === job.id
     const color       = getHealthColor(job)
     const strokeClr   = isSelected ? '#1d4ed8' : isConflict ? '#6d28d9' : isDelayed ? '#dc2626' : isAtRisk ? '#d97706' : 'transparent'
-    const textColor = '#ffffff'
+    const textColor   = '#ffffff'
+    const barH        = ROW_H - 20
+    const barY        = rowY + 10
+
+    // If no scheduled_dates or job not yet scheduled: render single solid bar
+    const scheduledDates = job.scheduled_dates ?? []
+    if (scheduledDates.length === 0) {
+      const clampedStart = start < rangeStart ? rangeStart : start
+      const clampedEnd   = end   > rangeEnd   ? rangeEnd   : end
+      const x = daysBetween(rangeStart, clampedStart) * COL_W
+      const w = (daysBetween(clampedStart, clampedEnd) + 1) * COL_W - 2
+      if (w <= 0) return null
+      return (
+        <g key={job.id} onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)} style={{ cursor: 'pointer' }}>
+          <rect x={x+1} y={barY} width={w} height={barH} rx={5}
+            fill={color} stroke={strokeClr}
+            strokeWidth={isSelected ? 2 : isConflict || isDelayed || isAtRisk ? 1.5 : 0} opacity={0.95} />
+          {w > 16 && <StatusDotSvg icon={job.status_icon ?? 'ready'} x={x} y={rowY} />}
+          {w > 50 && (
+            <text x={x+20} y={rowY + ROW_H/2 + 5} fill={textColor} fontSize={11} fontWeight={600}>
+              {job.name.length > Math.floor((w-22)/7) ? job.name.slice(0, Math.floor((w-22)/7)) + '…' : job.name}
+            </text>
+          )}
+          {w > 90 && <TimerBadges job={job} x={x+1} y={rowY} barW={w} />}
+        </g>
+      )
+    }
+
+    // Build contiguous groups of scheduled dates
+    // Each group is a run of consecutive days that all have schedule entries
+    const sortedDates = [...scheduledDates].sort()
+    const groups: Array<{start: Date, end: Date}> = []
+    let groupStart = new Date(sortedDates[0])
+    let groupEnd   = new Date(sortedDates[0])
+    for (let i = 1; i < sortedDates.length; i++) {
+      const prev = new Date(sortedDates[i - 1])
+      const curr = new Date(sortedDates[i])
+      // Check if consecutive (next day)
+      const diff = Math.round((curr.getTime() - prev.getTime()) / 86400000)
+      if (diff <= 1) {
+        groupEnd = curr  // extend current group
+      } else {
+        groups.push({ start: groupStart, end: groupEnd })
+        groupStart = curr
+        groupEnd   = curr
+      }
+    }
+    groups.push({ start: groupStart, end: groupEnd })
+
+    // Overall span: first scheduled day to last scheduled day
+    const firstDate = new Date(sortedDates[0])
+    const lastDate  = new Date(sortedDates[sortedDates.length - 1])
+
+    // Only draw dashed gap box if there are gaps (more than one group)
+    const hasGaps = groups.length > 1
+
+    // Total width for label placement (spans first to last scheduled day)
+    const spanX = daysBetween(rangeStart, firstDate < rangeStart ? rangeStart : firstDate) * COL_W
+    const spanW = (daysBetween(firstDate < rangeStart ? rangeStart : firstDate,
+                               lastDate  > rangeEnd   ? rangeEnd   : lastDate) + 1) * COL_W - 2
 
     return (
-      <g key={job.id} onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)}
-        style={{ cursor: 'pointer' }}>
-        <rect x={x+1} y={rowY+10} width={w} height={ROW_H-20} rx={5}
-          fill={color}
-          stroke={strokeClr}
-          strokeWidth={isSelected ? 2 : isConflict || isDelayed || isAtRisk ? 1.5 : 0} opacity={0.95}
-        />
-        {w > 16 && <StatusDotSvg icon={job.status_icon ?? 'ready'} x={x} y={rowY} />}
-        {w > 50 && (
-          <text x={x+20} y={rowY + ROW_H/2 + 5} fill={textColor} fontSize={11} fontWeight={600}>
-            {job.name.length > Math.floor((w-22)/7)
-              ? job.name.slice(0, Math.floor((w-22)/7)) + '…'
-              : job.name}
+      <g key={job.id} onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)} style={{ cursor: 'pointer' }}>
+
+        {/* Dashed gap box: spans full range when job has non-contiguous slots */}
+        {hasGaps && spanW > 0 && (
+          <rect
+            x={spanX + 1} y={barY} width={spanW} height={barH} rx={5}
+            fill="none"
+            stroke={color}
+            strokeWidth={1.5}
+            strokeDasharray="5,3"
+            opacity={0.5}
+          />
+        )}
+
+        {/* Solid bars for each contiguous group of scheduled days */}
+        {groups.map((grp, idx) => {
+          const gStart  = grp.start < rangeStart ? rangeStart : grp.start
+          const gEnd    = grp.end   > rangeEnd   ? rangeEnd   : grp.end
+          if (gEnd < rangeStart || gStart > rangeEnd) return null
+          const gx = daysBetween(rangeStart, gStart) * COL_W
+          const gw = (daysBetween(gStart, gEnd) + 1) * COL_W - 2
+          if (gw <= 0) return null
+          return (
+            <rect key={idx}
+              x={gx + 1} y={barY} width={gw} height={barH} rx={idx === 0 ? 5 : 3}
+              fill={color}
+              stroke={isSelected ? '#1d4ed8' : 'transparent'}
+              strokeWidth={isSelected ? 2 : 0}
+              opacity={0.95}
+            />
+          )
+        })}
+
+        {/* Status dot and label on the first solid segment */}
+        {spanW > 16 && <StatusDotSvg icon={job.status_icon ?? 'ready'} x={spanX} y={rowY} />}
+        {spanW > 50 && (
+          <text x={spanX + 20} y={rowY + ROW_H/2 + 5} fill={textColor} fontSize={11} fontWeight={600}>
+            {job.name.length > Math.floor((spanW-22)/7) ? job.name.slice(0, Math.floor((spanW-22)/7)) + '…' : job.name}
           </text>
         )}
-        {w > 90 && <TimerBadges job={job} x={x+1} y={rowY} barW={w} />}
+        {spanW > 90 && <TimerBadges job={job} x={spanX + 1} y={rowY} barW={spanW} />}
       </g>
     )
   }
