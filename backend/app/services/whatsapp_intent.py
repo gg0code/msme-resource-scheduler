@@ -1,3 +1,39 @@
+# whatsapp_intent.py - Version 1.1
+# Branch: v5-whatsapp
+#
+# FILE PURPOSE
+# Two responsibilities:
+#   1. Role gate (v5.12): checks phone_role before any action detection.
+#      Blocked roles receive a localised reply and never reach the AI layer.
+#   2. Write intent detection: scans user message for write actions
+#      (mark absent, maintenance, job status) that need confirmation.
+#
+# WHO CALLS THIS FILE
+#   app/routers/whatsapp.py - calls detect_write_intent() on every inbound
+#                             message that has passed consent check.
+#
+# WHAT THIS FILE CALLS
+#   app/services/whatsapp_actions.py    - ActionType enum
+#   app/services/whatsapp_responses.py  - get_response() for role_blocked reply
+#   app/models/employee.py              - Employee (name lookup for absent intent)
+#
+# KEY DESIGN DECISIONS (v5.12 additions)
+#   - Role gate runs at the TOP of detect_write_intent(), before any keyword
+#     matching. Blocked actions never reach AI. Never move this check lower.
+#   - phone_role and language are new required parameters added in v5.12.
+#     Callers must pass identity.phone_role and the detected language.
+#   - Return signature extended to 4-tuple:
+#       (blocked: bool, block_reply: str | None, action_type, action_params)
+#     Callers MUST check blocked first before reading action_type/action_params.
+#   - Owner always passes role gate unconditionally.
+#   - Manager blocked from: financial queries, job create, job delete.
+#     Allowed: attendance marking, machine status, schedule viewing.
+#   - Operator blocked from all write/financial keywords. Own-assignment
+#     queries with no blocked keywords pass through to AI read-only.
+#   - Unknown phone_role defaults to 'operator' (most restrictive) safely.
+#   - All keyword sets are lowercase frozensets. Input is lowercased before
+#     matching. Do not rely on callers to normalise case.
+
 import logging
 import re
 from datetime import date, timedelta
@@ -5,11 +41,63 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from app.services.whatsapp_actions import ActionType
+from app.services.whatsapp_responses import Language, get_response
 
 # ---------------------------------------------------------------------------
 # Module logger
 # ---------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# ROLE CONSTANTS (v5.12)
+# Match PhoneTenantMap.phone_role column values exactly.
+# ---------------------------------------------------------------------------
+ROLE_OWNER:    str = "owner"
+ROLE_MANAGER:  str = "manager"
+ROLE_OPERATOR: str = "operator"
+
+# ---------------------------------------------------------------------------
+# ROLE GATE KEYWORD SETS (v5.12)
+# Used to classify message intent for role-based blocking.
+# All lowercase - matched against lowercased user message tokens.
+#
+# FINANCIAL_KEYWORDS   - queries that expose cost, revenue, salary, or wage data.
+#                        Manager and operator are both blocked from these.
+# MANAGER_CREATE_KEYWORDS - intent to create a new job or order.
+#                           Manager blocked. Operator blocked via OPERATOR set.
+# MANAGER_DELETE_KEYWORDS - intent to delete or cancel a job.
+#                           Manager blocked. Operator blocked via OPERATOR set.
+# OPERATOR_BLOCKED_KEYWORDS - union of all write/financial keywords plus
+#                             any query that spans beyond own assignments.
+#                             Operator sees only their own work.
+# ---------------------------------------------------------------------------
+FINANCIAL_KEYWORDS: frozenset[str] = frozenset([
+    "cost", "price", "salary", "wage", "wages", "rate", "payment",
+    "invoice", "revenue", "profit", "expense", "expenses", "paisa",
+    "rupee", "rupees", "paise", "kitna", "lagat", "daam",
+])
+
+MANAGER_CREATE_KEYWORDS: frozenset[str] = frozenset([
+    "create", "add", "new", "banao", "daalo", "shuru",
+    "naya", "nayi",
+])
+
+MANAGER_DELETE_KEYWORDS: frozenset[str] = frozenset([
+    "delete", "remove", "cancel", "hatao", "band", "khatam",
+    "mitao", "rok", "roko",
+])
+
+# Operator blocked from all write/financial actions and non-self queries
+OPERATOR_BLOCKED_KEYWORDS: frozenset[str] = (
+    FINANCIAL_KEYWORDS
+    | MANAGER_CREATE_KEYWORDS
+    | MANAGER_DELETE_KEYWORDS
+    | frozenset([
+        "schedule", "assign", "reassign", "all", "sabka", "sab",
+        "team", "machine", "machines",
+    ])
+)
 
 
 # ---------------------------------------------------------------------------
@@ -180,40 +268,96 @@ def detect_write_intent(
     user_message: str,
     tenant_id: int,
     db: Session,
-) -> tuple[ActionType | None, dict | None]:
+    phone_role: str = ROLE_OWNER,
+    language: Language = "english",
+) -> tuple[bool, str | None, ActionType | None, dict | None]:
     """
-    Scan the USER message for write intents that need confirmation.
+    Role gate + write intent detector. Called on every inbound message
+    that has passed consent check, before any AI interaction.
 
-    Called BEFORE the AI response is sent — we check the user's words
-    directly because intent is clearest in what they said, not what
-    the AI summarised.
+    v5.12: Added phone_role and language parameters. Return signature
+    extended to 4-tuple. Role gate runs first — blocked actions never
+    reach AI. Callers MUST check blocked (index 0) before reading
+    action_type (index 2) and action_params (index 3).
 
-    Currently detects:
-      - MARK_ABSENT:      "Rajan aaj nahi aaya", "mark Sunita absent"
-      - MARK_MAINTENANCE: "Heidelberg kharab ho gayi", "machine maintenance pe"
-      - UPDATE_JOB_STATUS: "Wedding Card job complete ho gaya"
-
-    Adding a new intent type:
-      1. Add keywords to the relevant keyword list above
-      2. Add a detection block in this function following the same pattern
-      3. Add the action to ActionType enum in whatsapp_actions.py
-      4. Add the executor in whatsapp_actions.py _execute_* functions
-      5. Add the confirmation prompt in build_confirmation_prompt()
-
+    Called by:   app/routers/whatsapp.py — on every message after consent.
+    Calls:       get_response() for blocked reply string.
+                 _extract_employee_name(), _find_employee_id(),
+                 _resolve_date() for action param extraction.
     Args:
         user_message: The raw user message text (original case).
         tenant_id:    For DB lookups scoped to this tenant.
         db:           Sync SQLAlchemy session for employee/job lookups.
-
+        phone_role:   Role from PhoneTenantMap.phone_role.
+                      Valid: 'owner', 'manager', 'operator'.
+                      Defaults to 'owner' for backwards compatibility
+                      with any callers that have not yet been updated.
+        language:     Detected language for localising the blocked reply.
+                      Must match detect_language() output values:
+                      'english', 'hinglish', 'hindi'.
     Returns:
-        (ActionType, params_dict) if a write intent is detected.
-        (None, None) if this is a read/query message — no action needed.
-
+        4-tuple: (blocked, block_reply, action_type, action_params)
+        - blocked=True, block_reply=str:  role blocked — send reply, stop.
+        - blocked=False, block_reply=None, action_type=ActionType, params=dict:
+                                          write action detected — confirm.
+        - blocked=False, block_reply=None, action_type=None, params=None:
+                                          read/query — pass to AI.
     Side effects:
         Reads from employees/machines/jobs tables for ID lookups.
-        No writes — this is detection only.
+        No writes.
     """
     message_lower = user_message.lower()
+    tokens: frozenset[str] = frozenset(message_lower.split())
+
+    # ------------------------------------------------------------------
+    # ROLE GATE (v5.12) — runs before ALL other checks.
+    # Blocked actions never reach AI. Never move this below intent checks.
+    # ------------------------------------------------------------------
+    if phone_role == ROLE_OPERATOR:
+        if tokens & OPERATOR_BLOCKED_KEYWORDS:
+            block_reply = get_response("role_blocked", language)
+            logger.info(
+                "Role gate blocked operator: tenant=%s tokens_matched=%s",
+                tenant_id,
+                tokens & OPERATOR_BLOCKED_KEYWORDS,
+            )
+            return True, block_reply, None, None
+
+    elif phone_role == ROLE_MANAGER:
+        if tokens & FINANCIAL_KEYWORDS:
+            block_reply = get_response("role_blocked", language)
+            logger.info(
+                "Role gate blocked manager (financial): tenant=%s", tenant_id
+            )
+            return True, block_reply, None, None
+        if tokens & MANAGER_CREATE_KEYWORDS:
+            block_reply = get_response("role_blocked", language)
+            logger.info(
+                "Role gate blocked manager (create): tenant=%s", tenant_id
+            )
+            return True, block_reply, None, None
+        if tokens & MANAGER_DELETE_KEYWORDS:
+            block_reply = get_response("role_blocked", language)
+            logger.info(
+                "Role gate blocked manager (delete): tenant=%s", tenant_id
+            )
+            return True, block_reply, None, None
+
+    elif phone_role != ROLE_OWNER:
+        # Unknown role — treat as operator (most restrictive) for safety
+        if tokens & OPERATOR_BLOCKED_KEYWORDS:
+            block_reply = get_response("role_blocked", language)
+            logger.warning(
+                "Role gate blocked unknown role '%s' as operator: tenant=%s",
+                phone_role,
+                tenant_id,
+            )
+            return True, block_reply, None, None
+
+    # Owner always passes. Manager/operator passed the gate above.
+    # ------------------------------------------------------------------
+    # END ROLE GATE — existing intent detection continues below unchanged
+    # ------------------------------------------------------------------
 
     # -- 1. Check for ABSENT intent ------------------------------------------
     absent_detected = any(keyword in message_lower for keyword in ABSENT_KEYWORDS)
@@ -232,26 +376,26 @@ def detect_write_intent(
             target_date = _resolve_date(user_message)
 
             if employee_id:
-                # We have enough to propose a confirmed action
                 logger.info(
-                    f"Absent intent detected: employee='{full_name}' "
-                    f"(id={employee_id}), date={target_date}, tenant={tenant_id}"
+                    "Absent intent detected: employee='%s' (id=%s), date=%s, tenant=%s",
+                    full_name,
+                    employee_id,
+                    target_date,
+                    tenant_id,
                 )
-                return ActionType.MARK_ABSENT, {
+                return False, None, ActionType.MARK_ABSENT, {
                     "employee_id":   employee_id,
                     "employee_name": full_name,
                     "date":          target_date,
                 }
             else:
-                # Name found but no DB match - still flag intent but without ID.
-                # build_confirmation_prompt will show name and ask owner to confirm.
-                # execute_action will fail gracefully if employee_id is missing.
                 logger.info(
-                    f"Absent intent detected but employee '{employee_name_raw}' "
-                    f"not found in DB for tenant={tenant_id}. "
-                    f"Will ask for confirmation without ID."
+                    "Absent intent detected but employee '%s' not found in DB "
+                    "for tenant=%s. Will ask for confirmation without ID.",
+                    employee_name_raw,
+                    tenant_id,
                 )
-                return ActionType.MARK_ABSENT, {
+                return False, None, ActionType.MARK_ABSENT, {
                     "employee_id":   None,
                     "employee_name": employee_name_raw,
                     "date":          target_date,
@@ -263,15 +407,13 @@ def detect_write_intent(
     )
 
     if maintenance_detected:
-        # For now, return intent without machine ID - confirmation prompt
-        # will ask owner to confirm which machine before we look up the ID.
-        # This is safer than guessing which machine they mean.
         logger.info(
-            f"Maintenance intent detected in message: '{user_message[:50]}'"
+            "Maintenance intent detected in message: '%s'",
+            user_message[:50],
         )
-        return ActionType.MARK_MAINTENANCE, {
+        return False, None, ActionType.MARK_MAINTENANCE, {
             "machine_id":   None,
-            "machine_name": "the machine",  # Will be clarified in confirmation
+            "machine_name": "the machine",
         }
 
     # -- 3. Check for JOB STATUS UPDATE intent -------------------------------
@@ -281,13 +423,14 @@ def detect_write_intent(
 
     if job_status_detected:
         logger.info(
-            f"Job status update intent detected in message: '{user_message[:50]}'"
+            "Job status update intent detected in message: '%s'",
+            user_message[:50],
         )
-        return ActionType.UPDATE_JOB_STATUS, {
+        return False, None, ActionType.UPDATE_JOB_STATUS, {
             "job_id":     None,
             "new_status": "completed",
-            "job_name":   "the job",  # Will be clarified in confirmation
+            "job_name":   "the job",
         }
 
     # No write intent detected - normal read/query message
-    return None, None
+    return False, None, None, None

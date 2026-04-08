@@ -1,3 +1,31 @@
+# ai_service.py - Version 1.1
+# Branch: both
+#
+# FILE PURPOSE
+# Groq LLM client, all tool definitions, tool executors, and the main
+# run_ai_chat() function used by both WhatsApp and web UI copilot channels.
+#
+# WHO CALLS THIS FILE
+#   app/routers/ai_chat.py          - run_ai_chat() for web UI copilot
+#   app/services/whatsapp_bridge.py - run_ai_chat() via GroqDirectBridge
+#
+# WHAT THIS FILE CALLS
+#   groq (Groq SDK)        - ChatCompletion API, Llama 3.3 70B
+#   app/config.py          - settings.GROQ_API_KEY
+#   app/models/job.py      - Job, JobAssignment (tool executors)
+#   app/models/employee.py - Employee (tool executors)
+#   app/models/machine.py  - Machine (tool executors)
+#
+# KEY DESIGN DECISIONS
+#   - AI NEVER computes logic. Structured JSON is passed; AI explains only.
+#   - LANGUAGE_INSTRUCTION (v5.12) appended to every system prompt so the AI
+#     mirrors the user's language (Hindi/Hinglish/English) automatically.
+#     This replaces the old "You understand Hinglish — respond in English"
+#     line which instructed wrong behaviour (respond in English always).
+#   - _build_system_prompt() is the single assembly point for all system
+#     prompt components: base + industry terms + language instruction.
+#   - MODEL constant is the single source of truth for the Groq model name.
+
 import json
 import os
 from datetime import date, datetime, timedelta
@@ -1176,9 +1204,33 @@ TOOL ROUTING — always pick the most specific tool:
 - "delayed jobs", "overdue", "at risk"                             → get_delayed_jobs
 - "who is free today/tomorrow", "who is available"                 → get_employee_availability
 - "free / busy machines today"                                     → get_machine_availability
-- "shop floor summary", "today summary"                            → get_shop_floor_summary
+- "shop floor summary", "today summary"                            → get_shop_floor_summary"""
 
-You understand Hinglish — if the user writes in Hindi or Hinglish, respond in English but be warm and friendly."""
+
+# ---------------------------------------------------------------------------
+# LANGUAGE_INSTRUCTION (v5.12)
+# Appended to every system prompt by _build_system_prompt().
+# Instructs the AI to detect and mirror the user's language automatically.
+# Covers both WhatsApp channel and web UI copilot.
+#
+# Rules for this string:
+#   - Written in English so Groq parses it reliably regardless of user lang.
+#   - Language values must match detect_language() output in whatsapp_formatter.py:
+#     'hindi', 'hinglish', 'english'.
+#   - Never ask AI to translate — only to mirror / respond in kind.
+#   - WhatsApp bridge also injects a [WHATSAPP CONTEXT] block for brevity/format.
+#     This instruction handles language mirroring for BOTH channels.
+# ---------------------------------------------------------------------------
+LANGUAGE_INSTRUCTION: str = (
+    "\n\nLANGUAGE RULE (mandatory — apply to every response without exception):\n"
+    "Detect the language of the user's latest message and respond in that same language.\n"
+    "- If the user writes in Hindi (Devanagari script): respond entirely in Hindi.\n"
+    "- If the user writes in Hinglish (Hindi words in Latin script, e.g. 'kya', "
+    "'hai', 'bhai', 'aaj', 'nahi'): respond in Hinglish using Latin script.\n"
+    "- If the user writes in English: respond in English.\n"
+    "Never mix scripts in a single response. "
+    "Never ask the user to set or change their language preference."
+)
 
 
 # Industry terminology defaults (printing)
@@ -1204,6 +1256,20 @@ _INDUSTRY_TERMS: dict[str, dict] = {
 
 
 def _build_system_prompt(industry_type: str = "printing") -> str:
+    """
+    Assemble the full system prompt for a Groq API call.
+
+    Called by:   run_ai_chat() in this file.
+    Calls:       No external calls - pure string assembly.
+    Args:
+        industry_type: Tenant industry slug. Valid values: 'printing',
+                       'manufacturing', 'fabrication', 'field_service',
+                       'chemical'. Falls back to _INDUSTRY_DEFAULTS if unknown.
+    Returns:
+        Complete system prompt string: base + industry block + language instruction.
+    Side effects:
+        None - pure function.
+    """
     today = date.today()
     terms = _INDUSTRY_TERMS.get(industry_type, _INDUSTRY_DEFAULTS)
     base = _SYSTEM_PROMPT_BASE.format(
@@ -1211,7 +1277,7 @@ def _build_system_prompt(industry_type: str = "printing") -> str:
         tomorrow=str(today + timedelta(days=1)),
         yesterday=str(today - timedelta(days=1)),
     )
-    # Inject industry terminology as an addendum to the system prompt
+    # Inject industry terminology so AI uses correct vertical-specific terms
     industry_block = (
         f"\n\nINDUSTRY CONTEXT: This tenant uses {terms['product']}. "
         f"Use these terms in ALL responses:\n"
@@ -1222,7 +1288,9 @@ def _build_system_prompt(industry_type: str = "printing") -> str:
         f"\n- Refer to the product as '{terms['product']}'"
         f"\nAlways use these industry-specific terms — never revert to generic ones."
     )
-    return base + industry_block
+    # v5.12: Append language mirroring instruction so AI responds in the
+    # user's detected language (Hindi / Hinglish / English) automatically.
+    return base + industry_block + LANGUAGE_INSTRUCTION
 
 
 # -- Main chat function --------------------------------------------------------

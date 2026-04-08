@@ -20,7 +20,9 @@ PURPOSE: FastAPI router — the entry point for all WhatsApp messages.
            3.  Resolve phone to tenant identity
            4.  Check for pending confirmation (write action state machine)
            5.  Handle reset commands
-           6.  Detect write intent in user message
+           5b. Detect language (v5.12: moved before intent to localise blocked replies)
+           6.  Detect write intent — with role gate (v5.12)
+           6a. If role blocked — send localised blocked reply, return immediately
            6b. If intent found — store pending action, return confirmation prompt
            6c. If no intent — add user message to session, continue to AI
            7.  Get conversation history for AI
@@ -30,12 +32,14 @@ PURPOSE: FastAPI router — the entry point for all WhatsApp messages.
            11. Log conversation if consent given
 
 BRANCH:  v5-whatsapp
-VERSION: v5.2
+VERSION: v5.12
 CREATED: 2026-03
-UPDATED: 2026-03-30 — v5.2: Voice note support via Groq Whisper.
-                      Audio messages are transcribed before entering pipeline.
-                      Mock mode returns placeholder text.
-                      Added /simulate-voice endpoint for dev testing.
+UPDATED: 2026-04-08 — v5.12: Role limiting + language support.
+                      detect_language() moved to step 5b (before intent).
+                      detect_write_intent() now receives phone_role + language.
+                      Role gate blocks manager/operator actions before AI.
+                      Blocked reply localised to detected language.
+         2026-03-30 — v5.2: Voice note support via Groq Whisper.
 
 DEPENDENCIES:
   app/services/whatsapp_identity.py  — resolve_identity(), record_consent()
@@ -43,7 +47,7 @@ DEPENDENCIES:
   app/services/whatsapp_bridge.py    — active_bridge.process_message()
   app/services/whatsapp_formatter.py — format_for_whatsapp(), detect_language()
   app/services/whatsapp_actions.py   — confirmation state machine
-  app/services/whatsapp_intent.py    — detect_write_intent()
+  app/services/whatsapp_intent.py    — detect_write_intent() (v5.12: 4-tuple return)
   app/services/whatsapp_whisper.py   — transcribe_voice_note() (v5.2)
   app/models/whatsapp.py             — WhatsAppConversation, PhoneTenantMap
   app/database.py                    — get_db() dependency, SessionLocal
@@ -54,6 +58,7 @@ NOTES:
   - Always return 200 OK to Meta even on errors. Meta retries on non-200.
   - Signature verification must happen before any business logic.
   - /simulate and /simulate-voice only available in WHATSAPP_MOCK_MODE.
+  - v5.12: detect_write_intent() now returns a 4-tuple. Always unpack all 4 values.
 """
 
 import hashlib
@@ -722,19 +727,34 @@ async def _process_inbound_message(
         await clear_session(phone_number=phone_number)
         return "Session reset ho gaya. Fresh start!\nPoochein: 'aaj ka schedule kya hai'"
 
-    # Step 5: Detect language
+    # Step 5b: Detect language (v5.12: moved before intent so blocked reply
+    # is localised to the user's language)
     language = detect_language(message_text)
 
-    # Step 6: Detect write intent
+    # Step 6: Detect write intent — with role gate (v5.12)
+    # Returns 4-tuple: (blocked, block_reply, action_type, action_params)
+    # blocked=True means role gate fired — send reply and return immediately.
+    # Never pass blocked messages to AI.
     intent_db = SessionLocal()
     try:
-        action_type, action_params = detect_write_intent(
+        blocked, block_reply, action_type, action_params = detect_write_intent(
             user_message=message_text,
             tenant_id=identity.tenant_id,
             db=intent_db,
+            phone_role=identity.phone_role or "owner",
+            language=language,
         )
     finally:
         intent_db.close()
+
+    # Step 6a: Role blocked — send localised reply, stop processing
+    if blocked:
+        logger.info(
+            "Role gate blocked: phone=****%s role=%s",
+            phone_number[-4:],
+            identity.phone_role,
+        )
+        return block_reply
 
     if action_type is not None:
         await store_pending_action(

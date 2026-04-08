@@ -10,7 +10,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import apiClient from '../api/client'
-import { ASSIGNMENTS, EMPLOYEES, JOBS, SKILLS, import { ASSIGNMENTS } from '../api/api_endpoints'
+import { ASSIGNMENTS, EMPLOYEES, JOBS, SKILLS } from '../api/api_endpoints'
+import {
   CheckCircle2, XCircle, AlertTriangle, Loader2, ChevronRight,
   Users, CalendarDays, Gauge, Search
 } from 'lucide-react'
