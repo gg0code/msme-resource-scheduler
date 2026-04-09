@@ -87,6 +87,7 @@ import Machines from './pages/Machines'
 import Jobs from './pages/Jobs'
 import GanttPage from './pages/GanttPage'
 import LinkWhatsApp from './pages/LinkWhatsApp'
+import OnboardingSetup from './pages/OnboardingSetup'
 
 // Scheduling engine pages - removed in v3.9.5 (merged into /jobs)
 
@@ -109,6 +110,11 @@ export default function App() {
         {/* Print pages - auth required, no sidebar */}
         <Route element={<ProtectedRoute />}>
           <Route path="/jobs/:jobId/print" element={<PrintJobCard />} />
+        </Route>
+
+        {/* Onboarding - auth required, no sidebar (full screen setup flow) */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/onboarding" element={<OnboardingSetup />} />
         </Route>
 
         {/* Protected routes with layout */}
