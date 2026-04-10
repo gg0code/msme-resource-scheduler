@@ -1,0 +1,38 @@
+# cycle_times.txt — Manufacturing Industry
+# ZetaOps RAG Template: manufacturing / cycle_times
+# Purpose: Standard cycle time benchmarks for common manufacturing ops.
+# Updated: v6.1
+
+STANDARD CYCLE TIMES (minutes per piece unless noted)
+
+--- MACHINING ---
+Simple turned part (30mm dia, 100mm long):     8-12 min
+Complex turned part (with boring/grooving):    20-35 min
+Simple milled part (2 faces):                  15-25 min
+Complex milled part (5 faces, pockets):        45-90 min
+Drill + tap M8 hole:                           2-3 min per hole
+
+--- GRINDING ---
+Surface grind (100x50mm face, 0.1mm stock):    5-8 min
+Cylindrical grind (30mm dia, 100mm length):    8-15 min
+
+--- WELDING ---
+Simple tack weld (per joint):                  2-3 min
+MIG butt weld (per 100mm, 5mm plate):          4-6 min
+TIG weld (per 100mm, 2mm SS):                  8-12 min
+
+--- ASSEMBLY ---
+Bolt joint (M8, per fastener):                 1-2 min
+Press fit assembly (per component):            3-5 min
+Bearing installation (per bearing):            5-8 min
+
+--- FINISHING ---
+Deburring (per piece, simple):                 3-5 min
+Shot blasting (per kg of parts):               2-4 min
+Powder coat (per sqm of surface):              15-20 min (including cure)
+
+--- SCHEDULING BENCHMARKS ---
+- Add 20% buffer to all cycle times for new operators
+- Add 10% for first-off inspection on new jobs
+- Batch changeover between different part families: 30-60 min
+- Tooling prep before job start: 15-30 min

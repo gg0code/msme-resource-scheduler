@@ -1,0 +1,64 @@
+# machine_specs.txt — Printing Industry
+# ZetaOps RAG Template: printing / machine_specs
+# Purpose: Standard machine capabilities and throughput for common
+#          printing equipment found in Indian MSME print shops.
+#          Used by AI to answer capacity and scheduling questions.
+# Source:  Indian printing industry averages (2024-2026).
+#          Tenant should override with their own machine specs.
+# Updated: v6.1
+
+COMMON PRINTING MACHINES — CAPABILITIES AND THROUGHPUT
+
+--- OFFSET PRESS ---
+Single-colour offset (e.g. Heidelberg GTO, Tata):
+  - Speed: 5,000-8,000 impressions/hour
+  - Max sheet size: typically 52x36cm or 72x52cm
+  - Setup time per job: 30-45 minutes (plate change + makeready)
+  - Typical job run: 1000-50,000 copies
+
+Four-colour offset (e.g. Heidelberg SM52, KBA):
+  - Speed: 8,000-15,000 sheets/hour
+  - Setup time: 60-90 minutes (4 plates + colour registration)
+  - Typical job run: 5,000+ copies (below this, digital is cheaper)
+
+--- DIGITAL PRESS ---
+Entry-level digital (e.g. Xerox B7030, Konica C3070):
+  - Speed: 30-70 A4 pages/minute
+  - Setup time: 5-10 minutes
+  - Economic for short runs: 1-500 copies
+  - Max resolution: 600-1200 DPI
+
+High-volume digital (e.g. Xerox Iridesse, Konica AccurioPress):
+  - Speed: 80-130 A4 pages/minute
+  - Setup time: 10-15 minutes
+  - Handles variable data printing
+
+--- LARGE FORMAT / FLEX PRINTING ---
+Solvent flex printer (e.g. Flora, Wit-Color):
+  - Speed: 15-25 sqm/hour (standard quality)
+  - Speed: 8-12 sqm/hour (high quality)
+  - Media width: 1.6m to 3.2m
+  - Setup time: 15-20 minutes per job
+
+--- DIE CUTTING ---
+Manual die cutting:
+  - Speed: 800-1200 sheets/hour
+  - Setup time: 30-45 minutes (die mounting)
+
+Auto die cutting (e.g. Bobst, Heidelberg):
+  - Speed: 3,000-7,000 sheets/hour
+  - Setup time: 45-60 minutes
+
+--- LAMINATION ---
+Thermal lamination (pouch):
+  - Speed: 5-8 sqm/minute
+  - Types: gloss, matte, soft touch
+
+Roll lamination:
+  - Speed: 15-25 sqm/minute
+  - Setup time: 10-15 minutes per roll change
+
+--- MAINTENANCE INTERVALS ---
+Offset press: full service every 500,000 impressions or 6 months
+Digital press: drum replacement every 200,000 pages, developer every 100,000
+Flex printer: head cleaning daily, head replacement every 12-18 months

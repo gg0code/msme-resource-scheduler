@@ -1,0 +1,59 @@
+# vehicle_specs.txt — Field Service Industry
+# ZetaOps RAG Template: field_service / vehicle_specs
+# Purpose: Common service vehicle capabilities and cost norms for
+#          Indian MSME field service businesses.
+# Updated: v6.1
+
+FIELD SERVICE VEHICLES — CAPABILITIES AND COST NORMS
+
+--- LIGHT COMMERCIAL VEHICLES (LCV) ---
+Tata Ace / Mahindra Jeeto (mini truck):
+  - Payload: 0.75-1.0 tonnes
+  - Uses: parts delivery, small equipment transport
+  - Running cost: Rs 8-12/km (fuel + maintenance)
+  - Driver cost: Rs 15,000-20,000/month
+
+Tata 407 / Eicher (medium truck):
+  - Payload: 2-4 tonnes
+  - Uses: heavy equipment, bulk parts
+  - Running cost: Rs 15-22/km
+  - Driver cost: Rs 18,000-25,000/month
+
+--- TWO-WHEELERS (technician dispatch) ---
+Motorcycle (100-125cc, e.g. Hero Splendor):
+  - Fuel: 60-70 km/litre
+  - Running cost: Rs 1.5-2.5/km
+  - Uses: single technician + small tool kit
+
+Scooter (e.g. Honda Activa):
+  - Fuel: 45-55 km/litre
+  - Storage: underseat compartment for small parts
+  - Running cost: Rs 2-3/km
+
+--- TRAVEL TIME BENCHMARKS (urban India) ---
+Within city (0-15 km):          30-60 minutes
+City outskirts (15-30 km):      45-90 minutes
+Highway (30-80 km):             45-90 minutes
+Rural roads (add 50% to highway time)
+
+--- VEHICLE MAINTENANCE INTERVALS ---
+Motorcycle/scooter:
+  - Engine oil: every 3,000 km
+  - Full service: every 6,000 km or 6 months
+  - Tyre: every 25,000-35,000 km
+
+LCV (Tata Ace class):
+  - Engine oil: every 5,000 km
+  - Full service: every 10,000 km or 6 months
+  - Tyre: every 40,000-60,000 km
+
+--- FUEL COST REFERENCE (INR, 2025) ---
+Petrol: Rs 95-105/litre (varies by city)
+Diesel: Rs 88-98/litre
+CNG:    Rs 72-85/kg (where available)
+
+--- VEHICLE ALLOCATION RULES ---
+Heavy equipment service call:    LCV minimum
+Multi-technician team (3+):      LCV or larger
+Single technician, light tools:  Two-wheeler
+Emergency/priority call:         Nearest available vehicle regardless of type

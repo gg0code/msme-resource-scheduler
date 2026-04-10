@@ -1,0 +1,68 @@
+# parts_catalog.txt — Field Service Industry
+# ZetaOps RAG Template: field_service / parts_catalog
+# Purpose: Common spare parts categories and stocking norms for
+#          Indian MSME field service businesses.
+#          Tenant MUST replace with their actual parts list.
+# Updated: v6.1
+
+SPARE PARTS MANAGEMENT — FIELD SERVICE NORMS
+
+--- PARTS CLASSIFICATION ---
+Class A (critical, high usage — always stock):
+  - Consumables: filters, belts, seals, fuses, contactors
+  - Rule: minimum 2-week stock at service depot
+  - Review: weekly reorder check
+
+Class B (moderate usage — stock 2-4 weeks):
+  - Common wear parts: bearings, motors, pumps
+  - Rule: 2-4 weeks stock
+  - Review: monthly reorder check
+
+Class C (low usage, high value — order on demand):
+  - Major components: compressors, control panels, PCBs
+  - Rule: 0-1 units in stock, supplier lead time tracked
+  - Review: quarterly
+
+--- COMMON CONSUMABLE PARTS (general reference) ---
+Note: Replace this list with your actual product range.
+
+Electrical consumables:
+  - MCBs (miniature circuit breakers): keep common ratings (6A, 10A, 16A, 32A)
+  - Contactors: keep top 3 rated sizes by installed base
+  - Fuses: 10-pack minimum for each type used
+  - Cable terminals: 100-pack per type
+
+Mechanical consumables:
+  - V-belts: keep top 5 cross-sections by installed base
+  - Oil seals: keep top 10 sizes by installed base
+  - Bearings: keep top 5 SKF/FAG sizes by installed base
+  - O-rings: assortment kit minimum
+
+Lubrication:
+  - General purpose grease (lithium, NLGI 2): 5kg tin
+  - Hydraulic oil (ISO 46): 20 litre drum
+  - Gear oil (EP 90): 5 litre pack
+
+--- PARTS INVENTORY RULES ---
+Minimum stock value at depot: Rs 50,000-1,00,000 (depending on business size)
+Maximum dead stock threshold: parts not used in 12 months — review for disposal
+Parts ordering trigger: when stock falls below 2-week consumption rate
+Emergency parts procurement: identify 3 alternate suppliers per critical part
+
+--- VAN STOCK (what each technician carries) ---
+Basic toolkit:
+  - Hand tools: screwdrivers, spanners, pliers, multimeter
+  - Safety: gloves, safety glasses, insulated tools
+  - Consumables: common fuses, terminal blocks, small fasteners
+  - Test equipment: multimeter, clamp meter
+
+Additional for mechanical technician:
+  - Common bearings and seals (top 5 sizes)
+  - Lubricants: grease gun + 1 cartridge, small oil can
+  - Gasket material: sheet gasket, RTV sealant
+
+Additional for electrical technician:
+  - MCBs (6A to 32A, 1-2 each)
+  - Common contactors (2-3 sizes)
+  - Cable: 5m each of 1.5sqmm and 2.5sqmm
+  - Heat shrink, cable ties, insulation tape

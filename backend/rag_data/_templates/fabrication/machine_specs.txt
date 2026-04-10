@@ -1,0 +1,61 @@
+# machine_specs.txt — Fabrication Industry
+# ZetaOps RAG Template: fabrication / machine_specs
+# Purpose: Common work center capabilities in Indian MSME fabrication shops.
+# Updated: v6.1
+
+FABRICATION WORK CENTERS — CAPABILITIES
+
+--- CUTTING ---
+Plasma cutter (handheld/CNC, e.g. Hypertherm, Ador):
+  - Cuts: MS up to 50mm, SS up to 35mm, AL up to 25mm
+  - Cut speed (10mm MS): 900-1200mm/min
+  - Setup per job: 10-15 minutes
+
+Angle grinder (cutting disc):
+  - Max practical: 10mm plate, 75mm dia bar
+  - Cut speed: slow, operator-dependent
+  - Used for: site cuts, small quantities
+
+Bandsaw (metal):
+  - Cuts: solid bar up to 250mm dia
+  - Cut speed: 15-30 min per cut (structural sections)
+  - Setup: 5-10 minutes
+
+--- BENDING ---
+Press brake (e.g. Durma, Amada):
+  - Capacity: typically 40-200 tonnes
+  - Max length: 2m to 4m
+  - Min bend radius: 1x material thickness
+  - Setup time per job: 20-45 minutes
+  - Bend cycle: 5-15 seconds per bend
+
+Rolling machine (plate roll):
+  - Capacity: 6-20mm plate, 2m width typical
+  - Used for: cylinders, cones, curved plates
+  - Setup: 30-45 minutes per job
+
+--- DRILLING ---
+Radial drill:
+  - Capacity: up to 50mm dia in MS
+  - Drilling speed (20mm hole in 10mm MS): 2-3 min per hole
+  - Setup: 10-15 minutes
+
+Magnetic drill:
+  - Portable, used on large structures
+  - Capacity: 12-50mm dia, depth up to 50mm
+  - Setup: 5 minutes
+
+--- SURFACE PREPARATION ---
+Shot blast cabinet:
+  - Throughput: 50-200 kg/hour
+  - Finish: Sa 2.5 (near white metal)
+  - Setup: 10 minutes
+
+Angle grinder (flap disc):
+  - Used for local surface prep, weld cleaning
+  - Labour intensive: 0.1-0.3 sqm/hour
+
+--- MAINTENANCE INTERVALS ---
+Plasma cutter: nozzle/electrode replace every 50-200 starts
+Press brake: hydraulic oil change every 2000 hours
+Rolling machine: lubrication monthly, alignment check annually

@@ -1,0 +1,52 @@
+# bom_standards.txt — Manufacturing Industry
+# ZetaOps RAG Template: manufacturing / bom_standards
+# Purpose: Standard Bill of Materials norms for common manufacturing
+#          operations in Indian MSME factories.
+#          Used by AI to answer material quantity and cost questions.
+# Source:  Indian manufacturing industry averages (2024-2026).
+#          Tenant must override with their actual BOM data.
+# Updated: v6.1
+
+BILL OF MATERIALS STANDARDS (Indian MSME manufacturing norms)
+
+--- METAL FABRICATION COMPONENTS ---
+Standard steel bracket (150x100x5mm, MS):
+  - Raw MS plate required: ~0.12 kg per piece (includes 10% cutting wastage)
+  - Machining time: 8-12 minutes per piece
+  - Finish: powder coat adds 15-20 min per batch of 50
+
+Mild steel shaft (25mm dia, 300mm length):
+  - Raw bar stock required: ~1.4 kg per piece (25mm dia MS bar)
+  - Turning time: 15-20 minutes per piece
+  - Grinding (if required): 10-15 min per piece
+
+--- ASSEMBLY OPERATIONS ---
+Simple 3-component assembly:
+  - Cycle time: 5-8 minutes per unit
+  - Batch setup: 15-20 minutes
+  - QC check: 2-3 minutes per unit (10% sampling)
+
+Complex 10+ component assembly:
+  - Cycle time: 20-35 minutes per unit
+  - Batch setup: 30-45 minutes
+  - QC check: 5-10 minutes per unit (full check)
+
+--- WASTAGE FACTORS BY PROCESS ---
+CNC machining:          8-12% material wastage
+Manual turning:         10-15% material wastage
+Sheet metal cutting:    10-20% wastage (depends on nesting efficiency)
+Welding (filler wire):  15-20% overconsumption vs theoretical
+Powder coating:         10% paint overconsumption
+
+--- MATERIAL COST REFERENCE (INR, 2025) ---
+Mild steel (MS) plate:    Rs 55-65/kg
+Stainless steel (304):    Rs 180-220/kg
+Aluminium (6061):         Rs 180-210/kg
+Copper:                   Rs 750-850/kg
+Standard fasteners (M8):  Rs 8-12 per piece
+
+--- CAPACITY PLANNING RULES ---
+- One CNC operator can run 1-2 machines simultaneously
+- Manual lathe: 1 operator per machine always
+- Assembly line: 1 supervisor per 5 assembly workers
+- Quality inspection: 1 QC per 8 production workers

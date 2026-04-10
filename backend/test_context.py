@@ -1,0 +1,1 @@
+﻿from app.database import SessionLocal; from app.knowledge_graph.context_builder import build_context_block; db = SessionLocal(); block = build_context_block(tenant_id=12, db=db, industry_type="printing"); db.close(); print(f"Context block: {len(block)} chars"); print(block[:400])

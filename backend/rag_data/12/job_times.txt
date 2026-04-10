@@ -1,0 +1,57 @@
+# job_times.txt — Printing Industry
+# ZetaOps RAG Template: printing / job_times
+# Purpose: Standard time estimates for common print jobs end-to-end.
+#          Used by AI to answer "how long will this job take?" and
+#          to flag if a job's scheduled duration seems unrealistic.
+# Source:  Indian printing industry averages (2024-2026).
+#          Tenant should override with actual measured times.
+# Updated: v6.1
+
+STANDARD JOB TIME ESTIMATES (hours, end-to-end including setup)
+
+--- OFFSET JOBS ---
+1000 A4 flyers (1-colour):          2-3 hours total
+  - Plate making: 30 min
+  - Press setup: 30 min
+  - Print run: 30-45 min
+  - Drying: 30-60 min
+
+5000 A4 brochures (4-colour, 2-sided):  6-8 hours total
+  - Plate making (4 plates x 2 sides): 2 hours
+  - Press setup + register: 90 min
+  - Print run (2 passes): 2-3 hours
+  - Drying between passes: 1-2 hours
+
+Business cards (500 pieces, 4-colour):  3-4 hours
+  - Plate + setup: 90 min
+  - Print: 30 min
+  - Lamination: 30 min
+  - Die cutting: 30-60 min
+  - Guillotine cutting: 30 min
+
+--- DIGITAL JOBS ---
+100 A4 copies (colour):             30-45 minutes
+500 A4 copies (colour):             1-1.5 hours
+1000 A4 copies (b&w):               1 hour
+Variable data (500 pieces):         1.5-2 hours
+
+--- FLEX / LARGE FORMAT ---
+Single banner 4x6ft:                45-60 minutes
+  - Design check + RIP: 15 min
+  - Print: 20-30 min
+  - Finishing (hem + eyelets): 15 min
+
+10 banners 4x6ft:                   4-5 hours
+
+--- FINISHING JOBS ---
+Lamination (per 500 A4 sheets):     30-45 minutes
+Die cutting (per 1000 sheets):      1-1.5 hours
+Spiral binding (per 50 books):      1-1.5 hours
+Perfect binding (per 50 books):     2-3 hours
+
+--- SCHEDULING RULES OF THUMB ---
+- Never schedule offset jobs back-to-back without 1 hour gap (drying + cleanup)
+- Digital jobs can run back-to-back with 15 min gap
+- Ink colours: each additional colour adds ~30 min setup
+- Large format: allow 30 min per job for media loading
+- Rush jobs add ~25% to total time (skipping queue, priority handling)

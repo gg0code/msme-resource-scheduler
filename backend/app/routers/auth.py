@@ -22,7 +22,32 @@ def _clear_cookie(response: Response):
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+    # Create tenant + user and get back tokens
     result = auth_service.register_tenant_and_user(payload, db)
+
+    # v6.1: Seed RAG industry knowledge files for the new tenant.
+    # Copies rag_data/_templates/{industry_type}/*.txt -> rag_data/{tenant_id}/
+    # This gives the tenant industry-relevant AI context from Day 1.
+    #
+    # IMPORTANT: seeding runs AFTER the DB commit inside register_tenant_and_user.
+    # If seeding fails, we log the error but do NOT fail the registration —
+    # the tenant gets a working account, just without RAG context initially.
+    # They can be re-seeded manually if needed.
+    try:
+        from app.services.rag_service import seed_rag_from_template
+        tenant_id   = result.get("tenant_id")
+        industry    = getattr(payload, "industry_type", None) or "printing"
+        if tenant_id:
+            seed_rag_from_template(tenant_id=tenant_id, industry_type=industry)
+    except Exception as exc:
+        # Never block registration because of RAG seeding failure
+        import logging as _logging
+        _logging.getLogger(__name__).error(
+            "register: RAG seeding failed for new tenant (industry=%s): %s. "
+            "Tenant registered successfully. Run seed_rag_from_template() manually.",
+            getattr(payload, "industry_type", "unknown"), exc,
+        )
+
     _set_cookie(response, result["refresh_token"])
     return TokenResponse(access_token=result["access_token"])
 

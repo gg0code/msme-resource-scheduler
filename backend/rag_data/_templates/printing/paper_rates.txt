@@ -1,0 +1,54 @@
+# paper_rates.txt — Printing Industry
+# ZetaOps RAG Template: printing / paper_rates
+# Purpose: Standard paper consumption rates for common print jobs.
+#          Used by AI to answer "how much paper do I need for X copies?"
+#          without the owner needing to calculate manually.
+# Source:  Indian printing industry averages (2024-2026).
+#          Tenant can override by editing their own copy in rag_data/{tenant_id}/
+# Updated: v6.1
+
+PAPER CONSUMPTION STANDARDS (Indian printing industry norms)
+
+--- OFFSET PRINTING ---
+A4 flyers (single side):
+  - 1000 copies: ~1.1 reams (500 sheets per ream, 10% wastage included)
+  - 5000 copies: ~5.5 reams
+  - 10000 copies: ~11 reams
+
+A4 brochures (4 pages, both sides):
+  - 1000 copies: ~2.2 reams (folded, so 2 sheets per copy)
+  - 5000 copies: ~11 reams
+
+A3 posters (single side):
+  - 1000 copies: ~2.2 reams (A3 = 2x A4, half the sheets fit per ream)
+  - 5000 copies: ~11 reams
+
+Business cards (standard 90x55mm, 8-up on A4):
+  - 1000 cards: ~130 sheets
+  - 5000 cards: ~630 sheets
+
+Flex banners (per sqft, vinyl media not paper):
+  - 1 sqft: ~1.1 sqft vinyl (10% wastage)
+  - Standard banner 4x6ft: ~26.4 sqft vinyl
+
+--- DIGITAL PRINTING ---
+A4 digital (toner-based):
+  - Wastage is lower: ~5% vs 10% for offset
+  - 1000 copies: ~1.05 reams
+  - 5000 copies: ~5.25 reams
+
+--- PAPER WEIGHT GUIDE ---
+70 GSM: standard office / economy flyers
+80 GSM: good quality flyers, standard brochures
+100 GSM: premium brochures, catalogues
+130 GSM: high quality marketing material
+170 GSM: thick brochures, folders
+250 GSM+: business cards, covers
+
+--- COST REFERENCE (approximate, INR, 2025) ---
+70 GSM A4 (500 sheets): Rs 180-220
+80 GSM A4 (500 sheets): Rs 220-270
+100 GSM A4 (500 sheets): Rs 380-450
+130 GSM A4 (500 sheets): Rs 520-600
+250 GSM A4 (500 sheets): Rs 900-1100
+Flex vinyl (per sqft): Rs 12-18

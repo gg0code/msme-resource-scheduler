@@ -1,0 +1,68 @@
+# material_grades.txt — Fabrication Industry
+# ZetaOps RAG Template: fabrication / material_grades
+# Purpose: Common structural and plate steel grades used in Indian
+#          MSME fabrication shops with selection guidance.
+# Updated: v6.1
+
+STEEL GRADES FOR FABRICATION (Indian standards + common equivalents)
+
+--- STRUCTURAL STEEL (IS 2062) ---
+IS 2062 Grade A (E250):
+  - Yield strength: 250 MPa minimum
+  - Uses: general structural, columns, beams, frames
+  - Weldability: excellent
+  - Cost: standard reference (Rs 55-65/kg, 2025)
+
+IS 2062 Grade B (E350):
+  - Yield strength: 350 MPa minimum
+  - Uses: heavy structures, high-load frames, cranes
+  - Weldability: good (preheat required for thick sections >25mm)
+  - Cost: ~10-15% premium over Grade A
+
+--- PLATES AND SHEETS (IS 2062 / IS 3502) ---
+MS (Mild Steel) Plate:
+  - Grades: E250A, E250B, E250C
+  - Available thickness: 5mm to 200mm
+  - Uses: fabricated structures, tanks, housings
+  - Cost: Rs 58-68/kg (2025)
+
+HR Sheet (Hot Rolled, IS 10748):
+  - Thickness: 1.6mm to 10mm
+  - Uses: light fabrication, enclosures, platforms
+  - Cost: Rs 60-70/kg
+
+CR Sheet (Cold Rolled, IS 513):
+  - Thickness: 0.5mm to 3.15mm
+  - Better surface finish than HR
+  - Uses: panels, doors, aesthetic components
+  - Cost: Rs 72-85/kg
+
+--- STAINLESS STEEL (IS 6911) ---
+SS 304 (most common):
+  - Uses: food processing equipment, tanks, pharma
+  - Weldability: good (use 308L filler)
+  - Cost: Rs 180-210/kg
+
+SS 316 (marine/chemical grade):
+  - Better corrosion resistance than 304
+  - Uses: chemical equipment, coastal installations
+  - Cost: Rs 230-270/kg
+
+SS 202 (economy grade):
+  - Uses: decorative, light duty
+  - Not for structural or food contact
+  - Cost: Rs 130-160/kg
+
+--- SELECTION GUIDE ---
+General structure, no corrosion risk:     IS 2062 Grade A (MS)
+High load structure:                       IS 2062 Grade B
+Food/pharma equipment:                    SS 304
+Chemical equipment:                        SS 316
+Budget decorative:                         SS 202
+Outdoor structure (painted):              IS 2062 Grade A + epoxy primer
+
+--- WASTAGE FACTORS ---
+Plate cutting (plasma):   8-12% depending on part geometry
+Plate cutting (laser):    5-8%
+Tube/pipe cutting:        3-5%
+Sheet metal (press brake): 5-10% for blanks

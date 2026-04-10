@@ -1,0 +1,52 @@
+# weld_times.txt — Fabrication Industry
+# ZetaOps RAG Template: fabrication / weld_times
+# Purpose: Standard welding time estimates for common fabrication jobs.
+# Updated: v6.1
+
+WELDING TIME STANDARDS (Indian MSME fabrication norms)
+
+--- MIG WELDING (GMAW) ---
+Butt weld, 5mm plate, per 100mm run:       4-6 minutes
+Butt weld, 10mm plate, per 100mm run:      8-12 minutes (2 passes)
+Fillet weld 6mm leg, per 100mm run:        3-5 minutes
+Fillet weld 10mm leg, per 100mm run:       6-9 minutes
+
+--- TIG WELDING (GTAW) ---
+SS butt weld, 2mm, per 100mm run:          8-12 minutes
+SS butt weld, 5mm, per 100mm run:          15-20 minutes
+Aluminium butt weld, 3mm, per 100mm:       10-15 minutes
+Root pass only (back purge): add 30% time
+
+--- ARC WELDING (SMAW) ---
+Butt weld, 6mm plate, per 100mm:           8-12 minutes
+Structural fillet, per 100mm:              5-8 minutes
+Overhead position: add 50% to flat position times
+
+--- SETUP AND PREPARATION ---
+Fit-up and tacking per joint:              5-20 minutes (depends on complexity)
+Grinding/cleaning between passes:          3-5 minutes per 100mm
+Post-weld grinding flush:                  4-8 minutes per 100mm
+NDT (dye penetrant per joint):             10-15 minutes
+
+--- TYPICAL FABRICATED STRUCTURES (total welding time) ---
+Simple frame 1x1m (50x50 SHS):            3-5 hours
+Platform 2x2m with handrail:              8-12 hours
+Storage tank 1000 litres (MS):            12-18 hours
+Conveyor frame 3m length:                  6-10 hours
+
+--- PRODUCTIVITY FACTORS ---
+Flat position (1G/1F):                    100% (reference)
+Horizontal position (2G/2F):              80-85%
+Vertical position (3G/3F):                70-75%
+Overhead position (4G/4F):                55-65%
+
+Experienced welder (5+ years):            100%
+Semi-skilled welder (1-3 years):          70-80%
+Trainee welder (<1 year):                 50-60%
+
+--- CONSUMABLE REFERENCE (INR, 2025) ---
+MIG wire ER70S-6, 15kg spool:             Rs 2800-3200
+TIG filler ER308L, 5kg pack:              Rs 1800-2200
+Arc electrode E6013, 20kg:                Rs 1400-1700
+Argon gas cylinder (7 cubic m):           Rs 550-700
+CO2 cylinder (20 kg):                     Rs 800-950

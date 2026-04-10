@@ -1,4 +1,4 @@
-# ai_service.py - Version 1.1
+# ai_service.py - Version 1.2
 # Branch: both
 #
 # FILE PURPOSE
@@ -10,20 +10,24 @@
 #   app/services/whatsapp_bridge.py - run_ai_chat() via GroqDirectBridge
 #
 # WHAT THIS FILE CALLS
-#   groq (Groq SDK)        - ChatCompletion API, Llama 3.3 70B
-#   app/config.py          - settings.GROQ_API_KEY
-#   app/models/job.py      - Job, JobAssignment (tool executors)
-#   app/models/employee.py - Employee (tool executors)
-#   app/models/machine.py  - Machine (tool executors)
+#   groq (Groq SDK)                        - ChatCompletion API, Llama 3.3 70B
+#   app/config.py                          - settings.GROQ_API_KEY
+#   app/models/job.py                      - Job, JobAssignment (tool executors)
+#   app/models/employee.py                 - Employee (tool executors)
+#   app/models/machine.py                  - Machine (tool executors)
+#   app/knowledge_graph/context_builder.py - build_context_block() (v6.0)
 #
 # KEY DESIGN DECISIONS
 #   - AI NEVER computes logic. Structured JSON is passed; AI explains only.
 #   - LANGUAGE_INSTRUCTION (v5.12) appended to every system prompt so the AI
 #     mirrors the user's language (Hindi/Hinglish/English) automatically.
-#     This replaces the old "You understand Hinglish — respond in English"
-#     line which instructed wrong behaviour (respond in English always).
 #   - _build_system_prompt() is the single assembly point for all system
-#     prompt components: base + industry terms + language instruction.
+#     prompt components: base + industry terms + language instruction + context.
+#   - v6.0: _build_system_prompt() now accepts optional tenant_id and db.
+#     When provided, build_context_block() appends schema context + live
+#     tenant snapshot + RAG industry knowledge to the system prompt.
+#     When not provided (structured_data path, tests), context is skipped
+#     gracefully — no crash, base prompt still works.
 #   - MODEL constant is the single source of truth for the Groq model name.
 
 import json
@@ -1255,20 +1259,36 @@ _INDUSTRY_TERMS: dict[str, dict] = {
 }
 
 
-def _build_system_prompt(industry_type: str = "printing") -> str:
+def _build_system_prompt(
+    industry_type: str = "printing",
+    tenant_id: int | None = None,
+    db: Session | None = None,
+) -> str:
     """
     Assemble the full system prompt for a Groq API call.
 
+    v6.0: Now accepts optional tenant_id and db so it can append the
+    schema context + live tenant snapshot + RAG industry knowledge.
+    When tenant_id and db are None (e.g. structured_data path or tests),
+    the context block is skipped gracefully — no crash, just no context.
+
     Called by:   run_ai_chat() in this file.
-    Calls:       No external calls - pure string assembly.
+    Calls:       build_context_block() from app.knowledge_graph.context_builder
+                 (only when tenant_id and db are both provided).
     Args:
         industry_type: Tenant industry slug. Valid values: 'printing',
                        'manufacturing', 'fabrication', 'field_service',
                        'chemical'. Falls back to _INDUSTRY_DEFAULTS if unknown.
+        tenant_id:     Integer tenant ID. Required for context injection.
+                       If None, context block is skipped silently.
+        db:            Sync SQLAlchemy Session. Required for context injection.
+                       If None, context block is skipped silently.
     Returns:
-        Complete system prompt string: base + industry block + language instruction.
+        Complete system prompt string:
+          base + industry block + language instruction [+ context block if v6.0]
     Side effects:
-        None - pure function.
+        Read-only DB queries inside build_context_block() when tenant_id
+        and db are provided. No writes, no commits.
     """
     today = date.today()
     terms = _INDUSTRY_TERMS.get(industry_type, _INDUSTRY_DEFAULTS)
@@ -1290,7 +1310,31 @@ def _build_system_prompt(industry_type: str = "printing") -> str:
     )
     # v5.12: Append language mirroring instruction so AI responds in the
     # user's detected language (Hindi / Hinglish / English) automatically.
-    return base + industry_block + LANGUAGE_INSTRUCTION
+    prompt = base + industry_block + LANGUAGE_INSTRUCTION
+
+    # v6.0: Append schema context + live tenant snapshot + RAG industry knowledge.
+    # Only injected when both tenant_id and db are provided.
+    # Gracefully skipped if either is missing — no crash, AI still works.
+    if tenant_id is not None and db is not None:
+        try:
+            from app.knowledge_graph.context_builder import build_context_block
+            context_block = build_context_block(
+                tenant_id=tenant_id,
+                db=db,
+                industry_type=industry_type,
+            )
+            prompt = prompt + context_block
+        except Exception as exc:
+            # Context injection must NEVER crash the chat pipeline.
+            # Log the error and continue with the base prompt only.
+            import logging as _logging
+            _logging.getLogger(__name__).error(
+                "_build_system_prompt: context_builder failed for tenant %s: %s. "
+                "Continuing without context block. Check knowledge_graph/ and rag_data/.",
+                tenant_id, exc,
+            )
+
+    return prompt
 
 
 # -- Main chat function --------------------------------------------------------
@@ -1320,7 +1364,7 @@ def run_ai_chat(
         data_type = structured_data.get("_type", "data")
         data_json = json.dumps(structured_data, indent=2, default=str)
         structured_system = (
-            _build_system_prompt(industry_type) +
+            _build_system_prompt(industry_type, tenant_id=tenant_id, db=db) +
             f"\n\n--- PRE-COMPUTED {data_type.upper().replace('_',' ')} DATA ---\n"
             f"The scheduling engine has already computed the following data. "
             f"Do NOT call any tools. Do NOT re-compute. "
@@ -1340,8 +1384,8 @@ def run_ai_chat(
         )
         return direct_response.choices[0].message.content or "Here is the data."
 
-    # Add dynamic system prompt (includes today's date)
-    full_messages = [{"role": "system", "content": _build_system_prompt(industry_type)}] + trimmed
+    # Add dynamic system prompt (includes today's date + v6.0 context block)
+    full_messages = [{"role": "system", "content": _build_system_prompt(industry_type, tenant_id=tenant_id, db=db)}] + trimmed
 
     # First call - let Llama decide which tool to call
     response = client.chat.completions.create(

@@ -1,0 +1,57 @@
+# machine_specs.txt — Manufacturing Industry
+# ZetaOps RAG Template: manufacturing / machine_specs
+# Purpose: Common work center capabilities in Indian MSME manufacturing.
+# Updated: v6.1
+
+MANUFACTURING WORK CENTERS — CAPABILITIES AND THROUGHPUT
+
+--- CNC MACHINING CENTERS ---
+VMC (Vertical Machining Center, e.g. BFW, Jyoti):
+  - Spindle speed: 6,000-10,000 RPM
+  - Table size: typically 800x400mm to 1000x500mm
+  - Setup time per new job: 45-90 minutes
+  - Tool change time: 3-5 seconds automatic
+  - Typical batch: 10-500 pieces
+
+HMC (Horizontal Machining Center):
+  - Higher volume than VMC, 4-face machining possible
+  - Setup time: 60-120 minutes
+  - Suited for: housings, brackets, large prismatic parts
+
+--- TURNING CENTERS ---
+CNC Lathe (e.g. ACE, Bharat Fritz Werner):
+  - Chuck size: 165mm to 210mm
+  - Bar stock capacity: up to 65mm dia
+  - Cycle time: 3-30 min per piece (depends on complexity)
+  - Setup: 30-60 minutes per job
+
+Manual Lathe:
+  - Speed: depends on operator skill
+  - Setup: 15-30 minutes
+  - Suited for: prototypes, repair, low volume
+
+--- GRINDING ---
+Surface grinder:
+  - Tolerance achievable: +/- 0.005mm
+  - Feed rate: 0.5-2mm/pass
+  - Setup: 20-30 minutes
+
+Cylindrical grinder:
+  - Tolerance: +/- 0.003mm
+  - Setup: 30-45 minutes
+
+--- WELDING STATIONS ---
+MIG welding:
+  - Deposition rate: 2-5 kg/hour
+  - Setup per job: 15-20 minutes
+
+TIG welding (precision):
+  - Deposition rate: 0.5-2 kg/hour
+  - Setup: 20-30 minutes
+  - Used for: stainless, aluminium, thin sections
+
+--- MAINTENANCE INTERVALS ---
+CNC machining center: full PM every 500 hours runtime
+Manual lathe: lubrication weekly, service every 6 months
+Welding machine: contact tip replacement every 8-16 hours
+Grinding wheel: dress after every 2-4 hours of cutting
