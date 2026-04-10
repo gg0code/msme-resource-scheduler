@@ -21,6 +21,7 @@ PURPOSE: FastAPI router — the entry point for all WhatsApp messages.
            4.  Check for pending confirmation (write action state machine)
            5.  Handle reset commands
            5b. Detect language (v5.12: moved before intent to localise blocked replies)
+           5c. Manager check-in window 7-9am IST → handle_manager_checkin_reply() (v5.15)
            6.  Detect write intent — with role gate (v5.12)
            6a. If role blocked — send localised blocked reply, return immediately
            6b. If intent found — store pending action, return confirmation prompt
@@ -32,9 +33,15 @@ PURPOSE: FastAPI router — the entry point for all WhatsApp messages.
            11. Log conversation if consent given
 
 BRANCH:  v5-whatsapp
-VERSION: v5.12
+VERSION: v5.15
 CREATED: 2026-03
-UPDATED: 2026-04-08 — v5.12: Role limiting + language support.
+UPDATED: 2026-04-10 — v5.15: Manager check-in window routing (step 5c).
+                      Messages from phone_role='manager' between 7-9am IST
+                      routed to handle_manager_checkin_reply() in
+                      whatsapp_checkin.py. Outside window: normal AI pipeline.
+                      trigger-dev-alerts extended with 'checkin' and
+                      'owner_briefing' alert_type values.
+         2026-04-08 — v5.12: Role limiting + language support.
                       detect_language() moved to step 5b (before intent).
                       detect_write_intent() now receives phone_role + language.
                       Role gate blocks manager/operator actions before AI.
@@ -49,6 +56,8 @@ DEPENDENCIES:
   app/services/whatsapp_actions.py   — confirmation state machine
   app/services/whatsapp_intent.py    — detect_write_intent() (v5.12: 4-tuple return)
   app/services/whatsapp_whisper.py   — transcribe_voice_note() (v5.2)
+  app/services/whatsapp_checkin.py   — handle_manager_checkin_reply() (v5.15)
+  app/services/whatsapp_alerts.py    — CHECKIN_WINDOW_* constants (v5.15)
   app/models/whatsapp.py             — WhatsAppConversation, PhoneTenantMap
   app/database.py                    — get_db() dependency, SessionLocal
   app/config.py                      — settings
@@ -550,6 +559,8 @@ async def trigger_dev_alerts(alert_type: str = "all"):
         send_morning_briefings,
         check_delayed_jobs,
         check_scheduling_conflicts,
+        send_manager_checkin,
+        send_owner_briefing_from_checkin,
     )
 
     if alert_type in ("briefing", "all"):
@@ -558,6 +569,10 @@ async def trigger_dev_alerts(alert_type: str = "all"):
         await check_delayed_jobs()
     if alert_type in ("conflicts", "all"):
         await check_scheduling_conflicts()
+    if alert_type in ("checkin", "all"):
+        await send_manager_checkin()
+    if alert_type in ("owner_briefing", "all"):
+        await send_owner_briefing_from_checkin()
 
     return {"status": "fired", "alert_type": alert_type}
 
@@ -730,6 +745,53 @@ async def _process_inbound_message(
     # Step 5b: Detect language (v5.12: moved before intent so blocked reply
     # is localised to the user's language)
     language = detect_language(message_text)
+
+    # Step 5c: Manager check-in window routing (v5.15)
+    # If the sender is a manager and the time is between 7:00am and 9:00am IST,
+    # route to the check-in handler instead of the normal AI pipeline.
+    # Outside this window, manager messages go through the normal AI pipeline.
+    # This keeps the check-in flow time-bounded — managers can still query AI
+    # freely for the rest of the day.
+    if identity.phone_role == "manager":
+        from datetime import timezone as tz
+        import zoneinfo
+        from app.services.whatsapp_alerts import (
+            CHECKIN_WINDOW_START_HOUR,
+            CHECKIN_WINDOW_END_HOUR,
+        )
+        from app.services.whatsapp_checkin import handle_manager_checkin_reply
+
+        ist = zoneinfo.ZoneInfo("Asia/Kolkata")
+        now_ist = datetime.now(tz.utc).astimezone(ist)
+        in_checkin_window = (
+            CHECKIN_WINDOW_START_HOUR <= now_ist.hour < CHECKIN_WINDOW_END_HOUR
+        )
+
+        if in_checkin_window:
+            logger.info(
+                "Manager check-in window: routing ****%s to checkin handler.",
+                phone_number[-4:],
+            )
+            checkin_db = SessionLocal()
+            try:
+                replies = handle_manager_checkin_reply(
+                    message=message_text,
+                    tenant_id=identity.tenant_id,
+                    phone_number=phone_number,
+                    lang=language,
+                    db=checkin_db,
+                )
+            finally:
+                checkin_db.close()
+
+            # Send all replies in sequence except the last — caller sends last
+            for reply in replies[:-1]:
+                await _send_whatsapp_message(
+                    phone_number=phone_number,
+                    message=reply,
+                )
+            # Return last reply for caller to send via normal flow
+            return replies[-1] if replies else None
 
     # Step 6: Detect write intent — with role gate (v5.12)
     # Returns 4-tuple: (blocked, block_reply, action_type, action_params)

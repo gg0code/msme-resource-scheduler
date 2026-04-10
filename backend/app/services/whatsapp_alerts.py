@@ -1,3 +1,44 @@
+# whatsapp_alerts.py - Version 2.0
+# Branch: v5-whatsapp
+#
+# FILE PURPOSE
+# All scheduled and on-demand WhatsApp alert jobs for ZetaOps Copilot.
+# Owns the APScheduler lifecycle and every outbound proactive message:
+#   Job 1 — Morning briefing to owner (7:00am IST, scheduled data)
+#   Job 2 — Delayed job check (every 2 hours, 8am-8pm IST)
+#   Job 3 — Conflict check (every 4 hours)
+#   Job 4 — Manager check-in prompt (7:00am IST) [v5.15]
+#   Job 5 — Owner briefing from checkin (7:15am IST) [v5.15]
+#   On-demand — Machine down alert (triggered from machine router)
+#
+# WHO CALLS THIS FILE
+#   app/main.py                      - start_scheduler() on FastAPI startup
+#   app/main.py                      - stop_scheduler() on FastAPI shutdown
+#   app/routers/whatsapp.py          - CHECKIN_WINDOW_START/END_HOUR constants
+#   app/routers/whatsapp.py          - send_machine_down_alert() on machine status change
+#   POST /api/v1/whatsapp/trigger-dev-alerts - dev endpoint fires all jobs immediately
+#
+# WHAT THIS FILE CALLS
+#   app/database.py                  - SessionLocal (sync session per job)
+#   app/config.py                    - settings (WHATSAPP_MOCK_MODE, INTERAKT_API_KEY)
+#   app/models/job.py                - Job (delayed/conflict queries)
+#   app/models/employee.py           - Employee (headcount for briefing)
+#   app/models/whatsapp.py           - PhoneTenantMap (active phone lookups)
+#   app/services/whatsapp_checkin.py - build_checkin_prompt(), build_owner_briefing_from_checkin()
+#   app/services/whatsapp_formatter.py - format_for_whatsapp()
+#   httpx                            - POST to Interakt API (production only)
+#
+# KEY DESIGN DECISIONS
+#   1. All DB access uses sync SessionLocal — never AsyncSession. APScheduler
+#      jobs run in a thread pool executor; async DB sessions are not safe there.
+#   2. WHATSAPP_MOCK_MODE=True in dev — all sends log [MOCK ALERT] to console.
+#      Jobs still run on schedule so timing and logic can be verified.
+#   3. set_dev_schedule() overrides all jobs to 2-minute intervals for testing.
+#      NEVER call this in production — it will spam factory owners.
+#   4. Conflict detection uses schedule_entries GROUP BY count — NOT Job.has_conflict.
+#      That column does not exist. See _get_conflicts() for the correct pattern.
+#   5. CHECKIN_WINDOW_START/END_HOUR constants exported for use in whatsapp router
+#      to route manager messages to checkin handler vs normal AI pipeline.
 import logging
 from datetime import datetime, date
 
@@ -120,6 +161,34 @@ def start_scheduler() -> None:
     )
     logger.info("Scheduled: conflict check every 4 hours")
 
+    # Register manager check-in prompt - 7:00am IST daily (v5.15)
+    scheduler.add_job(
+        func=send_manager_checkin,
+        trigger=CronTrigger(
+            hour=MORNING_BRIEFING_HOUR,
+            minute=MORNING_BRIEFING_MINUTE,
+            timezone=SCHEDULER_TIMEZONE,
+        ),
+        id="manager_checkin",
+        name="Daily manager check-in prompt at 7:00am IST",
+        replace_existing=True,
+    )
+    logger.info("Scheduled: manager check-in prompt at 07:00 IST daily")
+
+    # Register owner briefing from checkin - 7:15am IST daily (v5.15)
+    scheduler.add_job(
+        func=send_owner_briefing_from_checkin,
+        trigger=CronTrigger(
+            hour=OWNER_BRIEFING_FROM_CHECKIN_HOUR,
+            minute=OWNER_BRIEFING_FROM_CHECKIN_MINUTE,
+            timezone=SCHEDULER_TIMEZONE,
+        ),
+        id="owner_briefing_checkin",
+        name="Owner briefing from manager checkin at 7:15am IST",
+        replace_existing=True,
+    )
+    logger.info("Scheduled: owner briefing from checkin at 07:15 IST daily")
+
     # Start the scheduler
     scheduler.start()
     logger.info(
@@ -173,9 +242,11 @@ def set_dev_schedule() -> None:
         scheduler.remove_all_jobs()
 
     for job_func, job_id in [
-        (send_morning_briefings,     "morning_briefing"),
-        (check_delayed_jobs,          "job_delay_check"),
-        (check_scheduling_conflicts,  "conflict_check"),
+        (send_morning_briefings,            "morning_briefing"),
+        (check_delayed_jobs,                "job_delay_check"),
+        (check_scheduling_conflicts,        "conflict_check"),
+        (send_manager_checkin,              "manager_checkin"),
+        (send_owner_briefing_from_checkin,  "owner_briefing_checkin"),
     ]:
         scheduler.add_job(
             func=job_func,
@@ -385,8 +456,204 @@ async def send_machine_down_alert(
 
 
 # ---------------------------------------------------------------------------
+# ALERT JOB 4 - Manager check-in prompt (v5.15)
+# ---------------------------------------------------------------------------
+
+# Check-in window: messages from managers in this hour range are routed to
+# handle_manager_checkin_reply() in whatsapp_checkin.py instead of AI pipeline.
+# Defined here so whatsapp router can import without circular dependency.
+CHECKIN_WINDOW_START_HOUR = 7   # 7:00am IST
+CHECKIN_WINDOW_END_HOUR   = 9   # 9:00am IST — after this, normal AI pipeline
+
+# Owner briefing from checkin fires 15 minutes after manager prompt
+OWNER_BRIEFING_FROM_CHECKIN_HOUR   = 7
+OWNER_BRIEFING_FROM_CHECKIN_MINUTE = 15
+
+
+async def send_manager_checkin() -> None:
+    """
+    Send the 7:00am check-in prompt to all manager phones.
+
+    Fires at 7:00am IST daily. Queries PhoneTenantMap for all active
+    phone numbers with phone_role='manager'. Sends the three-question
+    check-in prompt in the manager's detected language.
+
+    Language: defaults to 'hinglish' for manager phones — most factory
+    floor managers in Indian MSMEs communicate in Hinglish. Language will
+    be updated to detected value after first reply in v5.15+.
+
+    Called by:   APScheduler at 7:00am IST (registered in start_scheduler)
+    Calls:       _get_manager_phone_mappings(), build_checkin_prompt(),
+                 _send_alert()
+    Args:        None
+    Returns:     None
+    Side effects:
+        Sends WhatsApp message to every active manager phone per tenant.
+        Logs [MOCK ALERT] if WHATSAPP_MOCK_MODE=True.
+    """
+    logger.info(f"Manager check-in prompt job started at {datetime.now().isoformat()}")
+
+    manager_phones = await _get_manager_phone_mappings()
+
+    if not manager_phones:
+        logger.info("No active manager phones found — check-in prompt skipped.")
+        return
+
+    from app.services.whatsapp_checkin import build_checkin_prompt
+
+    sent_count = 0
+    for phone_mapping in manager_phones:
+        try:
+            # Default to hinglish for manager phones — most Indian factory
+            # floor managers communicate in Hinglish. Per-phone language
+            # detection will be added when session history is available.
+            prompt = build_checkin_prompt(lang="hinglish")
+            await _send_alert(
+                phone_number=phone_mapping["phone_number"],
+                message=prompt,
+                alert_type="manager_checkin",
+            )
+            sent_count += 1
+        except Exception as exc:
+            logger.error(
+                "Failed to send check-in prompt to ****%s: %s",
+                phone_mapping["phone_number"][-4:], exc,
+            )
+
+    logger.info("Manager check-in prompts sent to %d phones.", sent_count)
+
+
+# ---------------------------------------------------------------------------
+# ALERT JOB 5 - Owner briefing from checkin (v5.15)
+# ---------------------------------------------------------------------------
+
+async def send_owner_briefing_from_checkin() -> None:
+    """
+    Send the 7:15am owner briefing built from today's manager check-in.
+
+    Fires at 7:15am IST daily — 15 minutes after the manager check-in
+    prompt. Reads checkin state from Redis for each tenant. If a manager
+    has already replied, the briefing is built from real attendance data.
+    If no checkin state exists yet, falls back to the existing scheduled
+    data briefing (_build_morning_briefing).
+
+    This is the OWNER output channel — signal only, no questions asked.
+    Owner reads, acts, moves on.
+
+    Called by:   APScheduler at 7:15am IST (registered in start_scheduler)
+    Calls:       _get_active_phone_mappings(), build_owner_briefing_from_checkin(),
+                 _build_morning_briefing(), _send_alert()
+    Args:        None
+    Returns:     None
+    Side effects:
+        Reads Redis checkin state per tenant.
+        Reads PostgreSQL for employee/machine/job data.
+        Sends WhatsApp briefing to every active owner phone per tenant.
+        Logs [MOCK ALERT] if WHATSAPP_MOCK_MODE=True.
+    """
+    logger.info(
+        f"Owner briefing from checkin started at {datetime.now().isoformat()}"
+    )
+
+    # Owner phones only — phone_role='owner'
+    owner_phones = await _get_active_phone_mappings(ALERT_TYPE_BRIEFING)
+
+    if not owner_phones:
+        logger.info("No active owner phones found — owner briefing skipped.")
+        return
+
+    from app.database import SessionLocal
+    from app.services.whatsapp_checkin import build_owner_briefing_from_checkin
+
+    sent_count = 0
+    for phone_mapping in owner_phones:
+        try:
+            db = SessionLocal()
+            try:
+                briefing_text = build_owner_briefing_from_checkin(
+                    tenant_id=phone_mapping["tenant_id"],
+                    db=db,
+                    lang="hinglish",
+                )
+            finally:
+                db.close()
+
+            # Fall back to scheduled data briefing if no checkin state exists
+            if briefing_text is None:
+                logger.info(
+                    "No checkin state for tenant %s — falling back to "
+                    "scheduled data briefing.",
+                    phone_mapping["tenant_id"],
+                )
+                briefing_text = await _build_morning_briefing(
+                    tenant_id=phone_mapping["tenant_id"],
+                    industry_type=phone_mapping["industry_type"],
+                )
+
+            if briefing_text:
+                await _send_alert(
+                    phone_number=phone_mapping["phone_number"],
+                    message=briefing_text,
+                    alert_type=ALERT_TYPE_BRIEFING,
+                )
+                sent_count += 1
+
+        except Exception as exc:
+            logger.error(
+                "Failed to send owner briefing to ****%s: %s",
+                phone_mapping["phone_number"][-4:], exc,
+            )
+
+    logger.info("Owner briefings from checkin sent to %d phones.", sent_count)
+
+
+# ---------------------------------------------------------------------------
 # PRIVATE HELPERS
 # ---------------------------------------------------------------------------
+
+async def _get_manager_phone_mappings() -> list[dict]:
+    """
+    Get all active phone mappings with phone_role='manager'.
+
+    Called by:   send_manager_checkin()
+    Calls:       SessionLocal, PhoneTenantMap
+    Args:        None
+    Returns:
+        List of dicts with phone_number, tenant_id, industry_type keys.
+        Empty list if no active manager phones found.
+    Side effects:
+        Reads from PostgreSQL phone_tenant_map table.
+    """
+    from sqlalchemy import select
+    from app.database import SessionLocal
+    from app.models.whatsapp import PhoneTenantMap
+
+    results = []
+    db = SessionLocal()
+
+    try:
+        mappings = db.execute(
+            select(PhoneTenantMap).where(
+                PhoneTenantMap.is_active == True,       # noqa: E712
+                PhoneTenantMap.phone_role == "manager",
+            )
+        ).scalars().all()
+
+        for mapping in mappings:
+            results.append({
+                "phone_number":  mapping.phone_number,
+                "tenant_id":     mapping.tenant_id,
+                "industry_type": mapping.industry_type or "printing",
+            })
+
+    except Exception as exc:
+        logger.error("Failed to get manager phone mappings: %s", exc)
+
+    finally:
+        db.close()
+
+    return results
+
 
 async def _get_active_phone_mappings(
     alert_type: str,
@@ -600,41 +867,82 @@ async def _get_conflicts(tenant_id: int) -> list[dict]:
     """
     Get scheduling conflicts for a tenant.
 
-    Checks jobs with has_conflict=True flag — this flag is set by the
-    scheduling engine when it detects a resource double-booking.
+    A conflict exists when a job has fewer schedule_entries rows than the
+    number of working days between its start_date and end_date. This means
+    the scheduler could not fully allocate the job — a resource gap exists.
 
+    Called by:   check_scheduling_conflicts()
+    Calls:       SessionLocal, Job, ScheduleEntry
     Args:
         tenant_id: The tenant to check.
-
     Returns:
         List of dicts with job_id, job_name, status.
         Empty list if no conflicts found.
-
     Side effects:
-        Reads from PostgreSQL jobs table.
+        Reads from PostgreSQL jobs and schedule_entries tables.
+
+    NOTE: Job.has_conflict column does NOT exist. Conflict detection uses
+    schedule_entries GROUP BY count per dev prompt architecture rule 5.
+    Never revert this to Job.has_conflict — that column was never created.
     """
-    from sqlalchemy import select
+    from sqlalchemy import select, func, text
     from app.database import SessionLocal
     from app.models.job import Job
 
     db = SessionLocal()
 
     try:
-        conflict_jobs = db.execute(
+        # Load active jobs for this tenant in one query — no N+1
+        active_jobs = db.execute(
             select(Job).where(
                 Job.tenant_id == tenant_id,
-                Job.has_conflict == True  # noqa: E712
+                Job.status.notin_([
+                    "completed", "cancelled", "Completed", "Cancelled"
+                ]),
+                Job.start_date.isnot(None),
+                Job.end_date.isnot(None),
             )
         ).scalars().all()
 
-        return [
-            {
-                "job_id":   j.id,
-                "job_name": j.name or f"Job #{j.id}",
-                "status":   j.status
-            }
-            for j in conflict_jobs
-        ]
+        if not active_jobs:
+            return []
+
+        job_ids = [j.id for j in active_jobs]
+
+        # Count schedule_entries per job in one query — prevents N+1
+        entry_counts_raw = db.execute(
+            text(
+                "SELECT job_id, COUNT(*) AS entry_count "
+                "FROM schedule_entries "
+                "WHERE job_id = ANY(:job_ids) "
+                "GROUP BY job_id"
+            ),
+            {"job_ids": job_ids},
+        ).all()
+
+        entry_count_map: dict[int, int] = {
+            row.job_id: row.entry_count for row in entry_counts_raw
+        }
+
+        today = date.today()
+        conflicts: list[dict] = []
+
+        for job in active_jobs:
+            if job.start_date is None or job.end_date is None:
+                continue
+            # Expected days = calendar days in job range (simple heuristic —
+            # not working-days-only, keeps it dependency-free)
+            expected_days = max(1, (job.end_date - job.start_date).days + 1)
+            actual_entries = entry_count_map.get(job.id, 0)
+
+            if actual_entries < expected_days:
+                conflicts.append({
+                    "job_id":   job.id,
+                    "job_name": job.name or f"Job #{job.id}",
+                    "status":   job.status,
+                })
+
+        return conflicts
 
     except Exception as e:
         logger.error(f"Failed to get conflicts for tenant {tenant_id}: {e}")
