@@ -1,4 +1,4 @@
-# whatsapp_checkin.py - Version 1.0
+# whatsapp_checkin.py - Version 1.1
 # Branch: v5-whatsapp
 #
 # FILE PURPOSE
@@ -13,7 +13,8 @@
 #   app/routers/whatsapp.py          - handle_manager_checkin_reply() called on inbound manager messages
 #
 # WHAT THIS FILE CALLS
-#   app/models/employee.py           - Employee (name lookup, skill, worker_type)
+#   app/models/employee.py           - Employee, EmployeeSkill (full_name, skills M2M via EmployeeSkill/Skill)
+#   app/models/skill.py              - Skill (name field for skill matching)
 #   app/models/machine.py            - Machine (name, machine_type)
 #   app/models/whatsapp.py           - PhoneTenantMap (role lookup, phone numbers)
 #   app/models/job.py                - Job (active orders for owner briefing)
@@ -25,7 +26,7 @@
 #   1. All DB access uses sync Session — never AsyncSession. This file is called
 #      from APScheduler jobs which use run_in_executor. Same pattern as whatsapp_alerts.py.
 #   2. Name matching is fuzzy-tolerant: lowercase + strip. No external library.
-#      "suresh nahi aaya" matches Employee.name="Suresh Kumar" via first-word match.
+#      "suresh nahi aaya" matches Employee.full_name="Suresh Patel" via first-word match.
 #   3. Absent list is stored in Redis under key whatsapp:checkin:{tenant_id}:{date}
 #      so the 7:15am owner briefing can read what the manager reported at 7:00am.
 #      TTL = 24 hours. No DB writes for transient checkin state.
@@ -43,12 +44,13 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import SessionLocal
-from app.models.employee import Employee
+from app.models.employee import Employee, EmployeeSkill
 from app.models.job import Job
 from app.models.machine import Machine
+from app.models.skill import Skill
 from app.models.whatsapp import PhoneTenantMap
 from app.services.whatsapp_formatter import format_for_whatsapp
 from app.services.whatsapp_responses import Language, get_response
@@ -219,7 +221,7 @@ def _match_employee_name(word: str, employees: list[Employee]) -> Optional[Emplo
     """
     needle = _normalise(word)
     for emp in employees:
-        if needle in _name_tokens(emp.name):
+        if needle in _name_tokens(emp.full_name):
             return emp
     return None
 
@@ -255,11 +257,15 @@ def parse_attendance(
     Side effects: None - read only DB query
     """
     # Load all active employees for this tenant once — no N+1
+    # Employee model uses status='Active' not is_active boolean
+    # selectinload(Employee.skills) pre-fetches M2M skills in one extra query —
+    # avoids N+1 when _get_employee_skill_name() accesses emp.skills per employee.
     employees: list[Employee] = (
         db.query(Employee)
+        .options(selectinload(Employee.skills).selectinload(EmployeeSkill.skill))
         .filter(
             Employee.tenant_id == tenant_id,
-            Employee.is_active == True,  # noqa: E712
+            Employee.status == "Active",
         )
         .all()
     )
@@ -305,38 +311,73 @@ def find_substitute(
     """
     Find the best available substitute for an absent employee by skill match.
 
-    Matches on primary_skill only. Excludes the absent employee themselves
-    and any other employees already marked absent today.
+    Skills are M2M via EmployeeSkill -> Skill. Gets absent employee's first
+    skill, then finds another active employee with the same skill.
+    Excludes the absent employee and anyone already marked absent today.
     Returns the first match — no ranking by availability_pct at Day 1
     because new tenants have no shift data yet.
 
-    Called by:   handle_manager_checkin_reply()
-    Calls:       nothing (direct DB query)
+    Called by:   handle_manager_checkin_reply(), build_owner_briefing_from_checkin()
+    Calls:       EmployeeSkill, Skill (M2M join)
     Args:
-        absent_employee:   The Employee who is absent.
-        tenant_id:         Tenant scope — never cross-tenant.
-        db:                Sync SQLAlchemy Session — caller owns lifecycle.
-        already_absent_ids: IDs already confirmed absent today — exclude from results.
+        absent_employee:    The Employee who is absent.
+        tenant_id:          Tenant scope — never cross-tenant.
+        db:                 Sync SQLAlchemy Session — caller owns lifecycle.
+        already_absent_ids: IDs already confirmed absent today — excluded.
     Returns:
         A substitute Employee, or None if no match found.
     Side effects: None - read only DB query
     """
-    if not absent_employee.primary_skill:
+    # Get absent employee's first skill via M2M relationship
+    # skills relationship is already loaded via selectinload on Employee query
+    first_skill_name: Optional[str] = None
+    for emp_skill in absent_employee.skills:
+        if emp_skill.skill and emp_skill.skill.name:
+            first_skill_name = emp_skill.skill.name
+            break
+
+    if not first_skill_name:
+        # Employee has no skills recorded — cannot suggest substitute
         return None
 
     exclude_ids = already_absent_ids + [absent_employee.id]
 
+    # Find another active employee with the same skill via M2M join — no N+1
     substitute: Optional[Employee] = (
         db.query(Employee)
+        .join(EmployeeSkill, EmployeeSkill.employee_id == Employee.id)
+        .join(Skill, Skill.id == EmployeeSkill.skill_id)
         .filter(
             Employee.tenant_id == tenant_id,
-            Employee.is_active == True,  # noqa: E712
-            Employee.primary_skill == absent_employee.primary_skill,
+            Employee.status == "Active",
+            Skill.name == first_skill_name,
             Employee.id.notin_(exclude_ids),
         )
         .first()
     )
     return substitute
+
+
+def _get_employee_skill_name(employee: Employee) -> Optional[str]:
+    """
+    Get the first skill name for an employee from the M2M relationship.
+
+    Skills are stored in EmployeeSkill -> Skill, not as a column on Employee.
+    Used by build_absent_reply() and build_owner_briefing_from_checkin()
+    to display the skill context in messages.
+
+    Called by:   build_absent_reply(), build_owner_briefing_from_checkin()
+    Calls:       nothing (reads already-loaded relationship)
+    Args:
+        employee: Employee instance with skills relationship loaded.
+    Returns:
+        First skill name string, or None if no skills recorded.
+    Side effects: None - pure function
+    """
+    for emp_skill in employee.skills:
+        if emp_skill.skill and emp_skill.skill.name:
+            return emp_skill.skill.name
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -405,11 +446,11 @@ def build_absent_reply(
         Formatted plain-text WhatsApp reply string.
     Side effects: None - pure function
     """
-    name = absent_employee.name
-    skill = absent_employee.primary_skill or "general"
+    name = absent_employee.full_name
+    skill = _get_employee_skill_name(absent_employee) or "general"
 
     if substitute:
-        sub_name = substitute.name
+        sub_name = substitute.full_name
         sub_type = substitute.worker_type or "permanent"
         messages: dict[Language, str] = {
             "hindi": (
@@ -515,10 +556,12 @@ def build_owner_briefing_from_checkin(
     today_str = today.strftime("%d %b %Y")
 
     # Fetch absent employees in one query — no N+1
+    # selectinload pre-fetches skills so _get_employee_skill_name() has no lazy loads
     absent_employees: list[Employee] = []
     if state["absent_ids"]:
         absent_employees = (
             db.query(Employee)
+            .options(selectinload(Employee.skills).selectinload(EmployeeSkill.skill))
             .filter(
                 Employee.tenant_id == tenant_id,
                 Employee.id.in_(state["absent_ids"]),
@@ -553,14 +596,15 @@ def build_owner_briefing_from_checkin(
     skill_gaps: list[str] = []
     for emp in absent_employees:
         sub = find_substitute(emp, tenant_id, db, state["absent_ids"])
-        if not sub and emp.primary_skill:
-            skill_gaps.append(emp.primary_skill)
+        skill_name = _get_employee_skill_name(emp)
+        if not sub and skill_name:
+            skill_gaps.append(skill_name)
 
     # Build briefing lines
     lines: list[str] = [f"ZetaOps briefing — {today_str}"]
 
     if absent_employees:
-        names = ", ".join(e.name for e in absent_employees)
+        names = ", ".join(e.full_name for e in absent_employees)
         lines.append(f"Absent: {names}")
     else:
         lines.append("Attendance: All present")

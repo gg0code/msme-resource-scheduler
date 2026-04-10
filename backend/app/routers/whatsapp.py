@@ -753,7 +753,7 @@ async def _process_inbound_message(
     # This keeps the check-in flow time-bounded — managers can still query AI
     # freely for the rest of the day.
     if identity.phone_role == "manager":
-        from datetime import timezone as tz
+        from datetime import datetime as _dt, timezone as tz
         import zoneinfo
         from app.services.whatsapp_alerts import (
             CHECKIN_WINDOW_START_HOUR,
@@ -762,7 +762,7 @@ async def _process_inbound_message(
         from app.services.whatsapp_checkin import handle_manager_checkin_reply
 
         ist = zoneinfo.ZoneInfo("Asia/Kolkata")
-        now_ist = datetime.now(tz.utc).astimezone(ist)
+        now_ist = _dt.now(tz.utc).astimezone(ist)
         in_checkin_window = (
             CHECKIN_WINDOW_START_HOUR <= now_ist.hour < CHECKIN_WINDOW_END_HOUR
         )
