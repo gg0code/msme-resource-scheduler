@@ -148,7 +148,8 @@ def create_job(
     db.add(job)
     db.flush()
     for r in payload.skill_requirements:
-        db.add(JobSkillRequirement(job_id=job.id, skill_id=r.skill_id,
+        db.add(JobSkillRequirement(
+            tenant_id=job.tenant_id, job_id=job.id, skill_id=r.skill_id,
             min_skill_level=r.min_skill_level, employees_required=r.employees_required))
     db.commit()
     db.refresh(job)
@@ -187,7 +188,7 @@ def update_job(
         if field == "skill_requirements":
             db.query(JobSkillRequirement).filter(JobSkillRequirement.job_id == job_id).delete()
             for r in (value or []):
-                db.add(JobSkillRequirement(job_id=job_id, skill_id=r["skill_id"],
+                db.add(JobSkillRequirement(tenant_id=job.tenant_id,job_id=job_id, skill_id=r["skill_id"],
                     min_skill_level=r["min_skill_level"], employees_required=r["employees_required"]))
         else:
             setattr(job, field, value)
