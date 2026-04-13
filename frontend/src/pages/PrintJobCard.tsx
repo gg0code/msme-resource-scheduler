@@ -172,17 +172,18 @@ export default function PrintJobCard() {
   const [printedAt]           = useState(new Date())
 
   const load = async () => {
+    if (!jobId) return
     setLoading(true); setError('')
     try {
       // Always fetch job details first
-      const jobRes = await apiClient.get(JOBS.detail(jobId))
+      const jobRes = await apiClient.get(JOBS.detail(Number(jobId)))
       const jobDetail: JobDetail = jobRes.data
       setJob(jobDetail)
 
       // Only fetch QR tokens for active (non-completed) jobs
       const isDone = ['Completed', 'Cancelled'].includes(jobDetail.status)
       if (!isDone) {
-        const tokenRes = await apiClient.post(JOBS.scanTokens(jobId))
+        const tokenRes = await apiClient.post(JOBS.scanTokens(Number(jobId)))
         setData(tokenRes.data)
       }
     } catch (err: unknown) {

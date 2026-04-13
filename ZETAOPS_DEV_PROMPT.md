@@ -1,8 +1,10 @@
 # ZETAOPS_DEV_PROMPT.md
 # ZetaOps Copilot - Master Development Prompt
-# Version: 6.0 — updated Apr 8 2026. Reflects revised version roadmap with
-#           manager input flow, Day 1 simple table, ERP connector strategy,
-#           4-vertical MSME focus, language support, RAG architecture.
+# Version: 7.0 — updated Apr 13 2026. Added Section 8 per-error TypeScript
+#           prevention rules (TS6133/2367/2322/2339/2345). Added Section 22
+#           Session Continuity Protocol with handoff block format and AI rules.
+#           Expanded Section 11 dead code audit. Extended Section 15 with all
+#           TypeScript error patterns and root causes.
 # Paste this at the start of every Claude session involving code changes.
 # =============================================================================
 
@@ -342,7 +344,10 @@ SECTION 8 - TYPESCRIPT HYGIENE
 =============================================================================
 
 - Never use implicit any - every parameter and return must be typed
-- catch (err: unknown) with: const msg = err instanceof Error ? err.message : String(err)
+- catch (err: unknown) pattern - ALWAYS cast before accessing properties:
+    const msg = (err as { response?: { data?: { detail?: string } } })
+                  ?.response?.data?.detail ?? 'Fallback message'
+  Never: err?.response  (TS2339 - cannot optional-chain unknown)
 - Never leave unused imports - they are compile errors in strict mode
 - Use import type for type-only imports
 - Never use React.FC - plain function signatures with explicit prop types
@@ -353,6 +358,23 @@ SECTION 8 - TYPESCRIPT HYGIENE
     (e: React.MouseEvent<HTMLButtonElement>)
 - useRef must specify type: useRef<HTMLDivElement>(null)
 - React.CSSProperties for inline style objects
+
+QUICK-REFERENCE: error code → root cause → section with full pattern
+
+  TS6133  Declared but never used      → multi-session orphan   → Section 22A
+  TS2367  No overlap in comparison     → as const narrows union → Section 22B
+                                       → !(x) === y precedence  → Section 22B
+  TS2322  Type not assignable (JSX)    → stale props at call site→ Section 22C
+  TS2322  Type not assignable (field)  → ternary widens to str  → Section 22C
+  TS2339  Property does not exist      → inline cast incomplete  → Section 22D
+                                       → err: unknown not cast  → Section 22F
+  TS2345  Argument type mismatch       → useParams string|undef → Section 22E
+  TS2554  Wrong argument count         → call site arity mismatch→ Section 22G
+
+For full prevention rules, code patterns, and root cause explanations:
+  → Section 22  (TypeScript Error Prevention: Patterns and Root Causes)
+  → Section 23  (AI Session Rules for Frontend Code Changes)
+  → Section 24  (Session Continuity Protocol - handoff blocks, session start/end)
 
 
 =============================================================================
@@ -505,6 +527,28 @@ STEP 8 - DEAD CODE AUDIT
   No debug files:           remove debug_*.py, check_*.py, scratch files
   No hardcoded UI labels:   grep -r '"Jobs"\|"Machines"\|"Employees"' frontend/src/pages/
 
+  TYPESCRIPT DEAD CODE - run after every feature change or component upgrade:
+  For each file changed, answer these 4 questions:
+
+  Q1. Did I remove a feature/block/component?
+      -> List every import that was the sole consumer of.
+         List every useState/useCallback/useQuery that fed only that block.
+         Remove all of them. Check for secondary orphans (variables that only
+         fed the now-removed variables).
+
+  Q2. Did I upgrade a component to fetch its own data?
+      -> Remove the props at the call site, the state that computed them,
+         the API calls that populated that state, and the imports those
+         API calls required. All in the same commit.
+
+  Q3. Did I add a variable/state/constant?
+      -> Confirm it is read somewhere in the same file. If not, delete it now.
+
+  Q4. Did I change a union type or add/remove values from a literal union?
+      -> Search for every comparison against that field (=== 'value').
+         Ensure all compared values exist in the union.
+         Ensure no as const is narrowing the field to a single literal.
+
 STEP 9 - ROUTE CONSISTENCY
   Every file in frontend/src/pages/ must have a route in App.tsx
   Every new API endpoint must have a constant in api_endpoints.ts
@@ -644,6 +688,49 @@ FIX:   Change to '../api/api_employees' (underscore prefix)
 ERROR: tsc "Property 'X' does not exist on type 'Job'"
 FIX:   Add field X to Job interface in frontend/src/types/types_index.ts
 
+ERROR: TS6133 'X' is declared but its value is never read
+FIX:   Run the cascade orphan check (Section 11, Step 6A).
+       Remove X. Then ask: what fed X? Is that feeder now orphaned?
+       Repeat until tsc reports zero TS6133 errors.
+       Common root cause: a feature or component was removed in a previous
+       session but its state, API calls, and imports were not cleaned up.
+
+ERROR: TS2367 comparison appears unintentional, types have no overlap
+FIX-A: If comparing form field to union values (e.g. start_mode === 'flexible'):
+       Find the initialisation of that field in emptyDetails() or similar.
+       Change:  'pick_a_date' as const       (single literal type)
+       To:      'pick_a_date' as Job['start_mode']   (full union type)
+FIX-B: If comparing result of !x to a number (e.g. !x.field === id):
+       This is operator precedence. Change to: x.field !== id
+
+ERROR: TS2322 type not assignable (chained .map().filter())
+FIX:   TypeScript widens literal types through chained array methods.
+       Add explicit cast on the narrowed field in the map callback:
+       worker_type: (val === 'contractor' ? 'contractor' : 'permanent') as WorkerRow['worker_type']
+
+ERROR: TS2322 on a JSX component — Property 'X' does not exist on type 'IntrinsicAttributes'
+FIX:   The component no longer accepts those props (it may now fetch its own data).
+       Open the component file and read its function signature.
+       If it takes no props: remove all props from the call site.
+       If it still needs props: add the props interface back to the component.
+       Never guess — read the component before changing the call site.
+
+ERROR: TS2339 Property 'X' does not exist on type 'Y' (inline cast)
+FIX:   Find the cast: (value as { field1: string }).
+       Add the missing field: (value as { field1: string; X?: string }).
+       Do not cast to any. Add the field with its correct type.
+
+ERROR: TS2339 on useParams value passed to a function expecting number
+FIX:   useParams always returns string | undefined.
+       Add guard: if (!jobId) return
+       Add conversion: Number(jobId) at every call site that expects number.
+
+ERROR: TS2345 Expected N arguments, but got N+1
+FIX:   The function signature and the call site disagree on argument count.
+       Either: update the function to accept the extra argument
+       Or:     remove the extra argument from the call site.
+       Check all other call sites before changing the function signature.
+
 ERROR: Frontend shows blank white screen
 FIX:   Check browser console. Check backend on port 8000.
        Check VITE_API_BASE_URL in frontend/.env.local
@@ -669,6 +756,54 @@ ERROR: RAG context not injecting
 FIX:   Check rag_data/{tenant_id}/ folder exists and has .txt files.
        Check seed_rag_from_template() was called at registration.
        Check _build_system_prompt() reads from correct tenant folder.
+
+ERROR: TS6133 'X' is declared but its value is never read
+CAUSE: One of four patterns:
+       (a) Variable declared for a feature that was changed or removed.
+       (b) Import left behind after its sole consumer was deleted.
+       (c) State/callback that only fed a component prop that no longer exists.
+       (d) Variable computed inside an IIFE but never rendered.
+FIX:   Trace forward from the declaration: where is it read?
+       If nowhere - delete it. Then check if anything that fed it is now also
+       orphaned (secondary orphans). Delete those too.
+       Run npx tsc --noEmit again to confirm no new TS6133s appeared.
+
+ERROR: TS2367 This comparison appears to be unintentional (no overlap)
+CAUSE: One of three patterns:
+       (a) Form field typed as a single literal (e.g. 'pick_a_date') due to
+           as const, then compared to other literals in the union. The field
+           can never hold those values as far as TypeScript knows.
+       (b) !x === y - operator precedence turns a number comparison into
+           boolean === number. Always means x !== y was intended.
+       (c) A literal union type was narrowed and a comparison targets a value
+           outside the narrowed set.
+FIX (a): Change as const to as Job['fieldName'] to preserve the full union.
+FIX (b): Replace !(x) === y with x !== y.
+FIX (c): Widen the type to include the compared value, or fix the comparison.
+
+ERROR: TS2322 Type 'string' not assignable to '"a" | "b"'
+CAUSE: TypeScript widens ternary result to string when result is assigned to a
+       union-typed field, especially through a .filter()/.map() chain.
+       Or: component upgraded to fetch own data - call site still passes old props.
+FIX (ternary): Cast: (x === 'a' ? 'a' : 'b') as WorkerRow['worker_type']
+               Use the interface's own field type as the cast target.
+FIX (props):   Remove the stale props from the call site. Also remove the state
+               and API calls that populated those props.
+
+ERROR: TS2339 Property 'X' does not exist on type 'Y'
+CAUSE: Local interface or inline cast does not include a field accessed downstream.
+       Common: err?.response on unknown type (err not cast before use).
+       Common: inline cast built with minimal fields, more fields added at use site.
+FIX (err):     (err as { response?: { data?: { detail?: string } } })?.response...
+FIX (interface): Add the missing field (optional with ?) to the interface or cast.
+               Before writing any cast, list every field you will access from it.
+
+ERROR: TS2345 Argument type 'string | undefined' not assignable to 'number'
+CAUSE: useParams() returns string | undefined. Route param passed directly to
+       a function that expects number.
+FIX:   Guard: if (!jobId) return
+       Convert: Number(jobId) at the call site.
+       Never pass raw route params to typed API helper functions.
 
 
 =============================================================================
@@ -1085,6 +1220,340 @@ SECTION 21 - RAG ARCHITECTURE
   v6.3 -> pgvector: tenant_knowledge_base table, embeddings, similarity search
   Flat file folder structure is unchanged in pgvector migration
 
+
+=============================================================================
+SECTION 22 - TYPESCRIPT ERROR PREVENTION: PATTERNS AND ROOT CAUSES
+=============================================================================
+
+This section documents the exact error patterns found in this codebase.
+Every AI session working on frontend code must read this section first.
+
+------------------------------------------------------------------------------
+22A - THE MULTI-SESSION ORPHAN PROBLEM (root cause of most TS6133)
+------------------------------------------------------------------------------
+
+This codebase is built across multiple AI sessions. Each session sees only
+what it is told. The most common error pattern:
+
+  Session N:   Writes feature X. Creates state, API call, component, import.
+  Session N+1: Removes or replaces feature X. Removes the consumer.
+               Does NOT remove the state / API call / import that fed it.
+  Result:      Orphaned code accumulates. TS6133 errors appear.
+
+Prevention — the AI must always do this before removing anything:
+  BEFORE removing code, ask: "What feeds this? Is that feeder now orphaned?"
+  AFTER removing code, run tsc. Any TS6133 = cascade is incomplete.
+
+Common orphan chains in this codebase:
+  Component removed → helper functions/consts it used → their imports
+  Props removed from component call site → state that built those values
+                                         → API calls that populated that state
+                                         → imports only used by those API calls
+  Feature cancelled mid-session → useState with value never read
+                                 → useEffect that called only the setter
+
+------------------------------------------------------------------------------
+22B - FORM STATE UNION TYPES (root cause of most TS2367)
+------------------------------------------------------------------------------
+
+Pattern: a form state object is initialised with as const on a field that
+holds a union value. as const creates a SINGLE LITERAL type. Every
+comparison to other union members then has "no overlap".
+
+  emptyDetails = () => ({
+    start_mode: 'pick_a_date' as const,   // TYPE IS: 'pick_a_date'
+  })
+  details.start_mode === 'flexible'        // TS2367: 'pick_a_date' vs 'flexible'
+
+Fix: use as InterfaceName['fieldName'] for any field that will change value:
+  start_mode: 'pick_a_date' as Job['start_mode']  // TYPE IS: full union
+
+Rule: as const is correct only for values that are CONSTANTS — they never
+change and are never compared to other members of a wider set.
+For form fields that hold a union, always use as UnionType.
+
+------------------------------------------------------------------------------
+22C - PROPS AND COMPONENT CONTRACT SYNC (root cause of most TS2322 on JSX)
+------------------------------------------------------------------------------
+
+When a component is refactored to fetch its own data, its props interface
+shrinks or disappears. The call site MUST be updated in the same change.
+This never happens automatically across sessions.
+
+Before changing a component's props interface, always:
+  1. Search for all usages: grep -r "ComponentName" frontend/src/
+  2. List every call site
+  3. Update the interface AND every call site in the same commit
+
+If a component now takes no props:
+  CORRECT: <GettingStarted />
+  WRONG:   <GettingStarted employeeCount={empCount} machineCount={machCount} />
+           (TS2322: props not assignable to IntrinsicAttributes)
+
+After removing props from a call site, run the cascade orphan check.
+The state and API calls that built those values are likely now dead.
+
+------------------------------------------------------------------------------
+22D - INLINE TYPE CASTS (root cause of most TS2339 on cast values)
+------------------------------------------------------------------------------
+
+When you cast a value to a shape: (x as { field1: string })
+TypeScript trusts you that field1 exists. It does NOT trust you that
+any other field exists. Accessing x.field2 after that cast = TS2339.
+
+Rule: the inline cast shape must include EVERY FIELD accessed after the cast.
+  WRONG:   (cache as { skill_requirements?: Req[] })?.feasible
+           <- feasible not in the cast shape = TS2339
+  CORRECT: (cache as { feasible?: boolean; skill_requirements?: Req[] })?.feasible
+
+Before writing code that accesses a property, check the interface/cast shape.
+If the property is not there, add it first.
+
+------------------------------------------------------------------------------
+22E - useParams IS ALWAYS string | undefined (root cause of TS2345)
+------------------------------------------------------------------------------
+
+useParams<{ jobId: string }>() does NOT return { jobId: string }.
+It returns { jobId: string | undefined }.
+The undefined is real and TypeScript enforces it.
+
+CORRECT pattern for every route param that feeds a numeric API:
+  const { jobId } = useParams<{ jobId: string }>()
+  if (!jobId) return                           // guard undefined
+  const id = Number(jobId)                     // convert to number
+  apiClient.get(ENDPOINT(id))                  // safe
+
+Never skip the guard. Never pass jobId directly to a function taking number.
+
+------------------------------------------------------------------------------
+22F - err: unknown REQUIRES EXPLICIT CAST (root cause of TS2339 on err)
+------------------------------------------------------------------------------
+
+catch (err: unknown) — err has no known shape. Any property access is TS2339.
+
+CORRECT pattern in this codebase:
+  catch (err: unknown) {
+    const msg = (err as { response?: { data?: { detail?: string } } })
+      ?.response?.data?.detail ?? 'Default error message'
+  }
+
+The cast shape must include every property you intend to access.
+Never use err instanceof Error alone when you need .response — that is the
+Axios error shape, not a plain Error.
+
+------------------------------------------------------------------------------
+22G - FUNCTION ARITY MUST MATCH DEFINITION (root cause of TS2554)
+------------------------------------------------------------------------------
+
+When a helper function is defined with N parameters, every call site must
+pass exactly N arguments. When a call site is changed, verify the definition.
+
+  showToast(msg: string)           <- 1 parameter
+  showToast(msg, 'error')          <- TS2554: expected 1, got 2
+
+Fix options (choose one):
+  a) Remove the extra argument:  showToast(msg)
+  b) Update the definition:      showToast(msg: string, type?: string)
+  Always check ALL other call sites before choosing option b.
+
+
+=============================================================================
+SECTION 23 - AI SESSION RULES FOR FRONTEND CODE CHANGES
+=============================================================================
+
+These rules apply to every AI session that touches frontend TypeScript files.
+The AI must follow them without being reminded.
+
+RULE 1 — READ BEFORE WRITE
+  Before generating any code for a file, read:
+  - The WHO CALLS THIS FILE comment in the file header
+  - The WHAT THIS FILE CALLS comment in the file header
+  - The relevant section of Section 22 for the error type being fixed
+
+RULE 2 — STATE THE BLAST RADIUS BEFORE CHANGING ANYTHING
+  Before modifying any export, prop interface, shared type, hook signature,
+  or API call, state out loud:
+  - Which other files import this
+  - Whether this change requires updates in those other files
+  - Whether this is local-only or shared-contract change
+  If a shared file must change: stop and ask for approval first.
+
+RULE 3 — RUN THE CASCADE CHECK ON EVERY REMOVAL
+  Every removal has a cascade. State the full cascade before committing.
+  Format:
+    Removing: [X]
+    X was fed by: [Y]
+    Y is now orphaned: [yes/no]
+    If yes, also removing: [Y]
+    Y was fed by: [Z] ...
+    Cascade complete: [yes/no]
+
+RULE 4 — NEVER USE as const ON UNION-TYPED FORM FIELDS
+  If a form field holds one value from a union type (e.g. start_mode),
+  always initialise with as UnionType, never as const.
+  Check: does the field get compared to other union members later?
+  If yes: as const is wrong, regardless of what the current default value is.
+
+RULE 5 — SYNC COMPONENT PROPS AND CALL SITES TOGETHER
+  A component's props interface and its call sites are a contract.
+  If either side changes, the other side must change in the same session.
+  Never end a session with one side updated and the other stale.
+
+RULE 6 — RUN tsc MENTALLY BEFORE OUTPUTTING CODE
+  Before outputting any code change, mentally verify:
+  [ ] Every declared variable is read somewhere (not just written/set)
+  [ ] Every import is used
+  [ ] Every comparison involves compatible types
+  [ ] Every inline cast includes all properties accessed after it
+  [ ] useParams values are guarded and converted before use
+  [ ] Function call argument counts match definitions
+  [ ] Component call sites match the component's current props interface
+
+RULE 7 — ONE tsc --noEmit AT THE END OF EVERY RESPONSE
+  If the session involves code changes, the final line of the response
+  must remind the user to run: npx tsc --noEmit
+  The expected output is: (empty) meaning zero errors.
+  If any errors remain, they must be fixed before the session closes.
+
+RULE 8 — HANDOFF NOTE WHEN CLOSING
+  At the end of every session that changed frontend files, produce:
+    HANDOFF NOTE:
+    Files changed: [list]
+    Types/interfaces modified: [describe changes precisely]
+    Cascade orphans removed: [list]
+    Deferred: [anything incomplete]
+    Build status: [zero errors / N errors remaining]
+    Next session should start with: npx tsc --noEmit
+
+
+=============================================================================
+SECTION 24 - SESSION CONTINUITY PROTOCOL
+=============================================================================
+
+This codebase is built across multiple AI sessions. Most TypeScript errors
+accumulate because Session N+1 does not know what Session N left incomplete,
+changed direction on, or scaffolded for future use. This section governs
+how every session starts and ends to prevent that accumulation.
+
+-----------------------------------------------------------------------------
+HOW TO START A SESSION
+-----------------------------------------------------------------------------
+
+Paste this prompt first. Then paste the SESSION HANDOFF BLOCK from the
+previous session (if one exists). Then state your request.
+
+If no handoff block exists (first session or it was not saved):
+  Tell the AI: "No handoff block. Starting fresh. Check for existing errors
+  first with: npx tsc --noEmit, then proceed with my request."
+
+Session open question - ask the AI at the start of every session involving
+more than one file:
+
+  "Before writing any code, tell me:
+   1. Which files will you touch?
+   2. For each file, which existing variables/imports/state will become unused
+      as a result of your change?
+   3. Which prop interfaces at call sites will need updating?"
+
+Do not let the AI proceed until it has answered all three questions.
+
+-----------------------------------------------------------------------------
+HOW TO END A SESSION
+-----------------------------------------------------------------------------
+
+At the end of every session that produced code changes, ask the AI to output
+a SESSION HANDOFF BLOCK using this exact format. Save it somewhere (a note,
+a comment, a Slack message to yourself). Paste it at the start of the next
+session.
+
+SESSION HANDOFF BLOCK FORMAT:
+---
+SESSION HANDOFF — [date] — [brief description of what was done]
+
+FILES CHANGED:
+  - src/pages/Jobs.tsx              v[old] -> v[new]  [one-line summary]
+  - src/scheduler/useScheduler.ts   v[old] -> v[new]  [one-line summary]
+
+INCOMPLETE / DEFERRED:
+  - [anything that was scaffolded but not finished]
+  - [any variable/state declared that has no consumer yet]
+  - [any TODO left in code]
+
+VARIABLES INTENTIONALLY LEFT UNUSED:
+  - [none] OR:
+  - src/pages/Jobs.tsx: totalOV, totalCosts — scaffolded for planned tfoot
+    totals row, will be used in next session when tfoot display is added
+
+API SHAPE ASSUMPTIONS MADE:
+  - [any API field accessed that is assumed to exist on the backend response
+    but was not verified against the actual backend schema]
+
+NEXT SESSION MUST:
+  - [specific actions the next session should take before anything else]
+  - Example: "Run npx tsc --noEmit first - 2 known warnings expected"
+  - Example: "Check that original_start_date is returned by GET /api/jobs/"
+---
+
+-----------------------------------------------------------------------------
+AI RULES FOR SESSION CONTINUITY (include in every code-generation prompt)
+-----------------------------------------------------------------------------
+
+Add these instructions whenever asking an AI to write or modify code:
+
+1. BEFORE WRITING: Read the WHO CALLS THIS FILE and WHAT THIS FILE CALLS
+   header comments in every file you will touch. State them before coding.
+
+2. BEFORE REMOVING any block of code: List every import, state variable,
+   callback, and query whose ONLY consumer was that block. Remove all of them
+   in the same change. Do not leave producers without consumers.
+
+3. BEFORE ADDING any variable/state/import: State where it will be read.
+   If the consumer does not exist yet, declare the variable in the same change
+   as the consumer - never before.
+
+4. WHEN UPGRADING a component to self-fetch data (removing props):
+   In the same change: remove props from call site + state that computed them
+   + API calls that populated that state + imports those API calls required.
+   All four layers. Never just the props.
+
+5. AFTER EVERY CHANGE: Mentally run npx tsc --noEmit. If any variable you
+   touched is now only declared and never read, remove it before outputting.
+
+6. SECONDARY ORPHAN CHECK: After removing any variable X, ask:
+   "Does anything that computed/fetched X now compute/fetch nothing?"
+   If yes - remove those too. Repeat until no orphans remain.
+
+7. OPERATOR PRECEDENCE: Never write !(x) === y. This compares boolean to
+   the right-hand side value and TypeScript will catch it as TS2367.
+   Always write x !== y.
+
+8. FORM STATE UNIONS: Never use as const on a field that will be compared
+   to multiple values. Use as InterfaceName['fieldName'] to preserve the
+   full union type.
+
+9. ROUTE PARAMS: Always guard useParams() results before use:
+   if (!paramId) return
+   Always convert to Number() before passing to typed API helpers.
+
+10. INLINE CASTS: Before writing (data as { field: type }), list every field
+    you will access from data. Include all of them in the cast. A cast written
+    with 3 fields that is later accessed for a 4th field causes TS2339.
+
+-----------------------------------------------------------------------------
+WHAT TO ASK AT SESSION BOUNDARIES
+-----------------------------------------------------------------------------
+
+START OF SESSION - ask the AI:
+  "Here is my handoff block from last session: [paste block]
+   Before starting, confirm:
+   - Are there any variables from last session's INCOMPLETE list that are
+     now declared but still have no consumer?
+   - Does npx tsc --noEmit currently show zero errors? If not, fix those first."
+
+END OF SESSION - ask the AI:
+  "Generate a SESSION HANDOFF BLOCK for what we did today.
+   Include any variables you declared that have no consumer yet,
+   any API shape assumptions you made, and what the next session must do first."
 
 =============================================================================
 END OF PROMPT - paste at the start of every Claude dev session

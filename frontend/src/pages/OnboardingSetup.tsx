@@ -205,7 +205,7 @@ function CsvUpload({ skills, onLoaded, onSkip }: CsvUploadProps) {
           id:          uid(),
           full_name:   row.full_name ?? '',
           skill_id:    matchedSkill?.id ?? null,
-          worker_type: (row.worker_type === 'contractor' ? 'contractor' : 'permanent'),
+          worker_type: (row.worker_type === 'contractor' ? 'contractor' : 'permanent') as WorkerRow['worker_type'],
         }
       }).filter(r => r.full_name.trim())
 

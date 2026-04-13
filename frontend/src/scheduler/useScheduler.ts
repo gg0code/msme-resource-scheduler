@@ -96,10 +96,12 @@ export interface SchedulerRunSummary {
 // Minimal job shape needed for status computation
 // Matches the shape returned by GET /api/jobs/
 interface JobForStatus {
-  id:        number
-  name:      string
-  status:    string
-  is_locked: boolean
+  id:                   number
+  name:                 string
+  status:               string
+  is_locked:            boolean
+  original_start_date?: string | null
+  original_end_date?:   string | null
 }
 
 // Internal run result stored after each scheduler execution
