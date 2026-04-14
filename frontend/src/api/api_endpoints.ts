@@ -229,9 +229,12 @@ const HEALTH_CHECK_ROUTES: string[] = [
   SCHEDULER.entries,
 ]
 
+let _healthCheckFired = false
 export function runDevHealthCheck(): void {
   if (!import.meta.env.DEV) return
-
+  if (_healthCheckFired) return    
+  _healthCheckFired = true
+  
   console.groupCollapsed('[ZetaOps] API Health Check - checking all routes...')
 
   Promise.allSettled(
