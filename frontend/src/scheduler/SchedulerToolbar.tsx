@@ -255,7 +255,7 @@ export default function SchedulerToolbar() {
 
   // Build a job name/priority map from cached query data
   const cachedJobs = (qc.getQueryData<{ id: number; name: string; priority: string; is_locked: boolean }[]>(['jobs'])) ?? []
-  const jobMap = Object.fromEntries(cachedJobs.map(j => [j.id, { name: j.name, priority: j.priority }]))
+  const jobMap = Object.fromEntries(cachedJobs.map(j => [j.id, { name: j.name, priority: j.priority, is_locked: j.is_locked }]))
 
   async function handleLockJob(jobId: number) {
     await apiClient.patch(JOBS.update(jobId), { is_locked: true })

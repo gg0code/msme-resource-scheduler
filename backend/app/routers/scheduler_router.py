@@ -373,7 +373,14 @@ def _load_steps(db: Session, tenant_id: int) -> List[StepInput]:
         ref_start = snap["original_start_date"] or snap["start_date"]
         ref_end   = snap["original_end_date"]   or snap["end_date"]
         job_days  = max(1, (ref_end - ref_start).days + 1)
-        duration_per_day = int((snap["hours_per_day"] or 8.0) * 60)
+        # Cap duration to shift window so steps always fit.
+        # A job with 10h/day in a 9h shift gets 9h per synthetic step.
+        # The job takes one extra calendar day but every step resolves.
+        shift_minutes = int(
+            (_DEFAULT_SHIFT_END.hour * 60 + _DEFAULT_SHIFT_END.minute) -
+            (_DEFAULT_SHIFT_START.hour * 60 + _DEFAULT_SHIFT_START.minute)
+        )
+        duration_per_day = min(int((snap["hours_per_day"] or 8.0) * 60), shift_minutes)
         machines = job_machine_map.get(job_id, [])
         helpers  = job_helper_map.get(job_id, [])
 
