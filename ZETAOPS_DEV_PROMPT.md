@@ -1,6 +1,17 @@
 # ZETAOPS_DEV_PROMPT.md
 # ZetaOps Copilot - Master Development Prompt
-# Version: 7.0 — updated Apr 13 2026. Added Section 8 per-error TypeScript
+# Version: 7.2 - updated Apr 20 2026. Reshuffled v6.x roadmap after IDC
+#           feature analysis: v6.3 now KPI Baseline (retention moat), v6.4
+#           Material Estimator as standalone WhatsApp surface, v6.5 Compliance
+#           Tracker pulled forward from v7.1. Old v6.3 pgvector becomes v6.7,
+#           old v6.5 Supervisor Agent becomes v6.8. Updated migration head
+#           reference (line 48) from 022 to 023 to match actual DB state.
+#           Marked v5.12 / v5.15 / v5.16 / v6.0 / v6.1 / v6.2 as Done.
+#
+# Version: 7.1 - updated Apr 20 2026. Migration head corrected to 023 after
+#           v5.16 Day 1 Simple Table ship.
+#
+# Version: 7.0 - updated Apr 13 2026. Added Section 8 per-error TypeScript
 #           prevention rules (TS6133/2367/2322/2339/2345). Added Section 22
 #           Session Continuity Protocol with handoff block format and AI rules.
 #           Expanded Section 11 dead code audit. Extended Section 15 with all
@@ -30,8 +41,8 @@ Backend:   backend/
 Frontend:  frontend/
 Branches:  v5-whatsapp (ACTIVE — all new work), v4-dev (FROZEN — bug fixes only)
            v6-ai (CREATE from v5-whatsapp when starting v6.0 work)
-Current:   v5-whatsapp tag v5.12-role-language (build in progress)
-Migration: head = 023 (source field on Employee + Machine shipped in v5.16)
+Current:   v5-whatsapp at tag green-baseline (v6.2-ts-clean + test suite fixes, 199 passing)
+Migration: head = 023 (source + worker_type fields on Employee + Machine, shipped in v5.16)
 
 Test tenant: what@what.what / qazx1234 / tenant_id=12 / phone: +919876543210
 
@@ -45,7 +56,7 @@ Code is not done until it passes ALL verification gates. "Works in dev" is not d
   Frontend:  npx tsc --noEmit          - zero errors, no exceptions
   Backend:   python -m py_compile      - zero errors, no deprecated patterns
   Tests:     pytest tests/ -m "not integration" -v  - zero failures
-  Migration: alembic heads             - exactly ONE head (currently: 022)
+  Migration: alembic heads             - exactly ONE head (currently: 023)
 
 
 =============================================================================
@@ -823,42 +834,35 @@ CORE PRINCIPLE:
   Everything that makes AI smarter belongs in V6.
   Everything that opens the ERP pipe belongs in V7.
 
-CURRENT: v5.10-proactive-alerts
+CURRENT: green-baseline (v6.2-ts-clean + test cluster fixes, 199 tests passing, Apr 20 2026)
 ACTIVE BRANCH: v5-whatsapp
 
 -----------------------------------------------------------------------------
-WHAT YOU CAN BUILD RIGHT NOW - IN ORDER
+SHIPPED VERSIONS (reference only - do not modify logic)
 -----------------------------------------------------------------------------
 
-v5.12  Role Limiting + Language
-  Dependency: None - build first
+v5.12  Role Limiting + Language                          [DONE Apr 8 2026]
   - phone_role enforcement: owner / manager / operator
   - 3-language support: Hindi / Hinglish / English
   - detect_language() in whatsapp_responses.py
   - LANGUAGE_INSTRUCTION in _build_system_prompt()
   - Role check in detect_write_intent() BEFORE AI is called
   - Blocked actions never reach AI layer
-  Unlocks: Manager and owner have structurally different WhatsApp experiences.
-           Foundation for all conversation design that follows.
+  Delivered: Manager and owner have structurally different WhatsApp experiences.
 
-v5.16  Day 1 Simple Table
-  Dependency: v5.12 done
+v5.16  Day 1 Simple Table                                [DONE Apr 9 2026]
   - First screen a new tenant sees after registration - before Gantt, before jobs
   - Worker name + primary skill (one word: welder, stitching, cutting, finishing)
   - Worker type: permanent or contractor
   - Machine name + machine type
-  - Nothing else - no hourly rates, no availability pct, no shift timings
   - Onboarding question: "Do you have employee/job data in SAP, Tally, or Excel?"
     Yes -> ERP path placeholder (v7.0), No -> proceed with this table
-  - Migration 023: add source field to Employee (manual | whatsapp | erp_sync)
-  - Migration 023: add source field to Machine (manual | whatsapp | erp_sync)
-  - Migration 023: add worker_type field to Employee (permanent | contractor)
-  Unlocks: From Day 1, manager saying "Suresh nahi aaya" gets immediate substitute
-           suggestion. No week of learning needed. Owner briefing has context on
-           Day 1 first absence. source field keeps v7.0 a sprint not a rewrite.
+  - Migration 023: source field on Employee + Machine (manual | whatsapp | erp_sync)
+  - Migration 023: worker_type field on Employee (permanent | contractor)
+  Delivered: Day 1 manager input has structural meaning. source field keeps
+             v7.0 ERP a sprint not a rewrite. NEVER REMOVE source field.
 
-v5.15  Manager Input Flow
-  Dependency: v5.16 done - seed data must exist before manager input means anything
+v5.15  Manager Input Flow                                [DONE Apr 10 2026]
   TWO DISTINCT WHATSAPP FLOWS - not one:
 
   MANAGER PHONE (7:00am) - input channel:
@@ -867,51 +871,164 @@ v5.15  Manager Input Flow
     against v5.16 seed table
   - Absent worker identified -> skill looked up -> substitute suggested immediately
   - "Machines theek hain?" - manager flags downtime -> writes to unavailability table
-  - "Aaj ke main kaam kya hain?" - manager states work -> maps to skill requirements
   - All inputs write to availability engine
-  - Conversation ends: "Got it. Sahab ko summary bhej raha hoon."
 
   OWNER PHONE (7:15am) - output channel:
-  - Single clean briefing generated FROM manager inputs - not from scheduled data alone
+  - Single clean briefing generated FROM manager inputs
   - Format: who present, who absent, skill gap, order at risk, one suggested action
   - No questions asked to owner - signal only, zero input required
-  - Owner reads, acts, moves on
 
-  Unlocks: Owner briefing grounded in real morning reality. Manager has useful
-           daily interaction. Attendance, machine status, active orders captured
-           daily with zero web UI. By end of week 1: real attendance patterns,
-           skill usage, machine reliability all in system passively.
+  Delivered: WhatsApp loop is real in mock mode. Ready for v5.11 go-live.
 
-v6.0  Schema Context
-  Dependency: v5.15 done
+v6.0  Schema Context                                     [DONE Apr 10 2026]
   - schema_context.py: complete DB schema described for AI consumption
   - context_builder.py: assembles tenant context before every AI query
   - AI knows exact table structure, field names, relationships
-  - tenant_id mandate enforced in all AI-generated queries - never cross-tenant
-  Unlocks: "Who is free today for stitching?" is a real query, not a guess.
-           Foundation for all intelligent features in v6.x.
+  - tenant_id mandate enforced in all AI-generated queries
+  Delivered: Foundation for all intelligent features in v6.x.
 
-v6.1  RAG Pipeline
-  Dependency: v6.0 done
+v6.1  RAG Pipeline                                       [DONE Apr 10 2026]
   - rag_data/_templates/ for 4 verticals: printing, manufacturing, fabrication,
     field_service (chemical excluded - batch-first, different entry model)
   - Tenant seeding at registration: seed_rag_from_template(tenant_id, industry_type)
   - _build_system_prompt() injects tenant RAG context before every AI query
-  - Flat file MVP - pgvector migration in v6.3
-  Unlocks: AI knows industry norms. "Kitna paper chahiye 5000 brochures ke liye?"
-           works. Each tenant gets industry-personalised knowledge from Day 1.
+  - Flat file MVP (pgvector migration deferred to v6.7)
+  Delivered: AI knows industry norms. "Kitna paper chahiye 5000 brochures ke liye?"
+             returns grounded answer. Foundation for v6.4 Material Estimator surface.
 
-v6.2  Industry Labels
-  Dependency: v6.1 done
+v6.2  Industry Labels + TS Cleanup                       [DONE Apr 13 2026]
   - IndustryContext.tsx: reads industry_type from AuthContext at login
   - useLabels() hook: dynamic labels throughout UI
-  - Sidebar labels dynamic - never hardcoded "Jobs", "Employees", "Machines"
-  - Page titles dynamic per industry
-  - RegisterPage auth bug fix: replace localStorage.setItem directly with
-    AuthContext.register()
-  - Verify: grep -r '"Jobs"\|"Machines"\|"Employees"' frontend/src/pages/ = empty
-  Unlocks: Printing tenant sees "Print Jobs", "Press Operators", "Presses".
-           Fabrication tenant sees "Fabrication Orders", "Fitters", "CNC Machines".
+  - Sidebar, page titles dynamic per industry
+  - 39 TypeScript errors resolved across 5 frontend files
+  - RegisterPage auth bug fix
+  Delivered: Printing tenant sees "Print Jobs", "Press Operators", "Presses".
+             TypeScript strict mode clean baseline.
+
+green-baseline  Test Suite Recovery                      [DONE Apr 20 2026]
+  - Fixed 3 test clusters: WhatsApp pipeline, CSV import, scheduler
+  - SQLite StaticPool fix in conftest.py (was causing test_skills.py errors)
+  - 199 tests passing, 0 failed, 0 errors
+  - Non-production change - no migration, no feature
+  - Tag: green-baseline (permanent recovery point)
+
+-----------------------------------------------------------------------------
+WHAT YOU CAN BUILD RIGHT NOW - IN ORDER
+-----------------------------------------------------------------------------
+
+v6.3  KPI Baseline + Monthly Savings Summary             [BUILD FIRST]
+  Dependency: v5.15 done, v6.1 done - both shipped
+  Rationale: Retention moat. MSMEs churn because they forget why they pay.
+             Monthly "ZetaOps saved you X hours and Y rupees" message is
+             the feature that makes renewal automatic.
+  - New migration 024: tenant_kpi_snapshot table
+    Columns: tenant_id, snapshot_date, orders_delayed_count,
+             orders_on_time_count, substitute_find_minutes_avg,
+             overtime_hours_total, machine_idle_hours, conflicts_detected,
+             conflicts_resolved_by_ai, is_baseline (bool)
+  - New service: backend/app/services/kpi_capture.py
+    Hooks into existing scheduler, whatsapp_alerts, assignments endpoints
+    APScheduler job at 23:59 writes daily snapshot
+    Reads from existing tables only - no new user data collection
+  - Baseline window = first 7 calendar days after tenant registration
+    All day-1-through-7 rows tagged is_baseline=True
+  - Monthly summary: APScheduler at 09:00 on 1st of each month
+    3-line format sent to owner phone in detected language
+    Rupees saved (overtime + rework avoided)
+    Hours saved (substitute search + conflict resolution time)
+    One concrete highlight from the month
+  - Owner can request current month on demand: "kitna save hua is month?"
+  - Data retention: 13 months rolling of daily rows
+  - Idempotent send (retry-safe via reminder_log)
+  Unlocks: Proof of value at every renewal. Owners stop asking "what am I
+           paying for?" Foundation for v6.4 freemium framing.
+
+v6.4  Material Estimator as Standalone WhatsApp Surface  [BUILD NEXT]
+  Dependency: v6.3 done, v6.1 RAG live
+  Rationale: Backend was already shipped in v3.9.8. Surface it as first-class
+             WhatsApp entry point. Sticky daily-use feature that doesn't
+             require understanding scheduler. Candidate acquisition wedge.
+  - New WhatsApp intent: material_query (read-only, no confirmation flow)
+    Detected in whatsapp_intent.py::detect_write_intent() alongside existing intents
+  - Keyword triggers from rag_data/_templates/{industry}/materials.txt:
+    printing: paper, ink, plates, binding, lamination
+    manufacturing: steel, aluminum, threads, fasteners, coolant
+    fabrication: MS plate, pipes, rods, welding rods, gas
+    field_service: spares, consumables, PPE, tools
+  - Reuses existing GET /api/jobs/{job_id}/material-estimate endpoint
+  - Response format (3 lines): quantity needed, estimated cost, confidence
+    High = 3+ historical jobs, Medium = 1-2 or RAG-based, Low = pure inference
+  - Estimation math ALWAYS in backend - AI only narrates (Principle 11)
+  - Works for all phone roles - material estimation is operational, not financial
+  - Feature flag: material_estimator_freemium (default False)
+    When True: first 10 queries per month free, then upgrade prompt
+  - Response cached per tenant per material per 24 hours
+  Unlocks: Acquisition wedge. Free-tier "ZetaOps Estimator" possible as
+           stripped-down signup product.
+
+v6.5  Compliance Deadline Tracker (pulled from v7.1)     [BUILD NEXT]
+  Dependency: v6.3 done, v6.4 done
+  Rationale: Standalone-valuable feature. MSME owners will pay Rs 500/month
+             for this alone - forget scheduling. Don't wait for v7.0 ERP.
+  - New migration 025: three tables
+    compliance_item: tenant_id, item_type, item_name, renewal_frequency,
+                     last_filed_date, next_due_date, status, industry_default
+    compliance_document: compliance_item_id, tenant_id, filename, mime_type,
+                         uploaded_at, file_path, uploader_user_id
+    compliance_reminder_log: compliance_item_id, reminder_day, sent_at, channel
+  - Seed industry-appropriate items at tenant registration
+    printing: GSTR-3B, GSTR-1, ESI, PF, Pollution NOC
+    manufacturing: GSTR-3B, GSTR-1, ESI, PF, Factory License, Pollution NOC
+    fabrication: same as manufacturing + welding safety
+    field_service: GSTR-3B, GSTR-1, vehicle fitness, driver licenses
+  - Industry-specific items loaded from rag_data/_templates/{industry}/compliance.yaml
+  - APScheduler daily at 08:00: compliance_reminder_job
+    For each active item where next_due_date - today == 30, 7, or 1:
+      send WhatsApp to owner, log in reminder_log, idempotent via log check
+  - Document upload via WhatsApp reply: PDF/JPG/PNG up to 10 MB
+    Stores in compliance_document, advances next_due_date
+  - Dashboard widget: Upcoming Deadlines card showing next 3 items
+  - Owner can deactivate any item ("ESI humare liye nahi hai" -> not_applicable)
+  - 5-year document retention minimum (statutory audit window)
+  - Tenant-isolated storage, tenant_id filter on every query
+  - Feature flag: compliance_tracker (default False until template YAMLs ready)
+  Unlocks: Standalone product value. Consider unbundled pricing at Rs 499/mo.
+           Feeds into v6.6 e-invoicing natural extension.
+
+v6.6  GST E-Invoicing JSON Generation                    [BUILD AFTER v6.5]
+  Dependency: v6.5 done
+  Rationale: Once we know what was produced for which customer on which day,
+             e-invoice JSON is a small step. Threshold dropped to Rs 5 cr
+             and keeps dropping - all buyers will need this within 24 months.
+  - New service: backend/app/services/einvoice_generator.py
+  - Migration 026: add gstin column to Customer model
+  - POST /api/einvoice/generate/{job_id}
+    Takes: completed Job + customer GSTIN + tenant GSTIN from .env
+    Returns: GSTN schema v1.1 JSON + validation report
+  - WhatsApp trigger: job complete -> "E-invoice banaun? Customer ka GSTIN bhej do"
+    Owner replies with GSTIN -> JSON sent to owner email + WhatsApp
+  - No GSTN portal submission (never in scope - owner's CA handles)
+  - Auto-creates compliance_item for e-invoicing when tenant crosses threshold
+  - Feature flag: einvoice_generator (default False, enabled per tenant request)
+
+v6.7  RAG pgvector Migration (was old v6.3)              [BUILD AFTER v6.6]
+  Dependency: v6.1 done
+  Rationale: Infrastructure upgrade, not user-facing. Do it after the
+             retention and revenue features ship.
+  - Migration 027 (was 024 in old plan, shifted after new migrations 024/025/026)
+  - tenant_knowledge_base table with embeddings
+  - Similarity search replaces flat file scan
+  - Flat file folder structure unchanged - storage layer change only
+  - Semantic queries: "koi similar job pehle kiya tha?" finds relevant history
+
+v6.8  Supervisor Agent (was old v6.5)                    [BUILD LAST IN V6]
+  Dependency: v6.0 done, all v6.x features live as context
+  Rationale: Build this only after v6.3-v6.7 exist, because Supervisor
+             needs all of them as the surface area it coordinates over.
+  - Swap GroqDirectBridge -> SupervisorAgentBridge
+  - Planner + executor + validator pattern
+  - Complex multi-step queries: "reschedule all Friday jobs, two workers out"
+  - AI plans sequence, executes steps, validates result before responding
 
 -----------------------------------------------------------------------------
 BLOCKED VERSIONS - EXACT DEPENDENCIES
@@ -950,34 +1067,13 @@ v5.14  Live E2E Test
   Unlocks: Safe to onboard first real tenant.
 
 -----------------------------------------------------------------------------
-AFTER ALL OF THE ABOVE - PLANNED FUTURE
+V7 - ERP ERA (mid-market addressable)
 -----------------------------------------------------------------------------
 
-v6.3  RAG pgvector
-  Dependency: v6.1 done
-  - Migration 024 (023 used by v5.16 source field)
-  - tenant_knowledge_base table with embeddings
-  - Similarity search replaces flat file scan
-  - Flat file folder structure unchanged - storage layer change only
-  - Semantic queries: "koi similar job pehle kiya tha?" finds relevant history
-
-v6.4  Material Estimation
-  Dependency: v6.1 done
-  - Full RAG answer for quantity and material queries per industry
-  - Structured JSON passed to AI - AI explains, never computes
-  - "5000 brochures kitna paper chahiye?" returns grounded answer from RAG
-  - Extensible per vertical: paper (printing), steel grade (fabrication),
-    thread count (manufacturing)
-
-v6.5  Supervisor Agent
-  Dependency: v6.0 done
-  - Swap GroqDirectBridge -> SupervisorAgent architecture
-  - Planner + executor + validator pattern
-  - Complex multi-step queries: "reschedule all Friday jobs, two workers out"
-  - AI plans sequence, executes steps, validates result before responding
-
 v7.0  ERP Connector Layer
-  Dependency: v5.16 source field in DB, v6.2 done
+  Dependency: v5.16 source field in DB (shipped), v6.2 done (shipped),
+              v6.5 Compliance Tracker done (provides retention value while
+              ERP integration matures)
   - Onboarding routing live: "Do you have ERP?" Yes/No at registration
   - source field activates erp_sync value
   - Python connector for SAP / Tally / Excel
@@ -988,64 +1084,91 @@ v7.0  ERP Connector Layer
   - Same scheduling engine - zero changes
   - 4 verticals x mid-market addressable without rebuilding anything
 
-v7.1  Compliance Tracker
+v7.1  Contractor Labour Layer (was v7.2)
   Dependency: v7.0 done
-  - ESI, PF, Factory Act, Pollution NOC, Fire Safety certificate deadline tracker
-  - Document store per tenant - upload and attach to each compliance item
-  - Dashboard widget - upcoming deadlines at a glance
-  - WhatsApp reminder to owner: 30 days, 7 days, 1 day before deadline
-
-v7.2  Contractor Labour Layer
-  Dependency: v7.0 done
-  - Contractor worker type fully activated (worker_type field from v5.16)
+  Rationale: Renumbered from v7.2 after Compliance Tracker pulled forward
+             to v6.5. v7.1 slot is now freed for contractor features.
+  - Contractor worker_type fully activated (field shipped in v5.16 migration 023)
   - Daily rate tracking vs monthly salary
   - Contractor availability pool - known contractors with skills, not on payroll
   - "Who's free and qualified right now?" as first-class AI Copilot query
   - Gap filling: when permanent worker absent, system searches contractor pool
     by skill match first
 
+v7.2  (open slot)
+  Reserved for next-era feature identified post-v7.0 shipping.
+  Candidates: multi-facility support, customer portal, predictive
+  procurement triggers (post-v6.6 e-invoicing dataset makes this feasible).
+
 -----------------------------------------------------------------------------
 FULL VERSION MAP
 -----------------------------------------------------------------------------
 
-| Version | Name                    | Status         | Dependency           |
-|---------|-------------------------|----------------|----------------------|
-| v5.10   | Proactive Alerts        | Done           | None                 |
-| v5.12   | Role Limiting + Language| BUILD NOW      | None                 |
-| v5.16   | Day 1 Simple Table      | BUILD NEXT     | v5.12                |
-| v5.15   | Manager Input Flow      | BUILD NEXT     | v5.16                |
-| v6.0    | Schema Context          | BUILD NEXT     | v5.15                |
-| v6.1    | RAG Pipeline            | BUILD NEXT     | v6.0                 |
-| v6.2    | Industry Labels         | BUILD NEXT     | v6.1                 |
-| v5.11   | WhatsApp Go-Live        | WAITING        | Meta + Interakt      |
-| v5.13   | Voice Notes             | WAITING        | v5.11                |
-| v5.14   | Live E2E Test           | WAITING        | v5.11 + v5.13        |
-| v6.3    | RAG pgvector            | Planned        | v6.1                 |
-| v6.4    | Material Estimation     | Planned        | v6.1                 |
-| v6.5    | Supervisor Agent        | Planned        | v6.0                 |
-| v7.0    | ERP Connector Layer     | Planned        | v5.16 + v6.2         |
-| v7.1    | Compliance Tracker      | Planned        | v7.0                 |
-| v7.2    | Contractor Labour Layer | Planned        | v7.0                 |
+| Version | Name                                | Status     | Dependency        |
+|---------|-------------------------------------|------------|-------------------|
+| v5.10   | Proactive Alerts                    | DONE       | None              |
+| v5.12   | Role Limiting + Language            | DONE       | None              |
+| v5.16   | Day 1 Simple Table                  | DONE       | v5.12             |
+| v5.15   | Manager Input Flow                  | DONE       | v5.16             |
+| v6.0    | Schema Context                      | DONE       | v5.15             |
+| v6.1    | RAG Pipeline                        | DONE       | v6.0              |
+| v6.2    | Industry Labels + TS Cleanup        | DONE       | v6.1              |
+| green-baseline | Test Suite Recovery          | DONE       | v6.2              |
+| v5.11   | WhatsApp Go-Live                    | WAITING    | Meta + Interakt   |
+| v5.13   | Voice Notes                         | WAITING    | v5.11             |
+| v5.14   | Live E2E Test                       | WAITING    | v5.11 + v5.13     |
+| v6.3    | KPI Baseline + Savings Summary      | BUILD NOW  | v5.15 + v6.1      |
+| v6.4    | Material Estimator (WhatsApp)       | BUILD NEXT | v6.3              |
+| v6.5    | Compliance Tracker                  | BUILD NEXT | v6.4              |
+| v6.6    | GST E-Invoicing JSON                | Planned    | v6.5              |
+| v6.7    | RAG pgvector (was old v6.3)         | Planned    | v6.1              |
+| v6.8    | Supervisor Agent (was old v6.5)     | Planned    | v6.0 + v6.3-v6.7  |
+| v7.0    | ERP Connector Layer                 | Planned    | v5.16 + v6.2 + v6.5 |
+| v7.1    | Contractor Labour (was old v7.2)    | Planned    | v7.0              |
+| v7.2    | (open slot)                         | Planned    | v7.0              |
 
 BUILD SEQUENCE:
-  NOW:     v5.12 -> v5.16 -> v5.15 -> v6.0 -> v6.1 -> v6.2
+  DONE:    v5.12 -> v5.16 -> v5.15 -> v6.0 -> v6.1 -> v6.2 -> green-baseline
                      |
-  WAITING: v5.11 -> v5.13 -> v5.14  (blocked on Meta approval ~Apr 12)
+  WAITING: v5.11 -> v5.13 -> v5.14  (blocked on Meta approval)
 
-  PLANNED: v6.3 -> v6.4 -> v6.5
-           v7.0 -> v7.1 -> v7.2
+  BUILD:   v6.3 (KPI Baseline) -> v6.4 (Material Estimator)
+           -> v6.5 (Compliance) -> v6.6 (E-Invoicing)
+           -> v6.7 (pgvector) -> v6.8 (Supervisor Agent)
+
+  FUTURE:  v7.0 (ERP) -> v7.1 (Contractor) -> v7.2 (open)
+
+RENUMBERING NOTE (v7.2 of dev prompt, Apr 20 2026):
+  Old plan: v6.3 pgvector, v6.4 Material, v6.5 Supervisor, v7.1 Compliance
+  New plan: v6.3 KPI Baseline, v6.4 Material, v6.5 Compliance,
+            v6.6 E-Invoicing, v6.7 pgvector, v6.8 Supervisor
+  Rationale: IDC Worldwide Intelligent ERP 2025 analysis identified
+  KPI measurement (retention), material queries (acquisition wedge),
+  and compliance tracking (standalone revenue) as the three highest-ROI
+  features for Indian MSMEs. Pulled forward to v6.x ahead of
+  infrastructure work (pgvector) and advanced AI (Supervisor Agent).
+  Compliance pulled forward 12 months from v7.1 to v6.5 because it
+  delivers standalone value without requiring ERP integration.
 
 WHAT EACH PHASE DELIVERS:
   v5.x complete: WhatsApp loop is real. Manager inputs at 7am. Owner gets clean
   briefing at 7:15am. Daily habit formed before a single Gantt chart is opened.
 
-  v6.x complete: AI is genuinely intelligent. Knows schema, industry, factory
-  norms. Answers "will Friday order complete if Suresh is out?" with real data,
-  substitution options, and industry context.
+  v6.0-v6.2 complete: AI is genuinely intelligent. Knows schema, industry,
+  factory norms. Answers "will Friday order complete if Suresh is out?" with
+  real data, substitution options, and industry context.
+
+  v6.3-v6.6 complete: Product has proven ROI (KPI baseline), sticky daily
+  use (material estimator), standalone compliance value, and e-invoicing
+  automation. Addressable revenue per tenant roughly doubles. Retention
+  becomes automatic because savings are visible every month.
+
+  v6.7-v6.8 complete: Infrastructure is scale-ready (pgvector) and AI
+  is multi-step capable (Supervisor Agent).
 
   v7.x complete: Same product, bigger market. ERP customers plug in their data
-  source. Same briefing. Same engine. Compliance tracked. Contractor pool managed.
-  Mid-market addressable without rebuilding anything.
+  source. Same briefing. Same engine. Contractor pool managed. Mid-market
+  addressable without rebuilding anything.
 
 META/INTERAKT STATUS (as of Apr 8 2026):
   - Zero Zeta Business Portfolio: restriction appeal submitted, under review
