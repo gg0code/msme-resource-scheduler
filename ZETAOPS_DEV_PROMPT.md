@@ -31,7 +31,7 @@ Frontend:  frontend/
 Branches:  v5-whatsapp (ACTIVE — all new work), v4-dev (FROZEN — bug fixes only)
            v6-ai (CREATE from v5-whatsapp when starting v6.0 work)
 Current:   v5-whatsapp tag v5.12-role-language (build in progress)
-Migration: head = 022 (023 reserved for v5.16 source field on Employee + Machine)
+Migration: head = 023 (source field on Employee + Machine shipped in v5.16)
 
 Test tenant: what@what.what / qazx1234 / tenant_id=12 / phone: +919876543210
 
