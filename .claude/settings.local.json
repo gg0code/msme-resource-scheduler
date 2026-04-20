@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python -m pytest tests/test_whatsapp_pipeline.py tests/test_whatsapp_router.py tests/test_whatsapp_phase4.py -v)",
-      "Bash(python -m pytest tests/ -m \"not integration\" -v)",
-      "Bash(python -m pytest tests/ -m \"not integration\")"
-    ]
-  }
-}

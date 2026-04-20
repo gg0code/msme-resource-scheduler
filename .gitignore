@@ -18,3 +18,5 @@ Thumbs.db
 
 *.zip
 *.tar.gz
+
+.claude/settings.local.json

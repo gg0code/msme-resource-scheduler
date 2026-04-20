@@ -26,6 +26,7 @@
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.types import JSON
 from fastapi.testclient import TestClient
 
@@ -66,7 +67,11 @@ _patch_pg_types_to_json()
 # --- SQLite engine for unit tests --------------------------------------------
 SQLITE_URL = "sqlite:///:memory:"
 
-engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    SQLITE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -99,3 +104,41 @@ def client(db):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function")
+def auth_headers(db):
+    """
+    Returns Authorization headers for a proprietor user in the SQLite test DB.
+    Creates a Tenant and User on-the-fly; visible to client via shared get_db override.
+    """
+    from datetime import datetime, timezone
+    from app.models.auth import Tenant, User
+    from app.core.security import create_access_token, hash_password
+
+    now = datetime.now(timezone.utc)
+    tenant = Tenant(
+        name="Test Tenant",
+        slug="test-tenant",
+        plan="paid",
+        is_active=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(tenant)
+    db.flush()
+
+    user = User(
+        tenant_id=tenant.id,
+        email="test@test.com",
+        hashed_password=hash_password("testpass"),
+        role="proprietor",
+        is_active=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(user)
+    db.flush()
+
+    token = create_access_token(user_id=user.id, tenant_id=tenant.id, role="proprietor")
+    return {"Authorization": f"Bearer {token}"}
