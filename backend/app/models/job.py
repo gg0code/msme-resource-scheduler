@@ -50,6 +50,8 @@ class Job(Base):
     tentative_profit = Column(Float, nullable=True)
     order_value      = Column(Float, nullable=True)
     misc_cost        = Column(Float, nullable=True)
+    job_type    = Column(String(100), nullable=True)
+    quantity    = Column(Float, nullable=True)
     priority    = Column(String(20), nullable=False, default="Medium")
     status      = Column(String(30), nullable=False, default="Draft")
     notes       = Column(Text, nullable=True)

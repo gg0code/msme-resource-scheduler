@@ -77,6 +77,8 @@ class JobCreate(BaseModel):
     tentative_profit: Optional[float] = None
     order_value: Optional[float] = None
     misc_cost: Optional[float] = None
+    job_type: Optional[str] = None
+    quantity: Optional[float] = None
     priority: str = "Medium"
     status: str = "Draft"
     notes: Optional[str] = None
@@ -94,6 +96,8 @@ class JobUpdate(BaseModel):
     tentative_profit: Optional[float] = None
     order_value: Optional[float] = None
     misc_cost: Optional[float] = None
+    job_type: Optional[str] = None
+    quantity: Optional[float] = None
     priority: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
@@ -134,6 +138,8 @@ def job_to_dict(job: Job) -> dict:
         "tentative_profit":      job.tentative_profit,
         "order_value":           job.order_value,
         "misc_cost":             job.misc_cost,
+        "job_type":              job.job_type,
+        "quantity":              job.quantity,
         "priority":              job.priority,
         "status":                job.status,
         "notes":                 job.notes,
@@ -225,8 +231,8 @@ def create_job(
         start_date=payload.start_date, end_date=payload.end_date,
         estimated_hours_per_day=payload.estimated_hours_per_day,
         tentative_profit=payload.tentative_profit, order_value=payload.order_value,
-        misc_cost=payload.misc_cost, priority=payload.priority,
-        status=payload.status, notes=payload.notes,
+        misc_cost=payload.misc_cost, job_type=payload.job_type, quantity=payload.quantity,
+        priority=payload.priority, status=payload.status, notes=payload.notes,
         raw_materials=payload.raw_materials or [],
         timer_status="idle", paused_seconds=0, timer_log=[],
     )

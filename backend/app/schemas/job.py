@@ -45,6 +45,8 @@ class JobBase(BaseModel):
     end_date: date
     estimated_hours_per_day: float = 8.0
     tentative_profit: Optional[float] = None     # INR
+    job_type: Optional[str] = None
+    quantity: Optional[float] = None
     priority: str = "Medium"                      # Low/Medium/High/Critical
     status: str = "Draft"
     notes: Optional[str] = None
@@ -78,6 +80,8 @@ class JobUpdate(BaseModel):
     end_date: Optional[date] = None
     estimated_hours_per_day: Optional[float] = None
     tentative_profit: Optional[float] = None
+    job_type: Optional[str] = None
+    quantity: Optional[float] = None
     priority: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
