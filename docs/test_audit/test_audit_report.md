@@ -4,12 +4,15 @@ Branch: v5-whatsapp
 Tag: v6.2.2-test-recovery-2-g3703f4e
 Baseline: 199 passed / 0 failed / 0 errors from `pytest -m "not integration"`
 
-**Audit follow-up (2026-04-21 evening → 2026-04-22):** All four findings from this audit are now resolved.
+**Audit follow-up (2026-04-21 evening → 2026-04-22):** Six bugs found across the audit session and its continuation sessions. All six resolved.
 - BUG-1 and BUG-2 fixed in tag `v6.2.4-bugfixes` (2026-04-21).
-- BUG-3 and BUG-4 discovered during manual verification of the BUG-1/BUG-2 fixes, both fixed on 2026-04-22.
-- BUG-3 fixed in tag `v6.2.6-registration-seed`.
-- BUG-4 fixed in tag `v6.2.7-industry-type`.
-- Post-fix test count: **328 passed, 0 failed, 0 xfailed** (310 after BUG-1/BUG-2 fixes, +6 from BUG-3 regression tests, +11 from BUG-4 schema tests, +1 from re-enabled xfail tests).
+- BUG-3 fixed in tag `v6.2.6-registration-seed` (2026-04-22).
+- BUG-4 fixed in tag `v6.2.7-industry-type` (2026-04-22).
+- BUG-5 fixed in tag `v6.2.9-me-industry` (2026-04-22) — discovered during post-BUG-4 UI verification when fabrication tenant logins still showed printing-themed labels.
+- BUG-6 fixed in tag `v6.3.0-whatsapp-industry` (2026-04-22) — discovered during BUG-5 scope analysis; same failure pattern (industry read from User instead of Tenant) in a different endpoint.
+- Post-fix test count: **332 passed, 0 failed, 0 xfailed, 3 skipped** (199 baseline → 304 after audit → 310 after BUG-1/2 → 316 after BUG-3 → 328 after BUG-4 → 330 after BUG-5 → 332 after BUG-6).
+
+The four industry-related bugs (3, 4, 5, 6) formed a chain. Each fix revealed the next because each was individually masked by the one before it: demo seeder worked but wasn't called (BUG-3) → registration schema accepted industry_type but dropped it (BUG-4) → Tenant stored it but /auth/me didn't return it (BUG-5) → /auth/me returned it but WhatsApp link stored the wrong value (BUG-6). Manual end-to-end verification after each fix surfaced the next. Unit tests would not have caught the chain; they passed at every stage.
 
 ## Summary
 - Total SRS features in scope: 23 (plus 2 fix releases v6.2.1, v6.2.2)
@@ -17,13 +20,15 @@ Baseline: 199 passed / 0 failed / 0 errors from `pytest -m "not integration"`
 - Features with gaps (new tests added): 11
 - Features with gaps (tests NOT added, reason below): 5
 - New tests added by this audit: 105 (across 9 new test files during the initial audit)
-- Additional tests added during BUG-3 and BUG-4 fix sessions: 17
+- Additional tests added during BUG-3 through BUG-6 fix sessions: 22 (BUG-3: +6, BUG-4: +11, BUG-5: +3, BUG-6: +2)
 - Tests passing after audit (pre-fix): 304
 - Tests passing after BUG-1 and BUG-2 fixes: 310
 - Tests passing after BUG-3 fix: 316
 - Tests passing after BUG-4 fix: 328
+- Tests passing after BUG-5 fix: 330
+- Tests passing after BUG-6 fix: 332
 - Tests failing: 0
-- xfailed: 0 — all four bugs fixed
+- xfailed: 0 — all six bugs fixed
 
 ## Bugs Found During Audit
 
@@ -196,6 +201,11 @@ Frontend's `RegisterPayload` interface (in `frontend/src/auth/AuthContext.tsx`) 
 | 99 | 6.1 | RegisterRequest rejects empty string | Unit | reg_schema_reject_empty | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_rejects_invalid_industry[] |
 | 100 | 6.1 | RegisterRequest rejects "general" | Unit | reg_schema_reject_general | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_rejects_invalid_industry[general] |
 | 101 | 6.1 | RegisterRequest rejects wrong type (int) | Unit | reg_schema_reject_int | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_rejects_wrong_type |
+| 102 | 6.1, 4.3 | /auth/me returns industry_type for tenant with value | Unit | me_returns_industry | PASS (BUG-5 fixed in 624ce49) | test_me_endpoint.py | test_me_returns_industry_type_for_tenant_with_value |
+| 103 | 6.1, 4.3 | /auth/me returns None for tenant with NULL industry | Unit | me_returns_null | PASS (BUG-5 fixed in 624ce49) | test_me_endpoint.py | test_me_returns_none_for_tenant_with_null_industry |
+| 104 | 6.1, 4.3 | /auth/me response shape includes all expected fields | Unit | me_response_shape | PASS (BUG-5 fixed in 624ce49) | test_me_endpoint.py | test_me_response_shape_includes_all_expected_fields |
+| 105 | 6.20 | link_phone stores tenant.industry_type on PhoneTenantMap | Unit | link_phone_tenant_industry | PASS (BUG-6 fixed in 91ea5cd) | test_link_phone_industry.py | test_link_phone_stores_tenant_industry_type |
+| 106 | 6.20 | link_phone stores None when tenant.industry_type is None | Unit | link_phone_none_industry | PASS (BUG-6 fixed in 91ea5cd) | test_link_phone_industry.py | test_link_phone_industry_type_none_when_tenant_has_none |
 
 ## Failures Detail
 
@@ -277,6 +287,32 @@ SRS §6.13: "Industry-aware system prompt (v4.0.8): injects correct terminology 
 
 **Verdict:** Real bug. Medium severity in terms of operational failure (app still works), but significant user-experience regression and multi-subsystem silent degradation. Spec-vs-code drift across three layers: schema, service, and Tenant persistence.
 
+### BUG-5: /auth/me Does Not Return industry_type (§6.1, §4.3, §6.13) — FIXED
+
+**Status: FIXED in commit `624ce49` (tag `v6.2.9-me-industry`), April 22 2026.**
+Discovered during post-BUG-4 UI verification: registering as a fabrication tenant stored `industry_type="fabrication"` on the Tenant row (BUG-4 fix confirmed), but logging in as that tenant still showed printing-themed UI labels. Root cause: `GET /auth/me` serialized the User ORM object directly via `UserResponse` (which has `from_attributes=True`). User has no `industry_type` column (it lives on Tenant), so the response never included the field. Frontend's `IndustryContext.tsx` at line 32 reads `user.industry_type` and falls back to `"printing"` when missing — every tenant fell through to the default regardless of actual industry. Three fixes: (1) `UserResponse` schema gained `industry_type: str | None = None`, (2) `/auth/me` handler now fetches the tenant and returns an enriched dict combining User and Tenant fields, (3) `backfill_industry_type.py` script sets `industry_type="printing"` for any tenant where the column is NULL (legacy tenants registered before BUG-4 fix). Three regression tests added in `tests/test_me_endpoint.py` covering enriched response shape, null industry handling, and field presence.
+
+**Original finding:**
+
+IndustryContext correctly reads `user?.industry_type`, and AuthContext correctly declares it as a field on the User type. But the /auth/me endpoint never sent it. UserResponse schema had five fields (id, email, role, tenant_id, is_active) — no industry_type. The handler was `def me(current_user=Depends(get_current_user)): return current_user`, trusting Pydantic's from_attributes serialization. Pydantic can't populate a field from an ORM attribute that doesn't exist; it silently filled `industry_type` as nothing (or omitted it). Frontend received `{access_token, token_type}` at login (the login endpoint doesn't even return user info), then called /auth/me which returned the incomplete UserResponse, then stored it in AuthContext, then IndustryContext fell back to "printing".
+
+**Severity:** Medium — every logged-in user saw incorrect industry UI. AI Copilot industry-aware prompts (SRS §6.13) always fell back to printing. The v4.0 industry-aware UI investment was silently disconnected from the v4.0.2 registration industry selection since both were shipped. Users who specifically registered as fabrication/manufacturing/field_service saw printing labels — a visible contradiction between registration choice and post-login experience.
+
+**Secondary observation (deferred as BUG-6 candidate):** `whatsapp.py` line 415 contains the same anti-pattern — `current_user.industry_type if hasattr(current_user, "industry_type") else "printing"`. The hasattr guard always returns False. Noted during BUG-5 Step 4 analysis and raised as BUG-6 in a follow-up session.
+
+### BUG-6: link_phone() Stores Stale "printing" on PhoneTenantMap (§6.13, §6.20, §6.21) — FIXED
+
+**Status: FIXED in commit `91ea5cd` (tag `v6.3.0-whatsapp-industry`), April 22 2026.**
+Discovered during BUG-5 Step 4 downstream analysis. Same failure shape as BUG-5 but in a different endpoint: `link_phone()` in `app/routers/whatsapp.py` constructed `PhoneTenantMap(industry_type=current_user.industry_type if hasattr(current_user, "industry_type") else "printing", ...)`. The `hasattr` guard always returned False (User has no industry_type column), so every PhoneTenantMap row since the feature shipped had `industry_type="printing"` regardless of tenant. The WhatsApp runtime pipeline (`_process_inbound_message`, lines 857, 881, 891) reads `IdentityResult.industry_type` which is sourced from `PhoneTenantMap.industry_type`, so the AI Copilot was responding with printing-industry terminology for every tenant's WhatsApp user — fabrication, manufacturing, field_service customers all got printing-flavored AI responses via WhatsApp. Fix: `link_phone()` now fetches the tenant (`tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()`) and uses `tenant.industry_type` (falling back to `"printing"` only if tenant row missing — impossible given FK constraint). A one-time backfill script `backfill_phone_industry_type.py` fixes legacy PhoneTenantMap rows. Two regression tests added in `tests/test_link_phone_industry.py` covering correct storage from Tenant and defensive None-industry handling. The WhatsApp runtime path was explicitly NOT modified — it correctly consumes whatever value PhoneTenantMap stores; the fix just writes the right value at link time.
+
+**Original finding:**
+
+Located during BUG-5 fix session as a "one pre-existing curiosity noted": `whatsapp.py:415` has the same `hasattr(current_user, "industry_type") else "printing"` anti-pattern. Because User has no such column, the fallback always fires. Every phone-linking action has stored "printing" on PhoneTenantMap since the endpoint was implemented.
+
+**Severity:** Medium — operational WhatsApp continues working, but Industry-Aware AI Copilot (SRS §6.13) responses via WhatsApp have been one-industry-wrong for every non-printing tenant. Three separate runtime reads (lines 857, 881, 891) all consume the stale stored value, so alerts, logs, and AI prompts all speak in the wrong industry's terminology. WhatsApp check-in and multi-turn conversation features (SRS §6.20, §6.21) use the same industry context, so all three user-facing WhatsApp surfaces have been silently degraded.
+
+**Architectural observation (noted, not fixed):** PhoneTenantMap.industry_type is a denormalization — it duplicates Tenant.industry_type at phone-link time. This is fast to read but goes stale if a tenant's industry_type changes later. Whether to keep the denormalization (and refresh on update) or remove the column and always join to Tenant on read is a separate architectural question deferred to a future session.
+
 ## Gaps NOT Covered By New Tests
 
 | SRS § | Feature | Reason |
@@ -296,9 +332,12 @@ These are code hygiene improvements surfaced during this audit and its follow-up
 | Pydantic v1 `class Config` in `gantt.py` | `GanttJob(BaseModel)` uses the deprecated `class Config` pattern. Will break in Pydantic v3. | ~10 min |
 | Alembic `path_separator` warning | `env.py` uses legacy space/comma/colon splitting for `prepend_sys_path`. Add explicit `path_separator=os`. | ~5 min |
 | Router `getattr` fallback in `auth.py` | After BUG-4 fix, `getattr(payload, "industry_type", None) or "printing"` is belt-and-suspenders. Schema default already handles the missing case. Safe to remove. | ~5 min |
-| Dev tenants in test DB (ids 19–24) | Test tenants from BUG-1/BUG-3/BUG-4 verification. Delete if desired; harmless if left. | ~2 min |
-| `ZETAOPS_*_PROMPT.md` files at repo root | Six prompt files from audit + four bug-fix sessions. Decide: commit under `docs/prompts/` or add to `.gitignore`. | ~5 min |
+| Dev tenants in test DB (ids 19–26) | Test tenants from BUG-1 through BUG-6 verification sessions. Delete if desired; harmless if left. | ~2 min |
+| `ZETAOPS_*_PROMPT.md` files at repo root | Prompt files from audit + six bug-fix sessions. Decide: commit under `docs/prompts/` or add to `.gitignore`. | ~5 min |
 | Stray leading `"` on two commit messages | Commits `765d5a3` (BUG-1) and `ca21df7` (datetime cleanup) have a stray `"` at the start of their messages (PowerShell quoting accident). Pushed; not worth history rewrite. | Won't fix |
+| PhoneTenantMap.industry_type denormalization | Column stores industry_type denormalized from Tenant. Goes stale if tenant.industry_type ever changes. Architectural question: remove column and always join to Tenant on read, or keep denormalization and add refresh trigger. | ~30 min |
+| Chemical in frontend INDUSTRY_TYPES but not backend Literal | Frontend's `IndustryContext.tsx` line 28 includes `"chemical"` in valid industries; backend `RegisterRequest` Literal rejects it (Plan B per SRS §1.2). Decide: align both to Plan A only, or add chemical to backend (commits to Plan B support). | ~15 min |
+| whatsapp.py `_log_conversation` industry_type reads | Lines 881, 891 read `identity.industry_type` — after BUG-6 fix they receive correct values. No code change needed, but verify log format handles all industry types (likely fine; worth a spot-check). | ~5 min |
 
 ## Appendix — New Test Files Added
 
@@ -314,6 +353,8 @@ These are code hygiene improvements surfaced during this audit and its follow-up
 | tests/test_csv_import.py | 6.16 | CSV parsing (3 tests) + file dispatch (2 tests) + employee import (4 tests) + machine import (3 tests) |
 | tests/test_registration_seeds.py | 6.1, 6.14 | 6 tests added during BUG-3 fix: register_returns_tenant_id + 4 "seeder produces {entity}" tests + cross-tenant isolation |
 | tests/test_auth_schema.py | 6.1 | 11 tests added during BUG-4 fix: 4 valid industry accepts (parametrized) + 1 default + 5 rejection cases (parametrized) + 1 wrong-type reject |
+| tests/test_me_endpoint.py | 6.1, 4.3 | 3 tests added during BUG-5 fix: /auth/me returns industry_type for tenant with value, returns None for tenant with NULL, response shape includes all expected fields |
+| tests/test_link_phone_industry.py | 6.20 | 2 tests added during BUG-6 fix: link_phone stores tenant.industry_type correctly, stores None when tenant has None (with autouse fixture patching `linked_at` server_default for SQLite compatibility) |
 | docs/test_audit/srs_to_test_map.md | all | SRS-to-test mapping for all 23 features |
 
 ## Release Ladder — Commits Tracked in This Report
@@ -326,3 +367,6 @@ These are code hygiene improvements surfaced during this audit and its follow-up
 | `v6.2.5-cleanup` | 2026-04-21 | `datetime.utcnow()` → `datetime.now(timezone.utc)` sweep (10 files, 36 call sites) |
 | `v6.2.6-registration-seed` | 2026-04-22 | BUG-3 fixed |
 | `v6.2.7-industry-type` | 2026-04-22 | BUG-4 fixed |
+| `v6.2.8-audit-closed` | 2026-04-22 | Audit report v1 (BUG-1 through BUG-4 documented), gitignore for per-tenant RAG data |
+| `v6.2.9-me-industry` | 2026-04-22 | BUG-5 fixed |
+| `v6.3.0-whatsapp-industry` | 2026-04-22 | BUG-6 fixed. Minor version bump because the fix changes user-visible AI Copilot behavior for every WhatsApp-linked customer. |
