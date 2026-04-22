@@ -4,38 +4,56 @@ Branch: v5-whatsapp
 Tag: v6.2.2-test-recovery-2-g3703f4e
 Baseline: 199 passed / 0 failed / 0 errors from `pytest -m "not integration"`
 
+**Audit follow-up (2026-04-21 evening):** Both BUG-1 and BUG-2 resolved in tag `v6.2.4-bugfixes`.
+Post-fix test count: **310 passed, 0 failed, 0 xfailed.** See "Bugs Found During Audit" section for per-bug resolution detail.
+
 ## Summary
 - Total SRS features in scope: 23 (plus 2 fix releases v6.2.1, v6.2.2)
 - Features with adequate test coverage before audit: 9
 - Features with gaps (new tests added): 11
 - Features with gaps (tests NOT added, reason below): 5
 - New tests added by this audit: 105 (across 9 new test files)
-- Tests passing after audit: 304
-- Tests failing after audit: 0
-- xfailed (documented production bugs): 6
+- Tests passing after audit (pre-fix): 304
+- Tests passing after BUG-1 and BUG-2 fixes: 310
+- Tests failing: 0
+- xfailed (documented production bugs): 0 — both BUG-1 and BUG-2 fixed in `v6.2.4-bugfixes`
 
 ## Bugs Found During Audit
 
-### BUG-1: Demo Seeder Model-Schema Drift (§6.14)
-`demo_seeder.py` passes `job_type=` and `quantity=` keyword arguments to `Job()`.
-The `Job` ORM model (`app/models/job.py`) does NOT define these columns.
-Migration 015 added `job_type` and `quantity` to the DB schema, but the model
-was never updated. Result: `seed_demo_data()` always raises `TypeError`.
-**Severity:** High — demo seeder is completely broken. New user onboarding fails
-if the demo data load is triggered.
-**File:** `app/services/demo_seeder.py` — all calls to `Job(job_type=...)`.
-**Fix needed:** Add `job_type = Column(String)` and `quantity = Column(Float)`
-to the Job model, OR remove the `job_type=` kwargs from demo_seeder.py.
+### BUG-1: Demo Seeder Model-Schema Drift (§6.14) — FIXED
 
-### BUG-2: Jobs Router Date Type Mismatch (§6.5)
-`app/routers/jobs.py` uses `start_date: str` in its Pydantic create schema and
-passes the string directly to `Job(start_date=payload.start_date)`. SQLite
-rejects string values for `Date` columns; PostgreSQL coerces them silently.
-This means job creation tests only work against PostgreSQL (integration tier).
+**Status: FIXED in commit `765d5a3` (tag `v6.2.4-bugfixes`), April 21 2026.**
+Added `job_type` and `quantity` columns to `app/models/job.py` matching migration 015. Updated `app/schemas/job.py` and `app/routers/jobs.py` to carry the fields through Create/Update/Response. All 6 xfail decorators removed from `tests/test_demo_seeder.py`; tests now pass. Tenant isolation test rewritten to use two real tenants instead of asserting empty global state. Side effect: `material_estimate` router/service (which read `job.job_type`) was silently broken with AttributeError and is now working without any code change to those files.
+
+**Original finding (preserved for reference):**
+
+`demo_seeder.py` passes `job_type=` and `quantity=` keyword arguments to `Job()`.
+The `Job` ORM model (`app/models/job.py`) did NOT define these columns.
+Migration 015 added `job_type` and `quantity` to the DB schema, but the model
+was never updated. Result: `seed_demo_data()` always raised `TypeError`.
+**Severity:** High — demo seeder was completely broken. New user onboarding failed
+if the demo data load was triggered.
+**File:** `app/services/demo_seeder.py` — all calls to `Job(job_type=...)`.
+**Fix taken:** Added `job_type = Column(String)` and `quantity = Column(Float)`
+to the Job model, matching migration 015.
+
+### BUG-2: Jobs Router Date Type Mismatch (§6.5) — FIXED
+
+**Status: FIXED in commit `83b2192` (tag `v6.2.4-bugfixes`), April 21 2026.**
+Changed `start_date: str` and `end_date: str` to `start_date: date` and `end_date: date` on JobCreate and JobUpdate in `app/routers/jobs.py`. Added `date` to the `datetime` import. No router handler changes needed — Pydantic v2 transparently parses ISO date strings into `date` objects. No behavior change for valid API clients. SQLite unit tests for §6.5 Job CRUD are now unblocked. Two other string-typed date fields identified and left intentionally as-is: `scan.py:expires_at` (JWT expiry, not DB Date) and `ai_chat.py:date` (free-text LLM filter, not a DB field).
+
+**Original finding (preserved for reference):**
+
+`app/routers/jobs.py` used `start_date: str` in its Pydantic create schema and
+passed the string directly to `Job(start_date=payload.start_date)`. SQLite
+rejected string values for `Date` columns; PostgreSQL coerced them silently.
+This meant job creation tests only worked against PostgreSQL (integration tier).
 The schema should use `date` instead of `str` and convert with `date.fromisoformat()`.
-**Severity:** Medium — does not affect production (PostgreSQL handles it), but
-blocks SQLite unit tests for job creation and makes the schema semantically wrong.
+**Severity:** Medium — did not affect production (PostgreSQL handled it), but
+blocked SQLite unit tests for job creation and made the schema semantically wrong.
 **File:** `app/routers/jobs.py` lines 74-75 and 225.
+**Fix taken:** Schema fields changed from `str` to `date`. Pydantic v2 handles
+ISO string parsing automatically — no explicit `fromisoformat()` call needed.
 
 ## Results Table
 
@@ -57,7 +75,7 @@ blocks SQLite unit tests for job creation and makes the schema semantically wron
 | 14 | 6.5 | is_locked defaults false | Unit | job_locked_default | PASS | test_jobs_unit.py | test_is_locked_defaults_to_false |
 | 15 | 6.5 | original_dates preserved after update | Unit | job_orig_dates | PASS | test_jobs_unit.py | test_restoring_original_dates_resets_to_original |
 | 16 | 6.5 | Tenant isolation on job queries | Unit | job_tenant_isolation | PASS | test_jobs_unit.py | test_query_by_tenant_id_only_returns_own_jobs |
-| 17 | 6.5 | Create job via HTTP (string date) | Functional | job_create_http | FAIL (BUG-2) | test_jobs_unit.py | — (not tested — BUG-2) |
+| 17 | 6.5 | Create job via HTTP (string date) | Functional | job_create_http | UNBLOCKED | test_jobs_unit.py | — (BUG-2 fixed in 83b2192; follow-up session can now add the HTTP test) |
 | 18 | 6.6 | Step transitions | Unit | step_transitions | SKIPPED-GAPS | — | Cannot test via HTTP/unit without full integration |
 | 19 | 6.7 | /api/scan public endpoint | Functional | scan_public | SKIPPED-GAPS | — | Needs real PostgreSQL for job lookup |
 | 20 | 6.8 | Date range utility | Unit | date_range | PASS | test_availability_engine.py | test_range_is_inclusive |
@@ -79,12 +97,12 @@ blocks SQLite unit tests for job creation and makes the schema semantically wron
 | 36 | 6.13 | WhatsApp pipeline role gate | Functional | wa_role_gate | PASS | test_whatsapp_pipeline.py | test_owner_always_passes_role_gate |
 | 37 | 6.13 | WhatsApp payload extraction | Unit | wa_payload | PASS | test_whatsapp_router.py | test_extracts_text_message |
 | 38 | 6.13 | AI Copilot web endpoint (Groq mock) | Unit | ai_copilot_web | SKIPPED-GAPS | — | Groq API key required; endpoint needs mock |
-| 39 | 6.14 | Demo seeder creates skills | Functional | seeder_skills | XFAIL (BUG-1) | test_demo_seeder.py | test_seeder_creates_skills |
-| 40 | 6.14 | Demo seeder creates employees | Functional | seeder_employees | XFAIL (BUG-1) | test_demo_seeder.py | test_seeder_creates_employees |
-| 41 | 6.14 | Demo seeder creates machines | Functional | seeder_machines | XFAIL (BUG-1) | test_demo_seeder.py | test_seeder_creates_machines |
-| 42 | 6.14 | Demo seeder creates jobs | Functional | seeder_jobs | XFAIL (BUG-1) | test_demo_seeder.py | test_seeder_creates_jobs |
-| 43 | 6.14 | Demo seeder idempotent | Functional | seeder_idempotent | XFAIL (BUG-1) | test_demo_seeder.py | test_seeder_is_idempotent |
-| 44 | 6.14 | Demo seeder tenant isolation | Functional | seeder_isolation | XFAIL (BUG-1) | test_demo_seeder.py | test_seeder_data_belongs_to_tenant |
+| 39 | 6.14 | Demo seeder creates skills | Functional | seeder_skills | PASS (BUG-1 fixed in 765d5a3) | test_demo_seeder.py | test_seeder_creates_skills |
+| 40 | 6.14 | Demo seeder creates employees | Functional | seeder_employees | PASS (BUG-1 fixed in 765d5a3) | test_demo_seeder.py | test_seeder_creates_employees |
+| 41 | 6.14 | Demo seeder creates machines | Functional | seeder_machines | PASS (BUG-1 fixed in 765d5a3) | test_demo_seeder.py | test_seeder_creates_machines |
+| 42 | 6.14 | Demo seeder creates jobs | Functional | seeder_jobs | PASS (BUG-1 fixed in 765d5a3) | test_demo_seeder.py | test_seeder_creates_jobs |
+| 43 | 6.14 | Demo seeder idempotent | Functional | seeder_idempotent | PASS (BUG-1 fixed in 765d5a3) | test_demo_seeder.py | test_seeder_is_idempotent |
+| 44 | 6.14 | Demo seeder tenant isolation | Functional | seeder_isolation | PASS (BUG-1 fixed in 765d5a3) | test_demo_seeder.py | test_seeder_does_not_leak_to_other_tenant |
 | 45 | 6.15 | Onboarding tour localStorage | Functional | onboarding | SKIPPED-GAPS | — | Frontend-only, localStorage, no unit test |
 | 46 | 6.16 | CSV BOM stripped | Unit | csv_bom | PASS | test_csv_import.py | test_strips_bom |
 | 47 | 6.16 | CSV header and rows parsed | Unit | csv_parse | PASS | test_csv_import.py | test_reads_header_and_rows |
@@ -134,7 +152,11 @@ blocks SQLite unit tests for job creation and makes the schema semantically wron
 
 ## Failures Detail
 
-### BUG-1: demo_seeder.py — job_type is not a Job model attribute
+### BUG-1: demo_seeder.py — job_type is not a Job model attribute (FIXED)
+
+**Resolved in commit `765d5a3` on April 21 2026.** See the "Bugs Found During Audit" section at the top of this document for full resolution detail.
+
+**Original finding below, preserved for reference:**
 
 **pytest trace:**
 ```
@@ -155,7 +177,11 @@ the UI.
 
 **Verdict:** Real bug. Not a test defect. Not a spec drift.
 
-### BUG-2: jobs router start_date/end_date — string not converted to date
+### BUG-2: jobs router start_date/end_date — string not converted to date (FIXED)
+
+**Resolved in commit `83b2192` on April 21 2026.** See the "Bugs Found During Audit" section at the top of this document for full resolution detail.
+
+**Original finding below, preserved for reference:**
 
 **SRS mapping:**
 SRS §6.5: "Job Definition & Management — create job with required fields."
@@ -171,7 +197,7 @@ production, but a fragility.
 
 | SRS § | Feature | Reason |
 |-------|---------|--------|
-| 6.6 | Step Intelligence | HTTP layer only; each test needs a real job row first. Blocked by BUG-2 (string dates in SQLite). Covered indirectly by test_scheduler_engine.py (step sequencing). |
+| 6.6 | Step Intelligence | HTTP layer only; each test needs a real job row first. BUG-2 (which blocked this) was fixed in `83b2192` — follow-up session can now add the HTTP-layer tests. Covered indirectly by test_scheduler_engine.py (step sequencing). |
 | 6.7 | QR Scan public endpoint | Endpoint reads from DB (job lookup). Needs PostgreSQL integration test. Scan page has no auth — can't use conftest client fixture without a real job row. |
 | 6.13 | AI Copilot web endpoint (Groq mock) | Would need `unittest.mock.patch` on the Groq SDK client. Feasible in a follow-up. Not added to keep this audit to SRS-vs-code drift, not Groq interaction logic. |
 | 6.15 | Getting Started Onboarding | `localStorage` state in the React frontend. No backend component. Cannot test in pytest. |
@@ -186,7 +212,7 @@ production, but a fragility.
 | tests/test_jobs_unit.py | 6.5 | Job model defaults (5 tests) + tenant isolation (2 tests) + original dates (3 tests) + HTTP auth guards (4 tests) |
 | tests/test_availability_engine.py | 6.8 | Date range utility (4 tests) + skill level ranking (8 tests) + effective availability (5 tests) |
 | tests/test_material_estimate.py | 6.10 | Confidence levels (4 tests) + confidence notes (4 tests) + estimate logic (6 tests) |
-| tests/test_demo_seeder.py | 6.14 | 6 tests — all xfail documenting BUG-1 (job_type model-schema drift) |
+| tests/test_demo_seeder.py | 6.14 | 6 tests (originally xfail per BUG-1, now passing after fix in `765d5a3`) + 1 rewritten tenant isolation test using two real tenants |
 | tests/test_rag_pipeline.py | 6.22 | Valid industries (6 tests) + seeding (6 tests) + load context (5 tests) |
 | tests/test_csv_import.py | 6.16 | CSV parsing (3 tests) + file dispatch (2 tests) + employee import (4 tests) + machine import (3 tests) |
 | docs/test_audit/srs_to_test_map.md | all | SRS-to-test mapping for all 23 features |
