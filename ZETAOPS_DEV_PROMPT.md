@@ -1,25 +1,18 @@
 # ZETAOPS_DEV_PROMPT.md
 # ZetaOps Copilot - Master Development Prompt
-# Version: 7.2 - updated Apr 20 2026. Reshuffled v6.x roadmap after IDC
-#           feature analysis: v6.3 now KPI Baseline (retention moat), v6.4
-#           Material Estimator as standalone WhatsApp surface, v6.5 Compliance
-#           Tracker pulled forward from v7.1. Old v6.3 pgvector becomes v6.7,
-#           old v6.5 Supervisor Agent becomes v6.8. Updated migration head
-#           reference (line 48) from 022 to 023 to match actual DB state.
-#           Marked v5.12 / v5.15 / v5.16 / v6.0 / v6.1 / v6.2 as Done.
-#
-# Version: 7.1 - updated Apr 20 2026. Migration head corrected to 023 after
-#           v5.16 Day 1 Simple Table ship.
-#
-# Version: 7.0 - updated Apr 13 2026. Added Section 8 per-error TypeScript
-#           prevention rules (TS6133/2367/2322/2339/2345). Added Section 22
-#           Session Continuity Protocol with handoff block format and AI rules.
-#           Expanded Section 11 dead code audit. Extended Section 15 with all
-#           TypeScript error patterns and root causes.
 # Paste this at the start of every Claude session involving code changes.
+#
+# Last updated: 2026-04-20
+# Recent changes (see git log for full history):
+#   2026-04-20: Reshuffled v6.x roadmap after IDC analysis. v6.3 KPI Baseline,
+#               v6.4 Material Estimator, v6.5 Compliance (pulled from v7.1),
+#               v6.6 E-Invoicing. Old v6.3 pgvector -> v6.7. Old v6.5
+#               Supervisor -> v6.8.
+#   2026-04-20: Migration head reference corrected to 023 (was 022 in one place).
+#   2026-04-13: Added TS error prevention rules, session continuity protocol.
 # =============================================================================
 
-You are working on ZetaOps Copilot — a multi-tenant production scheduling SaaS
+You are working on ZetaOps Copilot- a multi-tenant production scheduling SaaS
 for Indian MSMEs. Stack: FastAPI + SQLAlchemy 2.0 (backend), React 18 +
 TypeScript + Vite + TailwindCSS (frontend), PostgreSQL, Alembic migrations.
 
@@ -41,7 +34,7 @@ Backend:   backend/
 Frontend:  frontend/
 Branches:  v5-whatsapp (ACTIVE — all new work), v4-dev (FROZEN — bug fixes only)
            v6-ai (CREATE from v5-whatsapp when starting v6.0 work)
-Current:   v5-whatsapp at tag green-baseline (v6.2-ts-clean + test suite fixes, 199 passing)
+Current:   v5-whatsapp at tag v6.2.2-test-recovery (v6.2-ts-clean + test suite fixes, 199 passing)
 Migration: head = 023 (source + worker_type fields on Employee + Machine, shipped in v5.16)
 
 Test tenant: what@what.what / qazx1234 / tenant_id=12 / phone: +919876543210
@@ -834,7 +827,7 @@ CORE PRINCIPLE:
   Everything that makes AI smarter belongs in V6.
   Everything that opens the ERP pipe belongs in V7.
 
-CURRENT: green-baseline (v6.2-ts-clean + test cluster fixes, 199 tests passing, Apr 20 2026)
+CURRENT: v6.2.2-test-recovery (v6.2-ts-clean + test cluster fixes, 199 tests passing, Apr 20 2026)
 ACTIVE BRANCH: v5-whatsapp
 
 -----------------------------------------------------------------------------
@@ -905,12 +898,12 @@ v6.2  Industry Labels + TS Cleanup                       [DONE Apr 13 2026]
   Delivered: Printing tenant sees "Print Jobs", "Press Operators", "Presses".
              TypeScript strict mode clean baseline.
 
-green-baseline  Test Suite Recovery                      [DONE Apr 20 2026]
+v6.2.2-test-recovery  Test Suite Recovery                      [DONE Apr 20 2026]
   - Fixed 3 test clusters: WhatsApp pipeline, CSV import, scheduler
   - SQLite StaticPool fix in conftest.py (was causing test_skills.py errors)
   - 199 tests passing, 0 failed, 0 errors
   - Non-production change - no migration, no feature
-  - Tag: green-baseline (permanent recovery point)
+  - Tag: v6.2.2-test-recovery (permanent recovery point)
 
 -----------------------------------------------------------------------------
 WHAT YOU CAN BUILD RIGHT NOW - IN ORDER
@@ -1113,7 +1106,7 @@ FULL VERSION MAP
 | v6.0    | Schema Context                      | DONE       | v5.15             |
 | v6.1    | RAG Pipeline                        | DONE       | v6.0              |
 | v6.2    | Industry Labels + TS Cleanup        | DONE       | v6.1              |
-| green-baseline | Test Suite Recovery          | DONE       | v6.2              |
+| v6.2.2-test-recovery | Test Suite Recovery          | DONE       | v6.2              |
 | v5.11   | WhatsApp Go-Live                    | WAITING    | Meta + Interakt   |
 | v5.13   | Voice Notes                         | WAITING    | v5.11             |
 | v5.14   | Live E2E Test                       | WAITING    | v5.11 + v5.13     |
@@ -1128,7 +1121,7 @@ FULL VERSION MAP
 | v7.2    | (open slot)                         | Planned    | v7.0              |
 
 BUILD SEQUENCE:
-  DONE:    v5.12 -> v5.16 -> v5.15 -> v6.0 -> v6.1 -> v6.2 -> green-baseline
+  DONE:    v5.12 -> v5.16 -> v5.15 -> v6.0 -> v6.1 -> v6.2 -> v6.2.2-test-recovery
                      |
   WAITING: v5.11 -> v5.13 -> v5.14  (blocked on Meta approval)
 
