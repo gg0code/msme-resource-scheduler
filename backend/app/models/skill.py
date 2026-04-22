@@ -5,7 +5,7 @@ Added tenant_id to Skill.
 
 from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
 
 
@@ -19,8 +19,8 @@ class Skill(Base):
     is_premium  = Column(Boolean, default=False, nullable=False)
     description = Column(Text, nullable=True)
     is_active   = Column(Boolean, default=True, nullable=False)
-    created_at  = Column(DateTime, default=datetime.utcnow)
-    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     employee_skills            = relationship("EmployeeSkill", back_populates="skill")
     machine_skill_requirements = relationship("MachineSkillRequirement", back_populates="skill")

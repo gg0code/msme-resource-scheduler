@@ -39,7 +39,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional, Any
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from app.database import get_db
 from app.models.job import Job, JobSkillRequirement, JobAssignment
@@ -568,7 +568,7 @@ def job_timer(
         raise HTTPException(status_code=404, detail="Job not found")
 
     action = payload.action
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     log = list(job.timer_log or [])
     valid_transitions = {
         "idle":    ["start"],

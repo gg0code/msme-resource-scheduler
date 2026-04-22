@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, DateTime
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
 
 
@@ -19,8 +19,8 @@ class JobStep(Base):
     use_job_resources = Column(Boolean, nullable=False, default=True)
 
     started_at  = Column(DateTime, nullable=True)   # set when in_progress (Block 2)
-    created_at  = Column(DateTime, default=datetime.utcnow)
-    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     resources = relationship("StepResource", back_populates="step", cascade="all, delete-orphan", lazy="select")
 
@@ -37,6 +37,6 @@ class StepResource(Base):
     unit_cost     = Column(Float, nullable=True)
     notes         = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     step = relationship("JobStep", back_populates="resources")

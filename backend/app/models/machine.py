@@ -21,7 +21,7 @@
 #   - datetime.utcnow() is deprecated in Python 3.12+ but changing it requires
 #     a dedicated migration. Deferred to a cleanup migration.
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
@@ -59,8 +59,8 @@ class Machine(Base):
     # Valid values: VALID_SOURCE_VALUES (imported from models/employee.py)
     source                = Column(String(20), nullable=False, default="manual")
 
-    created_at            = Column(DateTime, default=datetime.utcnow)
-    updated_at            = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at            = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at            = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     skill_requirements     = relationship("MachineSkillRequirement", back_populates="machine", cascade="all, delete-orphan")
     availability_overrides = relationship(
