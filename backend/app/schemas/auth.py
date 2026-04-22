@@ -1,5 +1,6 @@
 """app/schemas/auth.py — Pydantic schemas for auth endpoints"""
 import re
+from typing import Literal
 from pydantic import BaseModel, EmailStr, field_validator
 
 
@@ -8,6 +9,7 @@ class RegisterRequest(BaseModel):
     password: str
     company_name: str
     slug: str
+    industry_type: Literal["printing", "manufacturing", "fabrication", "field_service"] = "printing"
 
     @field_validator("password")
     @classmethod

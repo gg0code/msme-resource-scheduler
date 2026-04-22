@@ -15,7 +15,8 @@ def register_tenant_and_user(payload: RegisterRequest, db: Session) -> dict:
         raise HTTPException(status_code=400, detail="Slug already taken")
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
-    tenant = Tenant(name=payload.company_name, slug=payload.slug, plan="free")
+    tenant = Tenant(name=payload.company_name, slug=payload.slug, plan="free",
+                    industry_type=payload.industry_type)
     db.add(tenant)
     db.flush()
     user = User(tenant_id=tenant.id, email=payload.email,

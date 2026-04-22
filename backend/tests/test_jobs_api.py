@@ -37,7 +37,7 @@ def live_headers(live_client):
         "slug": f"test-co-{uid}",
         "email": f"test-{uid}@testco.com",
         "password": "test1234",
-        "industry_type": "general",
+        "industry_type": "printing",
     })
     assert resp.status_code in (200, 201), f"Register failed: {resp.text}"
     token = resp.json().get("access_token")
