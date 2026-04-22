@@ -4,6 +4,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 from app.core.dependencies import get_current_user
 from app.database import get_db
+from app.models.auth import Tenant
 from app.schemas.auth import LoginRequest, MessageResponse, RegisterRequest, TokenResponse, UserResponse
 from app.services import auth_service
 
@@ -103,5 +104,13 @@ def logout(
 
 
 @router.get("/me", response_model=UserResponse)
-def me(current_user=Depends(get_current_user)):
-    return current_user
+def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "role": current_user.role,
+        "tenant_id": current_user.tenant_id,
+        "is_active": current_user.is_active,
+        "industry_type": tenant.industry_type if tenant else None,
+    }

@@ -42,6 +42,7 @@ class UserResponse(BaseModel):
     role: str
     tenant_id: int
     is_active: bool
+    industry_type: str | None = None  # BUG-5: populated from Tenant row by /auth/me
     model_config = {"from_attributes": True}
 
 
