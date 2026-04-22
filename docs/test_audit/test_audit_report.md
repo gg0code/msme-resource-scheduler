@@ -4,19 +4,26 @@ Branch: v5-whatsapp
 Tag: v6.2.2-test-recovery-2-g3703f4e
 Baseline: 199 passed / 0 failed / 0 errors from `pytest -m "not integration"`
 
-**Audit follow-up (2026-04-21 evening):** Both BUG-1 and BUG-2 resolved in tag `v6.2.4-bugfixes`.
-Post-fix test count: **310 passed, 0 failed, 0 xfailed.** See "Bugs Found During Audit" section for per-bug resolution detail.
+**Audit follow-up (2026-04-21 evening → 2026-04-22):** All four findings from this audit are now resolved.
+- BUG-1 and BUG-2 fixed in tag `v6.2.4-bugfixes` (2026-04-21).
+- BUG-3 and BUG-4 discovered during manual verification of the BUG-1/BUG-2 fixes, both fixed on 2026-04-22.
+- BUG-3 fixed in tag `v6.2.6-registration-seed`.
+- BUG-4 fixed in tag `v6.2.7-industry-type`.
+- Post-fix test count: **328 passed, 0 failed, 0 xfailed** (310 after BUG-1/BUG-2 fixes, +6 from BUG-3 regression tests, +11 from BUG-4 schema tests, +1 from re-enabled xfail tests).
 
 ## Summary
 - Total SRS features in scope: 23 (plus 2 fix releases v6.2.1, v6.2.2)
 - Features with adequate test coverage before audit: 9
 - Features with gaps (new tests added): 11
 - Features with gaps (tests NOT added, reason below): 5
-- New tests added by this audit: 105 (across 9 new test files)
+- New tests added by this audit: 105 (across 9 new test files during the initial audit)
+- Additional tests added during BUG-3 and BUG-4 fix sessions: 17
 - Tests passing after audit (pre-fix): 304
 - Tests passing after BUG-1 and BUG-2 fixes: 310
+- Tests passing after BUG-3 fix: 316
+- Tests passing after BUG-4 fix: 328
 - Tests failing: 0
-- xfailed (documented production bugs): 0 — both BUG-1 and BUG-2 fixed in `v6.2.4-bugfixes`
+- xfailed: 0 — all four bugs fixed
 
 ## Bugs Found During Audit
 
@@ -54,6 +61,29 @@ blocked SQLite unit tests for job creation and made the schema semantically wron
 **File:** `app/routers/jobs.py` lines 74-75 and 225.
 **Fix taken:** Schema fields changed from `str` to `date`. Pydantic v2 handles
 ISO string parsing automatically — no explicit `fromisoformat()` call needed.
+
+### BUG-3: Registration Does Not Call Demo Seeder (§6.1, §6.14) — FIXED
+
+**Status: FIXED in commit `1cca6b5` (tag `v6.2.6-registration-seed`), April 22 2026.**
+Discovered during manual end-to-end verification of BUG-1 via Swagger: registration succeeded but the new tenant landed on a completely empty dashboard (zero skills, zero employees, zero machines, zero jobs). Root cause: `register_tenant_and_user()` in `app/services/auth_service.py` omitted `tenant_id` from its return dict, causing the router's `result.get("tenant_id")` to always return None. The router's `if tenant_id:` guard evaluated False every time, silently skipping both RAG seeding (which had been no-op'ing since it shipped) and — since no demo seed call existed at all — meant demo seeding was also never wired up. Two fixes: (1) `auth_service.py` now returns `tenant_id` in the dict, (2) `routers/auth.py` has a new demo-seed try/except block mirroring the existing RAG seed block contract (per SRS §6.14: "Never breaks registration"). Six regression tests added in `tests/test_registration_seeds.py` covering the return-dict shape, seeder output by entity type, and tenant isolation.
+
+**Original finding:**
+
+Demo seeder function exists at `app/services/demo_seeder.py:588` and is well-tested (BUG-1 xfail tests pass after fix). But a grep for `seed_demo_data` across `app/` returned only the function definition — zero callers in production code. SRS §6.1 says "Demo data auto-seeded on registration"; SRS §6.14 says "Auto-seeded on registration for every new tenant." Neither had ever been true. Every new-tenant registration since the feature was specified landed on an empty dashboard.
+
+**Severity:** High — user-visible UX failure on every registration. Spec-vs-code drift.
+**Side effect of fix:** RAG seeding, which had been silently broken for the same root cause (missing `tenant_id` in return dict), started working simultaneously. No RAG-specific code change needed.
+
+### BUG-4: RegisterRequest Schema Missing industry_type Field (§6.1) — FIXED
+
+**Status: FIXED in commit `77fb429` (tag `v6.2.7-industry-type`), April 22 2026.**
+Discovered during manual BUG-3 verification: new tenants registered as "fabrication" received fabrication-specific demo jobs BUT the Tenant row stored `industry_type = None`. Two related gaps: (1) `RegisterRequest` in `app/schemas/auth.py` did not declare `industry_type`, Pydantic v2 silently dropped it; frontend had been sending the field since v4.0.2 to no effect. (2) `register_tenant_and_user()` in `app/services/auth_service.py` created the Tenant without passing `industry_type` even once the schema gap was closed. Both gaps fixed: (1) added `industry_type: Literal["printing", "manufacturing", "fabrication", "field_service"] = "printing"` to `RegisterRequest`, matching the four Plan A industries in SRS §1.2 (chemical excluded, Plan B), (2) added `industry_type=payload.industry_type` to the Tenant constructor. End-to-end verified: fabrication registration now stores "fabrication" on the Tenant row; chemical returns 422 with clear validation error; omitted field defaults to "printing". Integration tests `test_jobs_api.py` and `test_assignment_service.py` updated from invalid `"general"` to valid `"printing"` fixture value. 11 new tests in `tests/test_auth_schema.py` covering validation, default, and rejection paths.
+
+**Original finding:**
+
+Frontend's `RegisterPayload` interface (in `frontend/src/auth/AuthContext.tsx`) has included `industry_type` since v4.0.2. `RegisterPage.tsx` sends the value from the industry picker at line 129. But `RegisterRequest` Pydantic schema only declared `email`, `password`, `company_name`, `slug`. Pydantic v2 silently drops unknown fields by default, so `payload.industry_type` was never present at the router layer. The router's `getattr(payload, "industry_type", None) or "printing"` fallback always returned `"printing"` regardless of user selection.
+
+**Severity:** Medium — user-visible UX failure (fabrication customers got printing demo data). Silently degraded AI Copilot industry-aware terminology (SRS §6.13) since `ai_chat.py` reads `tenant.industry_type` which was stuck at None for all registrations after v4.0. Every customer that registered via the frontend has been affected.
 
 ## Results Table
 
@@ -103,6 +133,12 @@ ISO string parsing automatically — no explicit `fromisoformat()` call needed.
 | 42 | 6.14 | Demo seeder creates jobs | Functional | seeder_jobs | PASS (BUG-1 fixed in 765d5a3) | test_demo_seeder.py | test_seeder_creates_jobs |
 | 43 | 6.14 | Demo seeder idempotent | Functional | seeder_idempotent | PASS (BUG-1 fixed in 765d5a3) | test_demo_seeder.py | test_seeder_is_idempotent |
 | 44 | 6.14 | Demo seeder tenant isolation | Functional | seeder_isolation | PASS (BUG-1 fixed in 765d5a3) | test_demo_seeder.py | test_seeder_does_not_leak_to_other_tenant |
+| 44a | 6.1, 6.14 | Registration returns tenant_id | Unit | reg_returns_tenant_id | PASS (BUG-3 fixed in 1cca6b5) | test_registration_seeds.py | test_register_returns_tenant_id |
+| 44b | 6.14 | Seed invoked from registration — skills | Functional | reg_seeds_skills | PASS (BUG-3 fixed in 1cca6b5) | test_registration_seeds.py | test_seed_demo_data_produces_skills |
+| 44c | 6.14 | Seed invoked from registration — employees | Functional | reg_seeds_employees | PASS (BUG-3 fixed in 1cca6b5) | test_registration_seeds.py | test_seed_demo_data_produces_employees |
+| 44d | 6.14 | Seed invoked from registration — machines | Functional | reg_seeds_machines | PASS (BUG-3 fixed in 1cca6b5) | test_registration_seeds.py | test_seed_demo_data_produces_machines |
+| 44e | 6.14 | Seed invoked from registration — jobs | Functional | reg_seeds_jobs | PASS (BUG-3 fixed in 1cca6b5) | test_registration_seeds.py | test_seed_demo_data_produces_jobs |
+| 44f | 6.14 | Seed isolation across tenants (reg path) | Functional | reg_seed_isolation | PASS (BUG-3 fixed in 1cca6b5) | test_registration_seeds.py | test_seed_does_not_leak_to_other_tenant |
 | 45 | 6.15 | Onboarding tour localStorage | Functional | onboarding | SKIPPED-GAPS | — | Frontend-only, localStorage, no unit test |
 | 46 | 6.16 | CSV BOM stripped | Unit | csv_bom | PASS | test_csv_import.py | test_strips_bom |
 | 47 | 6.16 | CSV header and rows parsed | Unit | csv_parse | PASS | test_csv_import.py | test_reads_header_and_rows |
@@ -149,6 +185,17 @@ ISO string parsing automatically — no explicit `fromisoformat()` call needed.
 | 88 | 9.2 | Migration head is 023 | Unit | mig_head_023 | PASS | test_alembic_migrations.py | test_head_is_023 |
 | 89 | 9.2 | Migration 021 in chain | Unit | mig_021 | PASS | test_alembic_migrations.py | test_021_in_chain |
 | 90 | 9.2 | No duplicate revision IDs | Unit | mig_no_dup | PASS | test_alembic_migrations.py | test_no_duplicate_revision_ids |
+| 91 | 6.1 | RegisterRequest accepts printing | Unit | reg_schema_printing | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_accepts_valid_industry[printing] |
+| 92 | 6.1 | RegisterRequest accepts manufacturing | Unit | reg_schema_manufacturing | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_accepts_valid_industry[manufacturing] |
+| 93 | 6.1 | RegisterRequest accepts fabrication | Unit | reg_schema_fabrication | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_accepts_valid_industry[fabrication] |
+| 94 | 6.1 | RegisterRequest accepts field_service | Unit | reg_schema_field_service | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_accepts_valid_industry[field_service] |
+| 95 | 6.1 | RegisterRequest defaults to printing | Unit | reg_schema_default | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_defaults_to_printing_when_omitted |
+| 96 | 6.1 | RegisterRequest rejects chemical | Unit | reg_schema_reject_chemical | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_rejects_invalid_industry[chemical] |
+| 97 | 6.1 | RegisterRequest rejects textile | Unit | reg_schema_reject_textile | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_rejects_invalid_industry[textile] |
+| 98 | 6.1 | RegisterRequest rejects uppercase | Unit | reg_schema_reject_case | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_rejects_invalid_industry[PRINTING] |
+| 99 | 6.1 | RegisterRequest rejects empty string | Unit | reg_schema_reject_empty | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_rejects_invalid_industry[] |
+| 100 | 6.1 | RegisterRequest rejects "general" | Unit | reg_schema_reject_general | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_rejects_invalid_industry[general] |
+| 101 | 6.1 | RegisterRequest rejects wrong type (int) | Unit | reg_schema_reject_int | PASS (BUG-4 fixed in 77fb429) | test_auth_schema.py | test_rejects_wrong_type |
 
 ## Failures Detail
 
@@ -193,6 +240,43 @@ production, but a fragility.
 
 **Verdict:** Real fragility. Low severity in production. Blocks SQLite unit tests.
 
+### BUG-3: registration does not call seed_demo_data (FIXED)
+
+**Resolved in commit `1cca6b5` on April 22 2026.** See the "Bugs Found During Audit" section at the top of this document for full resolution detail.
+
+**Discovery trace:**
+Manual end-to-end verification of BUG-1 via Swagger:
+- Registration of `bug1test@test.com` returned 200.
+- Python REPL showed `tenant.id=20` with 0 skills, 0 employees, 0 machines, 0 jobs.
+- `Select-String -Path app -Pattern "seed_demo"` returned only the function definition in `app/services/demo_seeder.py` — zero callers in production code.
+
+**SRS mapping:**
+SRS §6.1: "Demo data auto-seeded on registration — industry-specific jobs, employees, machines, skills, steps and assignments. Idempotent. Never breaks registration."
+SRS §6.14: "Auto-seeded on registration for every new tenant."
+
+**Analysis:** Spec violation. The seeder function was implemented correctly (BUG-1 fix proved that) but was never invoked from any production code path. Every new tenant since the feature was specified has landed on a blank dashboard. Root cause in `auth_service.py`: `register_tenant_and_user()` omitted `tenant_id` from its return dict, so the router's `result.get("tenant_id")` always returned None; the router's `if tenant_id:` guard for RAG seeding silently evaluated False; demo seeding was not wired up at all.
+
+**Verdict:** Real bug. High severity. Spec-vs-code drift, discoverable only by end-to-end verification (unit tests all passed because they called the seeder function directly, not through the HTTP registration flow).
+
+### BUG-4: RegisterRequest schema missing industry_type + not persisted on Tenant (FIXED)
+
+**Resolved in commit `77fb429` on April 22 2026.** See the "Bugs Found During Audit" section at the top of this document for full resolution detail.
+
+**Discovery trace:**
+Manual end-to-end verification of BUG-3 fix via Swagger:
+- Registration with `"industry_type": "fabrication"` returned 201 and seeded fabrication-specific demo jobs (proof BUG-3 fix worked).
+- Python REPL showed `tenant.industry_type = None` on the Tenant row.
+- Investigation revealed two related gaps: (1) `RegisterRequest` schema missing the field, (2) `Tenant()` constructor in `register_tenant_and_user()` not passing `industry_type`.
+
+**SRS mapping:**
+SRS §6.1: "Two-step registration: Step 1 selects industry vertical (5 options with icons and descriptions)."
+SRS §1.2: Four active Plan A industries — printing, manufacturing, fabrication, field_service. Chemical is Plan B.
+SRS §6.13: "Industry-aware system prompt (v4.0.8): injects correct terminology per tenant industry_type."
+
+**Analysis:** Every customer that registered via the frontend since v4.0.2 has been affected. User-picked industry was silently discarded by Pydantic (unknown field dropped) AND silently not persisted on the Tenant row (constructor call omitted it). AI Copilot's industry-aware terminology (`ai_chat.py` reads `tenant.industry_type`) has been getting None for all post-v4.0 tenants; it would have been falling back to default behavior. Fabrication / manufacturing / field_service customers all saw printing demo data.
+
+**Verdict:** Real bug. Medium severity in terms of operational failure (app still works), but significant user-experience regression and multi-subsystem silent degradation. Spec-vs-code drift across three layers: schema, service, and Tenant persistence.
+
 ## Gaps NOT Covered By New Tests
 
 | SRS § | Feature | Reason |
@@ -202,6 +286,19 @@ production, but a fragility.
 | 6.13 | AI Copilot web endpoint (Groq mock) | Would need `unittest.mock.patch` on the Groq SDK client. Feasible in a follow-up. Not added to keep this audit to SRS-vs-code drift, not Groq interaction logic. |
 | 6.15 | Getting Started Onboarding | `localStorage` state in the React frontend. No backend component. Cannot test in pytest. |
 | 6.23 | Industry-Aware Dynamic Labels | `useLabels()` is a React hook in `IndustryContext.tsx`. No backend component. Verified by grep: `grep -r '"Jobs"\|"Machines"\|"Employees"' frontend/src/pages/` returns empty. |
+
+## Housekeeping Items Identified (Non-Bug, Tracked for Future Sessions)
+
+These are code hygiene improvements surfaced during this audit and its follow-up sessions. None are bugs; all are safe to defer.
+
+| Item | Description | Effort |
+|------|-------------|--------|
+| Pydantic v1 `class Config` in `gantt.py` | `GanttJob(BaseModel)` uses the deprecated `class Config` pattern. Will break in Pydantic v3. | ~10 min |
+| Alembic `path_separator` warning | `env.py` uses legacy space/comma/colon splitting for `prepend_sys_path`. Add explicit `path_separator=os`. | ~5 min |
+| Router `getattr` fallback in `auth.py` | After BUG-4 fix, `getattr(payload, "industry_type", None) or "printing"` is belt-and-suspenders. Schema default already handles the missing case. Safe to remove. | ~5 min |
+| Dev tenants in test DB (ids 19–24) | Test tenants from BUG-1/BUG-3/BUG-4 verification. Delete if desired; harmless if left. | ~2 min |
+| `ZETAOPS_*_PROMPT.md` files at repo root | Six prompt files from audit + four bug-fix sessions. Decide: commit under `docs/prompts/` or add to `.gitignore`. | ~5 min |
+| Stray leading `"` on two commit messages | Commits `765d5a3` (BUG-1) and `ca21df7` (datetime cleanup) have a stray `"` at the start of their messages (PowerShell quoting accident). Pushed; not worth history rewrite. | Won't fix |
 
 ## Appendix — New Test Files Added
 
@@ -215,4 +312,17 @@ production, but a fragility.
 | tests/test_demo_seeder.py | 6.14 | 6 tests (originally xfail per BUG-1, now passing after fix in `765d5a3`) + 1 rewritten tenant isolation test using two real tenants |
 | tests/test_rag_pipeline.py | 6.22 | Valid industries (6 tests) + seeding (6 tests) + load context (5 tests) |
 | tests/test_csv_import.py | 6.16 | CSV parsing (3 tests) + file dispatch (2 tests) + employee import (4 tests) + machine import (3 tests) |
+| tests/test_registration_seeds.py | 6.1, 6.14 | 6 tests added during BUG-3 fix: register_returns_tenant_id + 4 "seeder produces {entity}" tests + cross-tenant isolation |
+| tests/test_auth_schema.py | 6.1 | 11 tests added during BUG-4 fix: 4 valid industry accepts (parametrized) + 1 default + 5 rejection cases (parametrized) + 1 wrong-type reject |
 | docs/test_audit/srs_to_test_map.md | all | SRS-to-test mapping for all 23 features |
+
+## Release Ladder — Commits Tracked in This Report
+
+| Tag | Date | Content |
+|-----|------|---------|
+| `v6.2.2-test-recovery` | 2026-04-20 | SQLite StaticPool fix in conftest.py (pre-audit baseline) |
+| `v6.2.3-test-audit` | 2026-04-21 | 105 new tests, BUG-1 + BUG-2 documented |
+| `v6.2.4-bugfixes` | 2026-04-21 | BUG-1 + BUG-2 fixed |
+| `v6.2.5-cleanup` | 2026-04-21 | `datetime.utcnow()` → `datetime.now(timezone.utc)` sweep (10 files, 36 call sites) |
+| `v6.2.6-registration-seed` | 2026-04-22 | BUG-3 fixed |
+| `v6.2.7-industry-type` | 2026-04-22 | BUG-4 fixed |
