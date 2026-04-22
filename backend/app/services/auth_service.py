@@ -26,7 +26,12 @@ def register_tenant_and_user(payload: RegisterRequest, db: Session) -> dict:
     db.commit()
     db.refresh(user)
     access_token = create_access_token(user.id, tenant.id, user.role)
-    return {"access_token": access_token, "refresh_token": raw_refresh, "user": user}
+    return {
+        "access_token": access_token,
+        "refresh_token": raw_refresh,
+        "user": user,
+        "tenant_id": tenant.id,
+    }
 
 
 def login(payload: LoginRequest, db: Session) -> dict:

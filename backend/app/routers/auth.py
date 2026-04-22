@@ -48,6 +48,24 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
             getattr(payload, "industry_type", "unknown"), exc,
         )
 
+    # SRS §6.14: Seed demo data (skills, employees, machines, jobs) for the
+    # new tenant so they land on a populated dashboard instead of a blank screen.
+    # Same contract as RAG seeding above: runs AFTER DB commit, failures are
+    # logged but never block registration.
+    try:
+        from app.services.demo_seeder import seed_demo_data
+        tenant_id = result.get("tenant_id")
+        industry  = getattr(payload, "industry_type", None) or "printing"
+        if tenant_id:
+            seed_demo_data(db, tenant_id, industry)
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).error(
+            "register: demo seeding failed for new tenant (industry=%s): %s. "
+            "Tenant registered successfully. Run seed_demo_data() manually.",
+            getattr(payload, "industry_type", "unknown"), exc,
+        )
+
     _set_cookie(response, result["refresh_token"])
     return TokenResponse(access_token=result["access_token"])
 
