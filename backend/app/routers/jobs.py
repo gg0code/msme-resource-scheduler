@@ -39,7 +39,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional, Any
-from datetime import datetime
+from datetime import datetime, date
 
 from app.database import get_db
 from app.models.job import Job, JobSkillRequirement, JobAssignment
@@ -71,8 +71,8 @@ class JobCreate(BaseModel):
     name: str
     customer: Optional[str] = None
     description: Optional[str] = None
-    start_date: str
-    end_date: str
+    start_date: date
+    end_date: date
     estimated_hours_per_day: float = 8.0
     tentative_profit: Optional[float] = None
     order_value: Optional[float] = None
@@ -90,8 +90,8 @@ class JobUpdate(BaseModel):
     name: Optional[str] = None
     customer: Optional[str] = None
     description: Optional[str] = None
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     estimated_hours_per_day: Optional[float] = None
     tentative_profit: Optional[float] = None
     order_value: Optional[float] = None
