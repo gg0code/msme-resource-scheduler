@@ -11,6 +11,10 @@ REQUIRED = {
     "password": "password123",
     "company_name": "Test Co",
     "slug": "test-co",
+    # v6.3.2: team_size is now required by RegisterRequest. '51+' is the
+    # desktop_first path that mirrors the schema's pre-v6.3.2 behaviour
+    # (email + password required, phone optional).
+    "team_size": "51+",
 }
 
 

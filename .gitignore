@@ -26,3 +26,6 @@ backend/rag_data/[0-9]*/
 
 changed_files.txt
 
+# Iteration prompt files (kept locally per session, not source-controlled)
+v6_*_prompt.md
+

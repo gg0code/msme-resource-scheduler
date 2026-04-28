@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, update
 from sqlalchemy.sql import func
 
+from app.models.auth import Tenant
 from app.models.whatsapp import PhoneTenantMap
 
 # ---------------------------------------------------------------------------
@@ -310,3 +311,107 @@ async def record_consent(
         f"Data will be saved to whatsapp_conversations table."
     )
     return True
+
+
+# ---------------------------------------------------------------------------
+# FUNCTION 4 - link_phone_to_tenant() — v6.3.2
+# ---------------------------------------------------------------------------
+
+class PhoneAlreadyLinkedError(Exception):
+    """Raised when the phone number is already linked to the given tenant.
+
+    Callers translate this into the right HTTP status (409 from the
+    link-phone endpoint, 400 from the v6.3.2 signup flow).
+    """
+
+
+def link_phone_to_tenant(
+    db: Session,
+    *,
+    tenant_id: int,
+    user_id: int,
+    phone_number: str,
+    phone_role: str = "owner",
+    display_name: str | None = None,
+    consent_given: bool = False,
+) -> PhoneTenantMap:
+    """
+    Create a PhoneTenantMap row linking a WhatsApp phone number to a tenant.
+
+    Single source of truth for PhoneTenantMap creation — both the v6.3.2
+    signup flow and the LinkWhatsApp.tsx /api/v1/whatsapp/link-phone endpoint
+    funnel through this. Encapsulates the BUG-6 industry-type lookup so
+    callers cannot accidentally store a stale 'printing' default.
+
+    Called by:
+      - app/services/auth_service.register_tenant_and_user (v6.3.2 signup)
+      - app/routers/whatsapp.link_phone (existing LinkWhatsApp.tsx endpoint)
+    Calls into:
+      - SQLAlchemy session (sync) — read tenant.industry_type, insert mapping.
+
+    Args:
+      db:            sync SQLAlchemy Session, NOT AsyncSession. The whatsapp
+                     services are intentionally sync per CLAUDE.md.
+      tenant_id:     destination tenant. Used to FK the row and to look up
+                     industry_type so resolve_identity() returns the right
+                     vertical on the very first inbound message.
+      user_id:       which user inside the tenant linked this phone.
+      phone_number:  E.164 string (validated by the schema layer).
+      phone_role:    'owner' | 'manager' | etc. Defaults to 'owner' to match
+                     the column server_default.
+      display_name:  optional human label shown in logs.
+      consent_given: whether the user has consented to conversation logging
+                     at link time. Defaults to False; the WhatsApp HAAN flow
+                     can flip this later via record_consent().
+
+    Returns: the persisted PhoneTenantMap row, populated with PK after flush.
+
+    Raises: PhoneAlreadyLinkedError if (phone_number, tenant_id) already
+            exists. Caller decides how to surface this.
+
+    Side effects: one INSERT into phone_tenant_map. The caller owns the
+                  transaction boundary — this function flushes but does
+                  NOT commit. The /link-phone router commits after; the
+                  v6.3.2 signup flow commits once at the very end after
+                  Tenant + User + PhoneTenantMap + RefreshToken are all
+                  staged, preserving atomicity.
+    """
+    existing = (
+        db.query(PhoneTenantMap)
+        .filter(
+            PhoneTenantMap.phone_number == phone_number,
+            PhoneTenantMap.tenant_id == tenant_id,
+        )
+        .first()
+    )
+    if existing:
+        raise PhoneAlreadyLinkedError(
+            f"Phone {phone_number} is already linked to tenant {tenant_id}."
+        )
+
+    # BUG-6 fix: store the tenant's actual industry_type so the very first
+    # inbound WhatsApp message resolves to the right vertical. Pre-BUG-6
+    # code defaulted to 'printing' which broke fabrication / field_service
+    # tenants whose AI then loaded the wrong tools and terminology.
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    tenant_industry = tenant.industry_type if tenant else None
+
+    new_mapping = PhoneTenantMap(
+        phone_number=phone_number,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        is_active=True,
+        industry_type=tenant_industry,
+        consent_given=consent_given,
+        display_name=display_name,
+        phone_role=phone_role,
+    )
+    db.add(new_mapping)
+    db.flush()
+
+    logger.info(
+        f"Phone linked: ****{phone_number[-4:]} -> "
+        f"tenant_id={tenant_id}, role={phone_role}, "
+        f"industry={tenant_industry}"
+    )
+    return new_mapping

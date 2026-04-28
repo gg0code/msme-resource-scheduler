@@ -68,7 +68,10 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
         )
 
     _set_cookie(response, result["refresh_token"])
-    return TokenResponse(access_token=result["access_token"])
+    return TokenResponse(
+        access_token=result["access_token"],
+        next_step=result.get("next_step"),
+    )
 
 
 @router.post("/login", response_model=TokenResponse)

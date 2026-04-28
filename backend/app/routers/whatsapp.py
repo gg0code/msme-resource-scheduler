@@ -95,7 +95,6 @@ from app.services.whatsapp_actions import (
 from app.services.whatsapp_intent import detect_write_intent
 from app.services.whatsapp_whisper import transcribe_voice_note, transcribe_audio_bytes
 from app.models.whatsapp import WhatsAppConversation, PhoneTenantMap
-from app.models.auth import Tenant
 from app.core.dependencies import get_current_user
 
 # ---------------------------------------------------------------------------
@@ -394,41 +393,29 @@ def link_phone(
             detail=f"Invalid phone_role. Must be one of: {', '.join(VALID_PHONE_ROLES)}."
         )
 
-    existing = (
-        db.query(PhoneTenantMap)
-        .filter(
-            PhoneTenantMap.phone_number == payload.phone_number,
-            PhoneTenantMap.tenant_id   == current_user.tenant_id,
-        )
-        .first()
+    # v6.3.2: PhoneTenantMap creation is centralised in whatsapp_identity.
+    # Same helper drives the signup flow's auto-link path. The helper
+    # flushes; this endpoint owns the commit.
+    from app.services.whatsapp_identity import (
+        link_phone_to_tenant, PhoneAlreadyLinkedError,
     )
-    if existing:
+    try:
+        new_mapping = link_phone_to_tenant(
+            db,
+            tenant_id=current_user.tenant_id,
+            user_id=current_user.id,
+            phone_number=payload.phone_number,
+            phone_role=payload.phone_role,
+            display_name=payload.display_name,
+            consent_given=payload.consent_given,
+        )
+    except PhoneAlreadyLinkedError:
         raise HTTPException(
             status_code=409,
-            detail=f"Phone {payload.phone_number} is already linked to this tenant."
+            detail=f"Phone {payload.phone_number} is already linked to this tenant.",
         )
-
-    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
-    tenant_industry = tenant.industry_type if tenant else "printing"
-
-    new_mapping = PhoneTenantMap(
-        phone_number=payload.phone_number,
-        tenant_id=current_user.tenant_id,
-        user_id=current_user.id,
-        is_active=True,
-        industry_type=tenant_industry,
-        consent_given=payload.consent_given,
-        display_name=payload.display_name,
-        phone_role=payload.phone_role,
-    )
-    db.add(new_mapping)
     db.commit()
     db.refresh(new_mapping)
-
-    logger.info(
-        f"Phone linked: ****{payload.phone_number[-4:]} "
-        f"→ tenant_id={current_user.tenant_id}, role={payload.phone_role}"
-    )
 
     return LinkedPhoneResponse(
         id=new_mapping.id,

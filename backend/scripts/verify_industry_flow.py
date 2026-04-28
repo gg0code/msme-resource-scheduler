@@ -81,6 +81,11 @@ def register(email: str, slug: str, industry: str | None, password: str = "qazx1
         "password": password,
         "company_name": f"Verify {slug}",
         "slug": slug,
+        # v6.3.2: team_size is required by the schema. '51+' keeps this
+        # verifier on the desktop_first path (no phone, no PhoneTenantMap),
+        # which matches the industry-attribution scenarios this script
+        # exercises.
+        "team_size": "51+",
     }
     if industry is not None:
         payload["industry_type"] = industry

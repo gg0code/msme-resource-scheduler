@@ -38,6 +38,8 @@ def live_headers(live_client):
         "email": f"test-{uid}@testco.com",
         "password": "test1234",
         "industry_type": "printing",
+        # v6.3.2: team_size required. '51+' = desktop_first signup, no phone.
+        "team_size": "51+",
     })
     assert resp.status_code in (200, 201), f"Register failed: {resp.text}"
     token = resp.json().get("access_token")

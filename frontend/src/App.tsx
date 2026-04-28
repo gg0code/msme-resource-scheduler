@@ -77,6 +77,7 @@ import Layout from './components/Layout'
 // Auth pages
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import ConnectWhatsAppPage from './pages/ConnectWhatsApp'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 
 // App pages
@@ -100,9 +101,12 @@ export default function App() {
     <AuthProvider>
       <Routes>
         {/* Public routes */}
-        <Route path="/login"        element={<LoginPage />} />
-        <Route path="/register"     element={<RegisterPage />} />
-        <Route path="/unauthorized" element={<UnauthorizedPage />} />
+        <Route path="/login"            element={<LoginPage />} />
+        <Route path="/register"         element={<RegisterPage />} />
+        {/* v6.3.2: post-signup placeholder for whatsapp_first / hybrid users.
+            Full QR-scan flow replaces this in v6.3.5. */}
+        <Route path="/connect-whatsapp" element={<ConnectWhatsAppPage />} />
+        <Route path="/unauthorized"     element={<UnauthorizedPage />} />
 
         {/* -- Block 2: Scan page - no auth, no sidebar -- */}
         <Route path="/scan" element={<ScanPage />} />

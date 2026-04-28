@@ -1,19 +1,26 @@
 """
-v6.3.1 diagnostic: role distribution and migration 027 column verification.
+v6.3.1+ diagnostic: role distribution, migration 027 column verification,
+and (v6.3.2) entry_mode distribution.
 
-Two checks in one script:
-  1. Role distribution across the users table — confirms which role values
+Three checks in one script:
+  1. Role distribution across the users table - confirms which role values
      are actually in production data (used during v6.3.1 to verify the
      proprietor/owner/scheduler synonym handling decision).
-  2. Migration 027 column verification — confirms the entry_mode,
+  2. Migration 027 column verification - confirms the entry_mode,
      size_segment, briefing config, and created_via columns landed on
      tenants and users with correct types, nullability, and defaults.
+  3. Tenant entry_mode distribution (v6.3.2) - after v6.3.2 signups the
+     tenants table must have entry_mode set on every row; pre-v6.4 rows
+     all show 'desktop_first' from the migration 027 server_default.
 
 Called by: developer (manually) via `python -m scripts.check_role_distribution`
            from the backend/ directory. Used as a pre-tag verification step
-           for v6.3.1 and a post-deploy smoke check thereafter.
+           for v6.3.1+ and a post-deploy smoke check thereafter.
 Calls into: SQLAlchemy engine built directly from DATABASE_URL env var
             (loaded from backend/.env if present).
+
+ASCII output only - the script runs in environments (Windows cp1252 console)
+where non-ASCII characters raise UnicodeEncodeError on stdout.write.
 """
 import os
 import sys
@@ -118,7 +125,7 @@ def check_migration_027_columns(engine: Engine) -> int:
         print(f"\nTotal mismatches: {len(mismatches)}")
         return 1
 
-    print("\nAll migration 027 columns match expected schema. ✓")
+    print("\nAll migration 027 columns match expected schema. OK")
     return 0
 
 
@@ -152,7 +159,7 @@ def _verify_table_columns(engine: Engine, table_name: str, expected: dict) -> li
     mismatches = []
     for col_name, (exp_type, exp_null, exp_default) in expected.items():
         if col_name not in actual:
-            print(f"  {col_name:<35} {'(MISSING)':<28} {'-':<6} {'-':<25} ✗")
+            print(f"  {col_name:<35} {'(MISSING)':<28} {'-':<6} {'-':<25} FAIL")
             mismatches.append(f"{table_name}.{col_name}: column missing")
             continue
 
@@ -161,7 +168,7 @@ def _verify_table_columns(engine: Engine, table_name: str, expected: dict) -> li
         null_ok = act_null == exp_null
         default_ok = _defaults_match(act_default, exp_default)
 
-        status = "✓" if (type_ok and null_ok and default_ok) else "✗"
+        status = "OK" if (type_ok and null_ok and default_ok) else "FAIL"
         default_display = (act_default[:22] + "...") if act_default and len(act_default) > 25 else (act_default or "-")
         print(f"  {col_name:<35} {act_type:<28} {act_null:<6} {default_display:<25} {status}")
 
@@ -196,16 +203,56 @@ def _defaults_match(actual: str, expected: str) -> bool:
     return actual_clean == expected_clean
 
 
+def check_signup_state(engine: Engine) -> int:
+    """
+    v6.3.2 diagnostic: verify new tenants are being created with entry_mode set.
+
+    Counts tenants by entry_mode value. After v6.3.2 signups, all newly-created
+    tenants must have entry_mode in ('whatsapp_first', 'desktop_first', 'hybrid').
+    Pre-v6.4 tenants will all show 'desktop_first' (from migration 027 backfill).
+
+    Called by: main()
+    Calls into: SQLAlchemy engine.connect() - read-only SELECT.
+
+    Returns: 0 always (informational; no specific value is "wrong"). The
+             distribution itself is what matters - operators should sanity-
+             check it against expected signup mix after running test signups.
+    """
+    print("=" * 50)
+    print("CHECK 3: Tenant entry_mode distribution")
+    print("=" * 50)
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                "SELECT entry_mode, COUNT(*) AS n "
+                "FROM tenants GROUP BY entry_mode ORDER BY n DESC"
+            )
+        )
+        rows = list(result)
+    if not rows:
+        print("(tenants table is empty)\n")
+        return 0
+    print(f"{'entry_mode':<25} {'count':>8}")
+    print("-" * 35)
+    for row in rows:
+        entry_mode_value = row[0] if row[0] is not None else "(NULL)"
+        print(f"{entry_mode_value:<25} {row[1]:>8}")
+    print()
+    return 0
+
+
 def main() -> int:
     """
-    Entry point. Runs both diagnostic checks and exits with a code
+    Entry point. Runs all three diagnostic checks and exits with a code
     reflecting overall success.
 
     Called by: developer via `python -m scripts.check_role_distribution`.
-    Calls into: check_role_distribution(), check_migration_027_columns().
+    Calls into: check_role_distribution(), check_migration_027_columns(),
+                check_signup_state().
 
     Returns: 0 if all checks pass, 1 if DATABASE_URL missing or any
-             column mismatch found.
+             column mismatch found. CHECK 3 always returns 0 - it is
+             informational.
     """
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
@@ -215,7 +262,8 @@ def main() -> int:
     engine = create_engine(db_url)
     role_rc = check_role_distribution(engine)
     column_rc = check_migration_027_columns(engine)
-    return role_rc | column_rc
+    signup_rc = check_signup_state(engine)
+    return role_rc | column_rc | signup_rc
 
 
 if __name__ == "__main__":

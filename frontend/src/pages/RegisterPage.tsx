@@ -1,5 +1,15 @@
-// src/pages/RegisterPage.tsx - v4.0.1
-// Added: industry picker step before workspace creation
+// src/pages/RegisterPage.tsx
+//
+// v4.0.1 - industry picker step before workspace creation
+// v6.3.2 - team-size + phone fields drive WhatsApp-first / hybrid / desktop-first
+//          signup flow. Email and password become conditionally required based
+//          on team size; phone is required for the two WhatsApp-bearing paths.
+//          Backend response contains `next_step` ('dashboard' or
+//          'connect_whatsapp') that decides the post-signup landing page.
+//
+// Known issue: localStorage.setItem('access_token') below bypasses
+// AuthContext.register(). Tracked in CLAUDE.md (Known Bug) for v6.2 fix; left
+// unchanged in v6.3.2 to keep this iteration scoped to the signup payload.
 
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
@@ -93,6 +103,19 @@ const BADGE_COLOR: Record<string, string> = {
   purple: 'bg-purple-100 text-purple-700',
 }
 
+// v6.3.2 team size options. Values map exactly to the backend Literal in
+// app/schemas/auth.RegisterRequest.team_size.
+type TeamSize = '1-15' | '16-50' | '51+'
+
+const TEAM_SIZES: { id: TeamSize; label: string; helper: string }[] = [
+  { id: '1-15',  label: '1 to 15 people',   helper: 'Most signup happens via WhatsApp.' },
+  { id: '16-50', label: '16 to 50 people',  helper: 'WhatsApp plus the web dashboard.'   },
+  { id: '51+',   label: '51 or more people', helper: 'Primarily on the web dashboard.'   },
+]
+
+// E.164 regex mirrors backend RegisterRequest.phone_e164 validator.
+const E164_REGEX = /^\+[1-9]\d{1,14}$/
+
 // -- Component -----------------------------------------------------------------
 
 export default function RegisterPage() {
@@ -102,12 +125,14 @@ export default function RegisterPage() {
   const [step, setStep] = useState<1 | 2>(1)
 
   const [selectedIndustry, setSelectedIndustry] = useState<string>('printing')
+  const [teamSize, setTeamSize] = useState<TeamSize | ''>('')
   const [form, setForm] = useState({
     company_name:    '',
     slug:            '',
     email:           '',
     password:        '',
     confirmPassword: '',
+    phone_e164:      '',
   })
   const [error, setError]     = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -117,24 +142,66 @@ export default function RegisterPage() {
 
   const selectedConfig = INDUSTRIES.find(i => i.id === selectedIndustry) ?? INDUSTRIES[0]
 
+  // v6.3.2: which fields the user must fill, given the chosen team size.
+  // These flags drive both the visible '*' markers and the submit-time
+  // validation. They mirror the backend's model_validator exactly.
+  const phoneRequired    = teamSize === '1-15' || teamSize === '16-50'
+  const emailRequired    = teamSize === '16-50' || teamSize === '51+'
+  const passwordRequired = teamSize === '16-50' || teamSize === '51+'
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    if (form.password !== form.confirmPassword) {
+
+    if (!teamSize) {
+      setError('Please choose a team size.')
+      return
+    }
+    if (phoneRequired && !form.phone_e164) {
+      setError('Phone number is required for teams of 50 or fewer.')
+      return
+    }
+    if (form.phone_e164 && !E164_REGEX.test(form.phone_e164)) {
+      setError('Phone number must be in international format, e.g. +919876543210.')
+      return
+    }
+    if (emailRequired && !form.email) {
+      setError('Email is required for teams of 16 or more.')
+      return
+    }
+    if (passwordRequired && !form.password) {
+      setError('Password is required for teams of 16 or more.')
+      return
+    }
+    if (form.password && form.password !== form.confirmPassword) {
       setError('Passwords do not match')
       return
     }
+
     setLoading(true)
     try {
-      const res = await apiClient.post(AUTH.register, {
+      // Build payload — only include optional fields when the user filled
+      // them, so the backend Pydantic schema sees Optional[str] = None
+      // for whatsapp_first signups that omit email/password.
+      const payload: Record<string, unknown> = {
         company_name:  form.company_name,
         slug:          form.slug.toLowerCase().replace(/\s+/g, '-'),
-        email:         form.email,
-        password:      form.password,
         industry_type: selectedIndustry,
-      })
+        team_size:     teamSize,
+      }
+      if (form.email)      payload.email      = form.email
+      if (form.password)   payload.password   = form.password
+      if (form.phone_e164) payload.phone_e164 = form.phone_e164
+
+      const res = await apiClient.post(AUTH.register, payload)
       localStorage.setItem('access_token', res.data.access_token)
-      navigate('/')
+
+      const nextStep = res.data?.next_step
+      if (nextStep === 'connect_whatsapp') {
+        navigate('/connect-whatsapp')
+      } else {
+        navigate('/dashboard')
+      }
     } catch (err: unknown) {
       const detail = (err as {response?:{data?:{detail?:unknown}}})?.response?.data?.detail
       setError(typeof detail === 'string' ? detail : 'Registration failed. Please try again.')
@@ -284,25 +351,94 @@ export default function RegisterPage() {
                   <p className="text-xs text-gray-400 mt-1">Lowercase, no spaces - e.g. sharma-fab</p>
                 </div>
 
+                {/* v6.3.2: Team size — drives WhatsApp-first vs desktop-first signup. */}
+                <fieldset>
+                  <legend className="block text-xs font-medium text-gray-600 mb-1">
+                    Team size <span className="text-red-500">*</span>
+                  </legend>
+                  <div className="space-y-1.5">
+                    {TEAM_SIZES.map(option => (
+                      <label
+                        key={option.id}
+                        className={`flex items-start gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors
+                          ${teamSize === option.id
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                      >
+                        <input
+                          type="radio"
+                          name="team_size"
+                          value={option.id}
+                          checked={teamSize === option.id}
+                          onChange={() => setTeamSize(option.id)}
+                          className="mt-0.5"
+                        />
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-gray-800">{option.label}</div>
+                          <div className="text-xs text-gray-500">{option.helper}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                {/* v6.3.2: Phone — required for whatsapp_first / hybrid. */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Admin Email</label>
-                  <input type="email" value={form.email} onChange={set('email')} required
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Phone number {phoneRequired && <span className="text-red-500">*</span>}
+                  </label>
+                  <input
+                    type="tel"
+                    value={form.phone_e164}
+                    onChange={set('phone_e164')}
+                    placeholder="+919876543210"
+                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    International format, e.g. +91 for India.
+                    {phoneRequired ? ' Required for teams of 50 or fewer.' : ' Optional for larger teams.'}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Admin Email {emailRequired && <span className="text-red-500">*</span>}
+                  </label>
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={set('email')}
                     placeholder="owner@company.com"
-                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {!emailRequired && (
+                    <p className="text-xs text-gray-400 mt-1">Optional for WhatsApp-first signups.</p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
-                    <input type="password" value={form.password} onChange={set('password')} required
-                      minLength={8} placeholder="Min. 8 characters"
-                      className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Password {passwordRequired && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="password"
+                      value={form.password}
+                      onChange={set('password')}
+                      minLength={form.password ? 8 : undefined}
+                      placeholder={passwordRequired ? 'Min. 8 characters' : 'Optional'}
+                      className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Confirm</label>
-                    <input type="password" value={form.confirmPassword} onChange={set('confirmPassword')} required
+                    <input
+                      type="password"
+                      value={form.confirmPassword}
+                      onChange={set('confirmPassword')}
                       placeholder="Repeat password"
-                      className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
                 </div>
 
