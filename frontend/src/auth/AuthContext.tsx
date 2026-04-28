@@ -56,21 +56,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const silentRefreshRef   = useRef<(() => void) | null>(null);
 
   // -- Helpers ----------------------------------------------------------------
+  // scheduleRefresh is declared first so setAuth can list it in its dep array
+  // without hitting the temporal-dead-zone trap that the previous ordering
+  // had. Identity is stable (useCallback with []), so this does not cause
+  // setAuth to re-create on every render.
+  const scheduleRefresh = useCallback((ms: number) => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => { silentRefreshRef.current?.() }, ms);
+  }, []);
+
   const setAuth = useCallback((accessToken: string, user: AuthUser) => {
     tokenStore.set(accessToken);             // keep axios interceptor in sync
     setState({ user, accessToken, isLoading: false });
     scheduleRefresh(29 * 60 * 1000);
-  }, []);
+  }, [scheduleRefresh]);
 
   const clearAuth = useCallback(() => {
     tokenStore.set(null);                    // clear axios token too
     setState({ user: null, accessToken: null, isLoading: false });
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-  }, []);
-
-  const scheduleRefresh = useCallback((ms: number) => {
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = setTimeout(() => { silentRefreshRef.current?.() }, ms);
   }, []);
 
   // -- Silent refresh (called on load + timer) --------------------------------
@@ -90,8 +94,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clearAuth, setAuth]);
 
-  // Keep ref in sync so scheduleRefresh can call it without circular deps
-  silentRefreshRef.current = silentRefresh
+  // Keep ref in sync so scheduleRefresh can call it without re-creating
+  // the timer callback on every silentRefresh identity change. The ref
+  // assignment runs in an effect (not during render) so React 18 StrictMode
+  // double-renders cannot leave the ref pointing at a stale closure.
+  useEffect(() => {
+    silentRefreshRef.current = silentRefresh
+  }, [silentRefresh]);
 
   // Restore session on mount
   useEffect(() => { silentRefresh() }, [silentRefresh]);

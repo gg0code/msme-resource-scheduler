@@ -29,3 +29,7 @@ changed_files.txt
 # Iteration prompt files (kept locally per session, not source-controlled)
 v6_*_prompt.md
 
+# Ad-hoc lint/build output dumps (npm run lint > 1.txt etc)
+frontend/[0-9]*.txt
+backend/[0-9]*.txt
+

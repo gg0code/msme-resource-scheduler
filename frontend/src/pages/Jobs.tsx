@@ -727,7 +727,7 @@ export default function Jobs() {
       const needed = skillReqs.reduce((s,r)=>s+r.employees_required,0)
       const avail  = skillReqs.reduce((s,_,i)=>s+Math.min(newMap[String(i)]?.length??0,skillReqs[i].employees_required),0)
       setWizardCheck({ feasible:avail>=needed, feasibility_score:needed>0?Math.round((avail/needed)*100):100, conflicts:[], available_employees:newMap })
-    } catch(_) {}
+    } catch { /* silent fallback - wizard availability check is non-critical */ }
     finally { setWizardChecking(false) }
   }
 
@@ -822,7 +822,7 @@ export default function Jobs() {
       setAssignEmps(data.currently_assigned_employee_ids)
       setAssignMachines(data.currently_assigned_machine_ids)
       setAssignCheck(data)
-    } catch(_) { setAssignCheck(null) }
+    } catch { setAssignCheck(null) }
     finally { setAssignChecking(false) }
   }
 
@@ -904,7 +904,7 @@ export default function Jobs() {
                 try {
                   const data = await getResourceAvailability(job.id)
                   setResAvail(p => ({ ...p, [job.id]: data }))
-                } catch (_) {
+                } catch {
                   // silently fall back to static values if fetch fails
                 } finally {
                   setResAvailLoading(p => ({ ...p, [job.id]: false }))
@@ -1261,7 +1261,7 @@ export default function Jobs() {
                                 // Refresh availability after saving allocation
                                 const updated = await getResourceAvailability(job.id)
                                 setResAvail(p => ({ ...p, [job.id]: updated }))
-                              } catch(_) {}
+                              } catch { /* silent fallback - availability refresh is non-critical */ }
                               setSavingAlloc(false)
                             }}
                             className="flex items-center gap-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-2.5 py-1.5 mt-1 disabled:opacity-50">

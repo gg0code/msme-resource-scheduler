@@ -155,7 +155,8 @@ export default function GanttPage() {
   function toggleMachine(machine: string) {
     setCollapsedMachines(prev => {
       const next = new Set(prev)
-      next.has(machine) ? next.delete(machine) : next.add(machine)
+      if (next.has(machine)) next.delete(machine)
+      else next.add(machine)
       return next
     })
   }

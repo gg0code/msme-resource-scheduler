@@ -312,7 +312,7 @@ export default function AICopilot({ isOpen, onClose }: AICopilotProps) {
       } : prev)
 
     } catch (err: unknown) {
-      const axiosErr = err as any
+      const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } }
       const status  = axiosErr?.response?.status
       const detail  = axiosErr?.response?.data?.detail ?? ''
 

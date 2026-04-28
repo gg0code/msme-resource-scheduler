@@ -4,7 +4,7 @@
 // bulk factory holidays. Shows a filterable list of all overrides with
 // add, edit and delete. Uses GET/POST/PATCH/DELETE /api/availability/.
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
 import { Plus, Pencil, Trash2, Loader2, AlertCircle, X, Check, Search, Users, Factory, CalendarOff } from 'lucide-react'
@@ -51,8 +51,18 @@ export default function Availability() {
     queryKey:['machines'], queryFn:() => apiClient.get(MACHINES.list).then(r => r.data),
   })
 
-  const getEmpName = (id: number) => employees.find(e => e.id === id)?.full_name ?? `Employee #${id}`
-  const getMachName = (id: number) => machines.find(m => m.id === id)?.name ?? `Machine #${id}`
+  // useCallback so the dep chain is explicit: filtered depends on
+  // getEmpName/getMachName, which in turn depend on employees/machines.
+  // This makes react-compiler's inferred deps match the manual list and
+  // preserves the useMemo for the filtered list.
+  const getEmpName = useCallback(
+    (id: number) => employees.find(e => e.id === id)?.full_name ?? `Employee #${id}`,
+    [employees],
+  )
+  const getMachName = useCallback(
+    (id: number) => machines.find(m => m.id === id)?.name ?? `Machine #${id}`,
+    [machines],
+  )
 
   // Filtered list
   const filtered = useMemo(() => overrides.filter(o => {
@@ -65,7 +75,7 @@ export default function Availability() {
       if (!name.toLowerCase().includes(q) && !reason.toLowerCase().includes(q)) return false
     }
     return true
-  }), [overrides, filterType, search, employees, machines])
+  }), [overrides, filterType, search, getEmpName, getMachName])
 
   // --- Mutations ---
   const createOverride = useMutation({

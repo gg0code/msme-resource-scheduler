@@ -29,7 +29,9 @@ const INDUSTRY_TYPES = ['printing', 'manufacturing', 'fabrication', 'chemical', 
 
 export function IndustryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
-  const industryType = (user as any)?.industry_type ?? 'printing'
+  // AuthUser.industry_type is declared in auth/AuthContext.tsx (added v4.0.2);
+  // the previous (user as any) cast was dead defensive code from before that.
+  const industryType = user?.industry_type ?? 'printing'
 
   const config = useMemo(
     () => getIndustryConfig(industryType),

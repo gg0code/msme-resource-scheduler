@@ -97,7 +97,7 @@ describe('computeStatus', () => {
   })
 
   it('returns active while running regardless of other state', () => {
-    const jobs: any[] = []
+    const jobs: { status: string; is_locked: boolean }[] = []
     expect(computeStatus(jobs, true, false, true)).toBe('active')
   })
 

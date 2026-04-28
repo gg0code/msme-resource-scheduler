@@ -25,10 +25,10 @@ function isDismissed(userId: number) {
   try { return localStorage.getItem(dismissedKey(userId)) === '1' } catch { return false }
 }
 function persistDismissed(userId: number) {
-  try { localStorage.setItem(dismissedKey(userId), '1') } catch {}
+  try { localStorage.setItem(dismissedKey(userId), '1') } catch { /* storage full or blocked - dismissal is non-critical */ }
 }
 function clearDismissed(userId: number) {
-  try { localStorage.removeItem(dismissedKey(userId)) } catch {}
+  try { localStorage.removeItem(dismissedKey(userId)) } catch { /* storage blocked - non-critical */ }
 }
 
 // -- Step definition -----------------------------------------------------------
@@ -122,7 +122,7 @@ export default function GettingStarted() {
   function isComplete(step: Step): boolean {
     // Manual steps - check localStorage
     const manualKey = `gs_done_${user?.id}_${step.id}`
-    try { if (localStorage.getItem(manualKey) === '1') return true } catch {}
+    try { if (localStorage.getItem(manualKey) === '1') return true } catch { /* storage blocked - fall through to query-cache check */ }
 
     if (!step.checkKey) return false
     const data = qc.getQueryData<unknown[]>([step.checkKey])
@@ -131,7 +131,7 @@ export default function GettingStarted() {
 
   function markManualDone(stepId: string) {
     if (!user) return
-    try { localStorage.setItem(`gs_done_${user.id}_${stepId}`, '1') } catch {}
+    try { localStorage.setItem(`gs_done_${user.id}_${stepId}`, '1') } catch { /* storage blocked - tick still triggers re-render so UI reflects intent */ }
     setTick(n => n + 1)
   }
 
@@ -146,7 +146,7 @@ export default function GettingStarted() {
     clearDismissed(user.id)
     // Clear manual done flags
     steps.forEach(s => {
-      try { localStorage.removeItem(`gs_done_${user.id}_${s.id}`) } catch {}
+      try { localStorage.removeItem(`gs_done_${user.id}_${s.id}`) } catch { /* storage blocked - reset still proceeds for in-memory state */ }
     })
     setDismissedState(false)
     setTick(n => n + 1)

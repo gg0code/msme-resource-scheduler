@@ -5,7 +5,7 @@
  * Route: /jobs/:jobId/print  (auth required, no sidebar)
  */
 
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import apiClient from '../api/client'
@@ -171,7 +171,10 @@ export default function PrintJobCard() {
   const [error, setError]     = useState('')
   const [printedAt]           = useState(new Date())
 
-  const load = async () => {
+  // useCallback so the load identity is stable across renders that don't
+  // change jobId. Lets the effect below list `load` as a dep without
+  // re-firing on every render.
+  const load = useCallback(async () => {
     if (!jobId) return
     setLoading(true); setError('')
     try {
@@ -192,9 +195,9 @@ export default function PrintJobCard() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [jobId])
 
-  useEffect(() => { load() }, [jobId])
+  useEffect(() => { load() }, [load])
 
   if (loading) return (
     <div style={s.loadPage}>

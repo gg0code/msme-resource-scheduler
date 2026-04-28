@@ -68,7 +68,7 @@ function useIsFirstUnseen(id: string, seen: boolean): boolean {
 
     // Find the unseen stop with the smallest registration order
     let minOrder = Infinity
-    pageRegistry.forEach((order, _stopId) => {
+    pageRegistry.forEach(order => {
       // We consider a stop "unseen" if it's not in the registry as seen
       // The parent context tracks that - here we just look at order
       if (order < minOrder) minOrder = order
