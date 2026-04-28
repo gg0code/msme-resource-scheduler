@@ -3,10 +3,14 @@
 //
 // v6.3.2.1: Hook + type + the React Context object live in ./useOnboarding.ts
 // so this file has only the Provider and Vite Fast Refresh hot-swaps cleanly.
+//
+// v6.3.2.2: User-id-change handling moved out of useEffect into a
+// "store derived from props" pattern (React docs: "You might not need an
+// effect"). Saves one render per login/logout and removes the
+// set-state-in-effect lint warning.
 
 import {
   useCallback,
-  useEffect,
   useState,
   type ReactNode,
 } from 'react'
@@ -39,20 +43,34 @@ function saveSeenStops(userId: number, stops: Set<string>): void {
   }
 }
 
+function readSeenStopsForUser(userId: number | null): Set<string> {
+  return userId !== null ? loadSeenStops(userId) : new Set()
+}
+
 // -- Provider ------------------------------------------------------------------
 
 export function OnboardingProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
-  const [seenStops, setSeenStops] = useState<Set<string>>(new Set())
+  const userId = user?.id ?? null
 
-  // Reload from localStorage whenever the logged-in user changes
-  useEffect(() => {
-    if (user) {
-      setSeenStops(loadSeenStops(user.id))
-    } else {
-      setSeenStops(new Set())
-    }
-  }, [user?.id])
+  // Lazy initializer reads localStorage once on first mount. We do NOT
+  // re-read on every render — see the trackedUserId block below.
+  const [seenStops, setSeenStops] = useState<Set<string>>(
+    () => readSeenStopsForUser(userId),
+  )
+
+  // Track which user the seenStops Set belongs to. When the logged-in
+  // user changes (login / logout / silent-refresh switching accounts),
+  // reload from localStorage. The setState calls happen during render
+  // and React batches them with the prop change — no extra commit, no
+  // cascading-render anti-pattern.
+  // Reference: https://react.dev/learn/you-might-not-need-an-effect
+  //   ("Adjusting some state when a prop changes")
+  const [trackedUserId, setTrackedUserId] = useState<number | null>(userId)
+  if (trackedUserId !== userId) {
+    setTrackedUserId(userId)
+    setSeenStops(readSeenStopsForUser(userId))
+  }
 
   const markSeen = useCallback(
     (stopId: string) => {

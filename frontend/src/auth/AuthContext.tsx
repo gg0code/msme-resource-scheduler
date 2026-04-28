@@ -81,7 +81,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     silentRefreshRef.current = silentRefresh
   }, [silentRefresh]);
 
-  // Restore session on mount
+  // Restore session on mount.
+  // The lint rule below flags this as a synchronous setState in an effect,
+  // but the actual setState happens inside silentRefresh's async continuation
+  // (after `await fetch(/auth/refresh)` resolves) — exactly the "subscribe to
+  // an external system, setState in callback" pattern the rule's docs permit.
+  // The static analyser doesn't trace through async functions, hence the
+  // false positive. Disabled with justification rather than refactored
+  // because rewriting the auth-restore-on-mount path risks real auth bugs.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { silentRefresh() }, [silentRefresh]);
 
   // -- Auth actions -----------------------------------------------------------

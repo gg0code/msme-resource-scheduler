@@ -51,13 +51,23 @@ export default function GettingStarted() {
   const { resetTour } = useOnboarding()
 
   const [collapsed,  setCollapsed]  = useState(false)
-  const [dismissed,  setDismissedState] = useState(false)
-  const [, setTick] = useState(0)   // write-only - forces re-render to recheck cache
 
-  // Load dismissed state on mount
-  useEffect(() => {
-    if (user) setDismissedState(isDismissed(user.id))
-  }, [user?.id])
+  // Read the dismissed flag from localStorage during render rather than
+  // via useEffect+setState. The "store derived from props" pattern in
+  // React's docs ("You might not need an effect"): keep a tracked previous
+  // user.id in state, compare during render, update both when it changes.
+  // No cascading-render anti-pattern.
+  const userId = user?.id ?? null
+  const [dismissed, setDismissedState] = useState<boolean>(
+    () => userId !== null ? isDismissed(userId) : false,
+  )
+  const [trackedUserId, setTrackedUserId] = useState<number | null>(userId)
+  if (trackedUserId !== userId) {
+    setTrackedUserId(userId)
+    setDismissedState(userId !== null ? isDismissed(userId) : false)
+  }
+
+  const [, setTick] = useState(0)   // write-only - forces re-render to recheck cache
 
   // Recheck completion every 3 seconds while panel is open
   useEffect(() => {

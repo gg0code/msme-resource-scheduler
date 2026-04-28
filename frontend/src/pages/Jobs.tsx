@@ -608,7 +608,9 @@ export default function Jobs() {
     return true
   }), [jobs, search, filterStatus, filterPriority, filterFrom, filterTo])
 
-  // Customer groups
+  // Customer groups. Always grouped; the UI decides whether to render the
+  // grouped view or flatten via `groupByCustomer` separately. groupByCustomer
+  // is intentionally NOT in the dep array because the body doesn't read it.
   const customerGroups = useMemo(() => {
     const groups: Record<string, Job[]> = {}
     filtered.forEach(j => {
@@ -617,7 +619,7 @@ export default function Jobs() {
       groups[key].push(j)
     })
     return groups
-  }, [filtered, groupByCustomer])
+  }, [filtered])
 
   // -- Mutations -----------------------------------------
   const createJob = useMutation({
@@ -713,7 +715,10 @@ export default function Jobs() {
   }
   function closeWizard() { setWizardOpen(false); setWizardStep(1) }
 
-  async function wizardCheckAvail() {
+  // wizardCheckAvail is wrapped in useCallback so its identity changes only
+  // when skillReqs change. That lets the auto-check effect below list it as
+  // a dep without re-firing the debounce timer on every unrelated render.
+  const wizardCheckAvail = useCallback(async () => {
     if (skillReqs.length === 0) { setWizardCheck(null); return }
     setWizardChecking(true); setWizardCheck(null)
     try {
@@ -730,14 +735,16 @@ export default function Jobs() {
       setWizardCheck({ feasible:avail>=needed, feasibility_score:needed>0?Math.round((avail/needed)*100):100, conflicts:[], available_employees:newMap })
     } catch { /* silent fallback - wizard availability check is non-critical */ }
     finally { setWizardChecking(false) }
-  }
+  }, [skillReqs])
 
   // Auto-check availability whenever skill requirements change (e.g. machine selected)
+  // skillReqs is captured indirectly via wizardCheckAvail's identity, so it
+  // is not listed in the dep array directly.
   useEffect(() => {
     if (!wizardOpen || wizardStep !== 2) return
     const timer = setTimeout(() => { wizardCheckAvail() }, 400)
     return () => clearTimeout(timer)
-  }, [skillReqs, wizardOpen, wizardStep])
+  }, [wizardOpen, wizardStep, wizardCheckAvail])
 
   function submitWizard() {
     const isLocked = details.start_mode !== 'flexible'
