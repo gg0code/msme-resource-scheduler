@@ -23,3 +23,6 @@ Thumbs.db
 
 # Per-tenant RAG data (seeded at registration, not source-controlled)
 backend/rag_data/[0-9]*/
+
+changed_files.txt
+

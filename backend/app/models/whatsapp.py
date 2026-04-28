@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+from app.models.auth import TOP_TIER_ROLES
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +146,24 @@ class PhoneTenantMap(Base):
             f"tenant_id={self.tenant_id}, "
             f"active={self.is_active})"
         )
+
+    @property
+    def is_top_tier(self) -> bool:
+        """
+        True if this phone-mapping holds an owner-equivalent role (v6.4 RBAC).
+
+        Called by:    permission decorators in v6.3.5 (require_top_tier_phone)
+        Calls into:   nothing — pure property; reads TOP_TIER_ROLES from app.models.auth
+        Side effects: none
+
+        Mirrors User.is_top_tier but checks phone_role instead of role.
+        TOP_TIER_ROLES contains 'owner', 'proprietor' (legacy synonym for owner),
+        'factory_manager', and 'co_owner'. Returns False for None and for
+        roles outside that set ('manager', 'viewer', 'unknown_role', etc.).
+        """
+        if self.phone_role is None:
+            return False
+        return self.phone_role in TOP_TIER_ROLES
 
 
 # ---------------------------------------------------------------------------

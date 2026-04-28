@@ -31,7 +31,7 @@
 #      MUST filter by tenant_id. Cross-tenant data leaks are a security bug.
 #   6. UPDATE THIS FILE IN THE SAME COMMIT as any migration that adds a
 #      table, column, or changes a valid value. Never let schema drift.
-#      Current migration head: 023 (v5.16 source + worker_type fields)
+#      Current migration head: 027 (v6.3.1 WhatsApp entry gate + tenant config)
 
 # ---------------------------------------------------------------------------
 # SCHEMA_CONTEXT — injected into every AI system prompt via context_builder.py
@@ -51,22 +51,51 @@ Cross-tenant data access is a security vulnerability, not a style issue.
 --- TABLE: tenants ---
 One row per factory / business using ZetaOps.
 Fields:
-  id            (integer, primary key)
-  name          (text) — business name e.g. "Sharma Printers"
-  plan          (text) — subscription plan: 'free' | 'starter' | 'pro'
-  industry_type (text) — vertical: 'printing' | 'manufacturing' |
-                          'fabrication' | 'field_service'
-  created_at    (datetime, UTC)
+  id                         (integer, primary key)
+  name                       (text) — business name e.g. "Sharma Printers"
+  plan                       (text) — subscription plan: 'free' | 'starter' | 'pro'
+  industry_type              (text) — vertical: 'printing' | 'manufacturing' |
+                              'fabrication' | 'field_service'
+  entry_mode                 (text, v6.3.1+) — primary surface this tenant uses:
+                              'whatsapp_first' | 'desktop_first' | 'hybrid'
+  size_segment               (text, v6.3.1+, nullable) — factory size bucket:
+                              'small' | 'medium' | 'large'
+  briefing_morning_enabled   (boolean, v6.3.1+) — opt-in WhatsApp morning summary
+  briefing_morning_time      (time, v6.3.1+) — local time for morning briefing
+                              (default 07:30:00)
+  briefing_evening_enabled   (boolean, v6.3.1+) — opt-in WhatsApp evening recap
+  briefing_evening_time      (time, v6.3.1+) — local time for evening briefing
+                              (default 18:30:00)
+  briefing_timezone          (text, v6.3.1+) — IANA timezone for briefing times
+                              (default 'Asia/Kolkata')
+  briefing_working_days      (text, v6.3.1+) — comma-separated ISO weekday
+                              numbers 1=Mon..7=Sun (default '1,2,3,4,5,6')
+  created_via                (text, v6.3.1+) — how the tenant was created:
+                              'desktop_signup' | 'whatsapp_signup'
+  created_at                 (datetime, UTC)
 
 --- TABLE: users ---
 One row per person who can log into ZetaOps web app.
 Fields:
-  id            (integer, primary key)
-  tenant_id     (integer, FK to tenants.id)
-  email         (text, unique)
-  role          (text) — 'owner' | 'manager' | 'operator'
-  industry_type (text) — copied from tenant at registration
-  is_active     (boolean)
+  id                              (integer, primary key)
+  tenant_id                       (integer, FK to tenants.id)
+  email                           (text, unique)
+  role                            (text) — 'owner' (synonym 'proprietor') |
+                                   'factory_manager' | 'co_owner' |
+                                   'manager' | 'viewer'
+  industry_type                   (text) — copied from tenant at registration
+  is_active                       (boolean)
+  briefing_time_override_morning  (time, v6.3.1+, nullable) — per-user morning
+                                   briefing time; falls back to tenant default
+  briefing_time_override_evening  (time, v6.3.1+, nullable) — per-user evening
+                                   briefing time; falls back to tenant default
+  briefing_subscribed             (boolean, v6.3.1+) — per-user opt-out
+                                   (default true)
+  phone_e164                      (text, v6.3.1+, nullable, indexed) — user's
+                                   WhatsApp number in E.164 format
+  created_via                     (text, v6.3.1+) — how the user was created:
+                                   'desktop_signup' | 'whatsapp_signup' |
+                                   'whatsapp_invite'
 
 --- TABLE: employees ---
 Workers at the factory. Can be entered manually (Day 1 table),

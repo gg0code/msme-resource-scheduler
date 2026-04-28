@@ -64,11 +64,11 @@ class TestMigrationFileIntegrity:
             f"A merge migration may be needed."
         )
 
-    def test_head_is_023(self, script_dir):
-        """Current head must be revision 023 (v5.16 source field migration)."""
+    def test_head_is_027(self, script_dir):
+        """Current head must be revision 027 (v6.3.1 WhatsApp entry gate)."""
         heads = script_dir.get_heads()
-        assert "023" in heads, (
-            f"Expected head to be '023', got: {heads}"
+        assert "027" in heads, (
+            f"Expected head to be '027', got: {heads}"
         )
 
     def test_021_in_chain(self, script_dir):
