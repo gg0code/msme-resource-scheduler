@@ -22,7 +22,7 @@ import {
   type ResourceAvailabilityResponse,
 } from '../api/api_resource_availability'
 import { CoachMark } from '../components/onboarding'
-import { useFeatureFlags } from '../context/FeatureFlags'
+import { useFeatureFlags } from '../context/useFeatureFlags'
 import {
   Plus, Pencil, Trash2, Loader2, AlertCircle, IndianRupee,
   X, Check, Search, ChevronRight, ChevronLeft,
@@ -31,8 +31,9 @@ import {
   Lock, Unlock, Zap, FolderOpen, ListTodo, CheckCircle2, Circle,
   CalendarClock,
 } from 'lucide-react'
-import { usePlanLimits, LimitedButton, PlanLimitBanner, RawMaterialLimitHint } from '../components/PlanLimitGuard'
-import { useLabels } from '../context/IndustryContext'
+import { usePlanLimits } from '../components/usePlanLimits'
+import { LimitedButton, PlanLimitBanner, RawMaterialLimitHint } from '../components/PlanLimitGuard'
+import { useLabels } from '../context/useIndustry'
 import { ASSIGNMENTS, AUTH, EMPLOYEES, JOBS, MACHINES, SKILLS, TIMER } from '../api/api_endpoints'
 
 // -- Types ----------------------------------------------

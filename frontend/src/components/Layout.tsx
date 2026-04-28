@@ -9,13 +9,13 @@ import {
   BriefcaseBusiness, Factory,
   LogOut, BarChart2, Bot, MessageCircle,
 } from 'lucide-react'
-import { useAuth } from '../auth/AuthContext'
-import { useIndustry, useLabels } from '../context/IndustryContext'
+import { useAuth } from '../auth/useAuth'
+import { useIndustry, useLabels } from '../context/useIndustry'
 import SchedulerToolbar from '../scheduler/SchedulerToolbar'
 import GettingStarted from './onboarding/GettingStarted'
 import TourButton from './onboarding/TourButton'
 import AICopilot from './AICopilot'
-import { useFeatureFlags } from '../context/FeatureFlags'
+import { useFeatureFlags } from '../context/useFeatureFlags'
 
 const ROLE_BADGE: Record<string, { label: string; color: string }> = {
   proprietor: { label: 'Proprietor', color: 'bg-blue-600' },

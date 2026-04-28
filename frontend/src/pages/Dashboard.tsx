@@ -29,7 +29,7 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import apiClient from '../api/client'
-import { useLabels } from '../context/IndustryContext'
+import { useLabels } from '../context/useIndustry'
 import { CoachMark } from '../components/onboarding'
 import timerApi from '../api/api_timer'
 import EndJobModal from '../components/EndJobModal'

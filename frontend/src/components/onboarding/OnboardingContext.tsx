@@ -1,25 +1,17 @@
 // src/components/onboarding/OnboardingContext.tsx
 // Tracks which tour stops the user has seen, persisted per-user in localStorage.
+//
+// v6.3.2.1: Hook + type + the React Context object live in ./useOnboarding.ts
+// so this file has only the Provider and Vite Fast Refresh hot-swaps cleanly.
 
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useState,
   type ReactNode,
 } from 'react'
-import { useAuth } from '../../auth/AuthContext'
-
-// -- Types ---------------------------------------------------------------------
-
-interface OnboardingContextValue {
-  seenStops: Set<string>
-  markSeen:    (stopId: string) => void
-  resetTour:   () => void
-  isSeen:      (stopId: string) => boolean
-  isNewUser:   boolean   // true if user has never completed onboarding
-}
+import { useAuth } from '../../auth/useAuth'
+import { OnboardingContext } from './useOnboarding'
 
 // -- Helpers -------------------------------------------------------------------
 
@@ -47,9 +39,7 @@ function saveSeenStops(userId: number, stops: Set<string>): void {
   }
 }
 
-// -- Context -------------------------------------------------------------------
-
-const OnboardingContext = createContext<OnboardingContextValue | null>(null)
+// -- Provider ------------------------------------------------------------------
 
 export function OnboardingProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
@@ -100,14 +90,4 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       {children}
     </OnboardingContext.Provider>
   )
-}
-
-// -- Hook ----------------------------------------------------------------------
-
-export function useOnboarding(): OnboardingContextValue {
-  const ctx = useContext(OnboardingContext)
-  if (!ctx) {
-    throw new Error('useOnboarding must be used inside <OnboardingProvider>')
-  }
-  return ctx
 }

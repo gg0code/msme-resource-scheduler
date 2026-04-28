@@ -9,7 +9,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react'
 import { MessageCircle, Phone, Trash2, Plus, CheckCircle, AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
-import { useAuth } from '../auth/AuthContext'
+import { useAuth } from '../auth/useAuth'
 import { tokenStore } from '../api/client'
 import { WHATSAPP } from '../api/api_endpoints'
 

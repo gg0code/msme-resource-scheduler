@@ -1,48 +1,21 @@
 // src/components/PlanLimitGuard.tsx
-// Shared hook + components for plan limit enforcement across all pages.
+//
+// Components for plan limit enforcement: LimitedButton, PlanLimitBanner,
+// RawMaterialLimitHint. The hook (usePlanLimits) and shared types live in
+// ./usePlanLimits.ts so this file is component-only and Vite Fast Refresh
+// hot-swaps cleanly on save.
+//
 // Usage:
-//   const { planLimits, isReached, getInfo } = usePlanLimits()
+//   const { planLimits, isReached, getInfo } = usePlanLimits()   // from ./usePlanLimits
 //   <LimitedButton resource="jobs" planLimits={planLimits} onClick={...}>New Job</LimitedButton>
 //   <PlanLimitBanner resource="jobs" planLimits={planLimits} />
 
-import { useQuery } from '@tanstack/react-query'
-import apiClient from '../api/client'
 import { Lock } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { DASHBOARD } from '../api/api_endpoints'
+import type { PlanLimits } from './usePlanLimits'
 
 const CONTACT_EMAIL = 'abc@abc.com'
 const CONTACT_PHONE = '+91 999 99 99 999'
-
-// -- Types ---------------------------------------------------------------------
-export interface ResourceLimit {
-  limit: number | null
-  current: number
-  reached: boolean
-  unlimited: boolean
-}
-
-export interface PlanLimits {
-  plan: string
-  limits: Record<string, ResourceLimit>
-}
-
-// -- Hook ----------------------------------------------------------------------
-export function usePlanLimits() {
-  const { data: planLimits, isLoading } = useQuery<PlanLimits>({
-    queryKey: ['plan-limits'],
-    queryFn: () => apiClient.get(DASHBOARD.planLimits).then(r => r.data),
-    staleTime: 30_000,
-  })
-
-  const isReached = (resource: string) =>
-    planLimits?.limits?.[resource]?.reached ?? false
-
-  const getInfo = (resource: string): ResourceLimit =>
-    planLimits?.limits?.[resource] ?? { limit: null, current: 0, reached: false, unlimited: true }
-
-  return { planLimits, isLoading, isReached, getInfo }
-}
 
 // -- Upgrade hint --------------------------------------------------------------
 function UpgradeHint() {

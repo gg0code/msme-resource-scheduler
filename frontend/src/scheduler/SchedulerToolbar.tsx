@@ -11,7 +11,7 @@ import {
   Zap, AlertTriangle, CheckCircle, Lock,
   X, Clock, Loader2, RotateCcw,
 } from 'lucide-react'
-import { useSchedulerContext } from './SchedulerContext'
+import { useSchedulerContext } from './useSchedulerContext'
 import type { ConflictEntry } from './useScheduler'
 import apiClient from '../api/client'
 import { JOBS } from '../api/api_endpoints'

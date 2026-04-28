@@ -1,27 +1,21 @@
-// src/context/IndustryContext.tsx - v4.0.7
+// src/context/IndustryContext.tsx - v4.0.7 / v6.3.2.1
 //
 // Loads the industry config and applies a theme class to <body>
 // so CSS variables in index.css take effect for full theme switching.
 //
+// v6.3.2.1: Hooks (useIndustry, useLabels) + IndustryContextValue type +
+// the React Context object live in ./useIndustry.ts. This file exports
+// only the Provider so Vite Fast Refresh hot-swaps it cleanly on save.
+//
 // Usage:
-//   const labels = useLabels()
-//   const { config } = useIndustry()
+//   const labels = useLabels()           // from ./useIndustry
+//   const { config } = useIndustry()     // from ./useIndustry
 
-import { createContext, useContext, useMemo, useEffect } from 'react'
+import { useMemo, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { useAuth } from '../auth/AuthContext'
+import { useAuth } from '../auth/useAuth'
 import { getIndustryConfig } from '../config/industries'
-import type { IndustryConfig, IndustryLabels } from '../config/industries'
-
-// -- Context type --------------------------------------------------------------
-
-interface IndustryContextValue {
-  config:       IndustryConfig
-  labels:       IndustryLabels
-  industryType: string
-}
-
-const IndustryContext = createContext<IndustryContextValue | null>(null)
+import { IndustryContext } from './useIndustry'
 
 // -- Provider ------------------------------------------------------------------
 
@@ -29,7 +23,7 @@ const INDUSTRY_TYPES = ['printing', 'manufacturing', 'fabrication', 'chemical', 
 
 export function IndustryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
-  // AuthUser.industry_type is declared in auth/AuthContext.tsx (added v4.0.2);
+  // AuthUser.industry_type is declared in auth/useAuth.ts (added v4.0.2);
   // the previous (user as any) cast was dead defensive code from before that.
   const industryType = user?.industry_type ?? 'printing'
 
@@ -57,16 +51,4 @@ export function IndustryProvider({ children }: { children: ReactNode }) {
       {children}
     </IndustryContext.Provider>
   )
-}
-
-// -- Hooks ---------------------------------------------------------------------
-
-export function useIndustry(): IndustryContextValue {
-  const ctx = useContext(IndustryContext)
-  if (!ctx) throw new Error('useIndustry must be used inside <IndustryProvider>')
-  return ctx
-}
-
-export function useLabels(): IndustryLabels {
-  return useIndustry().labels
 }

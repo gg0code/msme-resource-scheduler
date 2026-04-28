@@ -11,7 +11,7 @@ import { fetchGanttData } from '../api/api_gantt'
 import type { GanttJob } from '../api/api_gantt'
 import { CoachMark } from '../components/onboarding'
 import { ChevronRight, ChevronDown } from 'lucide-react'
-import { useLabels } from '../context/IndustryContext'
+import { useLabels } from '../context/useIndustry'
 
 // --- Constants ---------------------------------------------------------------
 const ROW_H    = 52

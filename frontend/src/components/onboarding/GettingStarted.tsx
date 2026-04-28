@@ -14,9 +14,9 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Circle, ChevronDown, ChevronUp, X, Rocket, RotateCcw } from 'lucide-react'
-import { useAuth } from '../../auth/AuthContext'
-import { useLabels } from '../../context/IndustryContext'
-import { useOnboarding } from './OnboardingContext'
+import { useAuth } from '../../auth/useAuth'
+import { useLabels } from '../../context/useIndustry'
+import { useOnboarding } from './useOnboarding'
 
 // -- Storage helpers -----------------------------------------------------------
 

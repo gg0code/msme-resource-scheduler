@@ -1,7 +1,7 @@
 // src/components/onboarding/TourButton.tsx
 // Small "?" button for the header. Resets the onboarding tour on click.
 
-import { useOnboarding } from './OnboardingContext'
+import { useOnboarding } from './useOnboarding'
 import Tooltip from './Tooltip'
 
 export default function TourButton() {

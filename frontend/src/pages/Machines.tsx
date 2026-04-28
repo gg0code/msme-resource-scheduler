@@ -5,10 +5,10 @@ import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
-import { useLabels } from '../context/IndustryContext'
+import { useLabels } from '../context/useIndustry'
 import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
-import { useFeatureFlags } from '../context/FeatureFlags'
+import { useFeatureFlags } from '../context/useFeatureFlags'
 
 import {
   Plus,
@@ -26,7 +26,8 @@ import {
   Briefcase,
   CalendarDays,
 } from 'lucide-react'
-import { usePlanLimits, LimitedButton, PlanLimitBanner } from '../components/PlanLimitGuard'
+import { usePlanLimits } from '../components/usePlanLimits'
+import { LimitedButton, PlanLimitBanner } from '../components/PlanLimitGuard'
 import UnavailabilityPanel from '../components/common/UnavailabilityPanel'
 import { ASSIGNMENTS, MACHINES, SKILLS } from '../api/api_endpoints'
 

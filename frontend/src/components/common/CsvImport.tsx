@@ -4,7 +4,7 @@
 import { useRef, useState } from 'react'
 import { Upload, Download, CheckCircle2, XCircle, AlertTriangle, X, Loader2, FileText, ChevronDown } from 'lucide-react'
 import apiClient from '../../api/client'
-import { useLabels } from '../../context/IndustryContext'
+import { useLabels } from '../../context/useIndustry'
 import type { ImportResult } from '../../types/types_index'
 import { IMPORT } from '../../api/api_endpoints'
 

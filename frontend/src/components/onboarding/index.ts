@@ -13,7 +13,8 @@
  * - frontend/src/components/Layout.tsx - imports GettingStarted, TourButton
  * - Any component using CoachMark or Tooltip
  */
-export { OnboardingProvider, useOnboarding } from './OnboardingContext'
+export { OnboardingProvider } from './OnboardingContext'
+export { useOnboarding } from './useOnboarding'
 export { default as Tooltip } from './Tooltip'
 export { default as CoachMark } from './CoachMark'
 export { default as TourButton } from './TourButton'

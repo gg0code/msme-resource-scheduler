@@ -3,47 +3,26 @@
 // Access token stored in React state (memory) - never localStorage.
 // Refresh token lives in httpOnly cookie (set by backend).
 // On page reload, /auth/refresh is called automatically to restore session.
+//
+// v6.3.2.1: Hook + types + the React Context object live in ./useAuth.ts.
+// This file exports only the AuthProvider component so Vite Fast Refresh
+// can hot-swap the Provider without a full-page reload.
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { tokenStore } from "../api/client"  // single HTTP client source of truth
 import { AUTH } from "../api/api_endpoints"
+import { AuthContext, type AuthUser, type RegisterPayload } from "./useAuth"
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
-// -- Types --------------------------------------------------------------------
-export type Role = "proprietor" | "scheduler" | "viewer";
-
-export interface AuthUser {
-  id:            number;
-  email:         string;
-  role:          Role;
-  tenant_id:     number;
-  industry_type: string;   // v4.0.2 - loaded from tenant at login
-}
-
+// -- Internal Provider state shape -------------------------------------------
+// Private to AuthProvider — not exposed via the context value, so it stays
+// in this file rather than moving to useAuth.ts with the public types.
 interface AuthState {
-  user: AuthUser | null;
+  user:        AuthUser | null;
   accessToken: string | null;
-  isLoading: boolean;
+  isLoading:   boolean;
 }
-
-interface AuthContextValue extends AuthState {
-  login: (email: string, password: string) => Promise<void>;
-  register: (payload: RegisterPayload) => Promise<void>;
-  logout: () => Promise<void>;
-  hasRole: (...roles: Role[]) => boolean;
-}
-
-export interface RegisterPayload {
-  email:         string;
-  password:      string;
-  company_name:  string;
-  slug:          string;
-  industry_type: string;   // v4.0.2
-}
-
-// -- Context -------------------------------------------------------------------
-const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
@@ -147,7 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearAuth]);
 
   const hasRole = useCallback(
-    (...roles: Role[]) => !!state.user && roles.includes(state.user.role),
+    (...roles: Array<AuthUser["role"]>) => !!state.user && roles.includes(state.user.role),
     [state.user]
   );
 
@@ -156,13 +135,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-// -- Hook ----------------------------------------------------------------------
-export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
-  return ctx;
 }
 
 // -- Internal helper -----------------------------------------------------------

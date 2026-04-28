@@ -4,7 +4,7 @@
 
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { useAuth } from '../auth/AuthContext'
+import { useAuth } from '../auth/useAuth'
 
 const ROLE_OPTIONS = [
   { value: 'proprietor', label: 'Owner / Proprietor', desc: 'Full access - jobs, team, reports', icon: '🏭' },

@@ -8,7 +8,7 @@
 //   <ProtectedRoute roles={["proprietor","scheduler"]} /> - either role
 
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { useAuth, type Role } from "./AuthContext";
+import { useAuth, type Role } from "./useAuth";
 
 interface Props {
   roles?: Role[];

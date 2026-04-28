@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
-import { useLabels } from '../context/IndustryContext'
+import { useLabels } from '../context/useIndustry'
 import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
 import { Plus, Loader2, AlertCircle, CheckCircle } from 'lucide-react'

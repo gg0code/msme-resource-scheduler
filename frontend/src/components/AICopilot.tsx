@@ -8,7 +8,7 @@ import { useLocation } from 'react-router-dom'
 import { X, Send, Bot, Sparkles, ChevronRight, Zap, MessageSquare } from 'lucide-react'
 import { getAITools, AI_TOOL_CATEGORIES } from '../data/aiTools'
 import apiClient from '../api/client'
-import { useLabels } from '../context/IndustryContext'
+import { useLabels } from '../context/useIndustry'
 import { AI, JOBS } from '../api/api_endpoints'
 
 interface Message {

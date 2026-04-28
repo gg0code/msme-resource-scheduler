@@ -3,7 +3,7 @@
 // Supports sequential page tours - only the first unseen stop on the page is active.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useOnboarding } from './OnboardingContext'
+import { useOnboarding } from './useOnboarding'
 
 // -- Types ---------------------------------------------------------------------
 
