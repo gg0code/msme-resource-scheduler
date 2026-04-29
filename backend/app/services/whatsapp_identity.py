@@ -221,7 +221,12 @@ async def check_consent(
         )
     )
 
-    result = await db.execute(consent_query)
+    # v6.3.5 fix: db is a sync Session per CLAUDE.md whatsapp-services rule.
+    # The original `await db.execute(...)` would throw TypeError because
+    # sync Session.execute() returns a Result, not a coroutine. Mirrors the
+    # already-correct pattern in resolve_identity above (no await on
+    # session methods inside an async-def function).
+    result = db.execute(consent_query)
 
     # scalar_one_or_none() returns a single value (not a row object),
     # or None if no matching row was found.
@@ -280,22 +285,28 @@ async def record_consent(
         )
     )
 
-    result = await db.execute(check_query)
+    # v6.3.5 fix: db is a sync Session - drop the await on .execute() and
+    # .commit() (mirrors resolve_identity). Pre-fix the function silently
+    # threw TypeError on the await, so consent never landed in the DB. The
+    # call site at routers/whatsapp.py:723 ALSO forgot to await this whole
+    # function, which masked the TypeError - the orphan coroutine was
+    # garbage-collected with a RuntimeWarning that never surfaced. Both
+    # bugs are fixed in v6.3.5.
+    result = db.execute(check_query)
     mapping_id = result.scalar_one_or_none()
 
     # If no active mapping found, we cannot record consent.
     # Log a warning - this indicates something unexpected happened in the flow.
     if mapping_id is None:
         logger.warning(
-            f"Cannot record consent — phone ****{phone_number[-4:]} "
-            f"not found in phone_tenant_map or mapping is inactive. "
-            f"Owner must link their phone via LinkWhatsApp page first."
+            f"Cannot record consent - phone ****{phone_number[-4:]} "
+            f"not found in phone_tenant_map or mapping is inactive."
         )
         return False
 
     # Update both the consent flag and the timestamp in a single query.
     # consent_at records exactly when consent was given - for compliance audit.
-    await db.execute(
+    db.execute(
         update(PhoneTenantMap)
         .where(PhoneTenantMap.id == mapping_id)
         .values(
@@ -303,7 +314,7 @@ async def record_consent(
             consent_at=func.now()
         )
     )
-    await db.commit()
+    db.commit()
 
     logger.info(
         f"Consent recorded for phone ****{phone_number[-4:]}. "
@@ -366,11 +377,17 @@ def link_phone_to_tenant(
 
     Returns: the persisted PhoneTenantMap row, populated with PK after flush.
 
-    Raises: PhoneAlreadyLinkedError if (phone_number, tenant_id) already
-            exists. Caller decides how to surface this.
+    Raises: PhoneAlreadyLinkedError when the phone is already in
+            PhoneTenantMap (in ANY tenant). v6.3.5 fix: phone_number has
+            a GLOBAL unique constraint (column-level unique=True), so the
+            existence check must scope by phone_number alone. The previous
+            `phone_number == X AND tenant_id == X` filter let cross-tenant
+            collisions slip past this check and trip an unhandled
+            IntegrityError downstream during commit, surfacing as a bare
+            HTTP 500. Caller decides how to surface the error.
 
     Side effects: one INSERT into phone_tenant_map. The caller owns the
-                  transaction boundary — this function flushes but does
+                  transaction boundary - this function flushes but does
                   NOT commit. The /link-phone router commits after; the
                   v6.3.2 signup flow commits once at the very end after
                   Tenant + User + PhoneTenantMap + RefreshToken are all
@@ -378,15 +395,16 @@ def link_phone_to_tenant(
     """
     existing = (
         db.query(PhoneTenantMap)
-        .filter(
-            PhoneTenantMap.phone_number == phone_number,
-            PhoneTenantMap.tenant_id == tenant_id,
-        )
+        .filter(PhoneTenantMap.phone_number == phone_number)
         .first()
     )
     if existing:
+        # We deliberately do NOT distinguish "linked to your tenant" vs
+        # "linked to another tenant" in the message - that would leak the
+        # existence of competing tenants. The caller renders a generic
+        # "phone already in use" toast.
         raise PhoneAlreadyLinkedError(
-            f"Phone {phone_number} is already linked to tenant {tenant_id}."
+            f"Phone {phone_number} is already linked."
         )
 
     # BUG-6 fix: store the tenant's actual industry_type so the very first

@@ -7,7 +7,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Settings,
   BriefcaseBusiness, Factory,
-  LogOut, BarChart2, Bot, MessageCircle,
+  LogOut, BarChart2, Bot,
 } from 'lucide-react'
 import { useAuth, isTopTier } from '../auth/useAuth'
 import { useIndustry, useLabels } from '../context/useIndustry'
@@ -117,22 +117,11 @@ export default function Layout() {
             </NavLink>
           )}
 
-          {/* WhatsApp Copilot - v5.0, feature flagged */}
-          {flags.whatsapp && (
-            <NavLink
-              to="/whatsapp"
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
-                 ${isActive ? 'text-white' : 'text-gray-300 hover:text-white hover:bg-white/10'}`
-              }
-              style={({ isActive }) =>
-                isActive ? { backgroundColor: 'var(--brand-active-bg)' } : undefined
-              }
-            >
-              <MessageCircle size={16} />
-              WhatsApp
-            </NavLink>
-          )}
+          {/* v6.3.5: WhatsApp nav item removed. Phone-link is now part of
+              the Team & Roles invite flow under Settings. The flags.whatsapp
+              feature gate still controls WhatsApp surfaces elsewhere
+              (briefings dispatcher, AI Copilot WhatsApp integrations) and
+              is therefore intentionally NOT touched here. */}
 
           {/* Settings (Team & Roles) - v6.3.3, top-tier only */}
           {isTopTier(user?.role ?? null) && (

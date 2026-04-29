@@ -1,28 +1,33 @@
 // frontend/src/pages/settings/TeamAndRoles.tsx
 //
 // PURPOSE
-// v6.3.3 Team & Roles page. Lists all users in the tenant, with controls
-// to invite new members, change a member's role inline, and remove
-// (soft-delete) a member. The backend enforces every permission rule;
-// the UI only mirrors the gates so the user gets feedback before the
-// API rejects them.
+// v6.3.5 redesign of the Team & Roles page. Adds a Phone column and a
+// WhatsApp Status column as first-class peers of email + role; renders
+// "(unnamed)" / "(invited)" empty states; opens the consolidated
+// InviteMemberModal instead of the inline form (deleted from this file).
+// Synthesised invite-*@invite.zetaops.com placeholders are no longer
+// surfaced - the backend returns email=null for those rows in v6.3.5.
 //
 // CALLED BY
 // - frontend/src/App.tsx routes /settings/team here, mounted inside the
 //   Settings.tsx shell.
 //
 // CALLS INTO
-// - teamApi (../../api/api_team) for list / invite / changeRole / remove.
+// - teamApi (../../api/api_team) for list / changeRole / remove. Invite
+//   now flows through InviteMemberModal which calls teamApi.invite itself.
 // - useAuth() for the actor's role (drives "can promote into top-tier" UI gate).
+// - InviteMemberModal (../../components/InviteMemberModal) - opened by
+//   the header button.
 // - React Query for caching + automatic refetch after mutations.
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, CheckCircle, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { AlertCircle, CheckCircle, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 
+import InviteMemberModal from '../../components/InviteMemberModal'
 import { teamApi } from '../../api/api_team'
 import { useAuth, isTopTier } from '../../auth/useAuth'
-import type { TeamMember } from '../../types/types_index'
+import type { TeamMember, WhatsAppStatus } from '../../types/types_index'
 
 
 const ALL_ROLES = [
@@ -42,6 +47,7 @@ const ROLE_BADGE: Record<string, string> = {
   viewer:          'bg-gray-500',
 }
 
+
 function getErrorDetail(err: unknown, fallback: string): string {
   return (
     (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -50,11 +56,74 @@ function getErrorDetail(err: unknown, fallback: string): string {
 }
 
 
+// -- Status pill --------------------------------------------------------------
+// Mirrors mockup view 1: Active=green, Invited=amber, Disconnected=red,
+// None=subtle grey. Single source for the colour map; do not redefine.
+function StatusPill({ status }: { status: WhatsAppStatus }) {
+  const cfg: Record<WhatsAppStatus, { dot: string; text: string; label: string }> = {
+    active:       { dot: 'bg-green-600', text: 'text-green-700', label: 'Active' },
+    invited:      { dot: 'bg-amber-500', text: 'text-amber-700', label: 'Invited' },
+    disconnected: { dot: 'bg-red-600',   text: 'text-red-700',   label: 'Disconnected' },
+    none:         { dot: 'bg-gray-400',  text: 'text-gray-500',  label: 'Not connected' },
+  }
+  const c = cfg[status]
+  return (
+    <span className={`inline-flex items-center gap-2 text-xs font-medium ${c.text}`}>
+      <span className={`w-2 h-2 rounded-full ${c.dot}`} />
+      {c.label}
+    </span>
+  )
+}
+
+
+// -- Person cell --------------------------------------------------------------
+// Renders avatar + name + email/hint. "(unnamed)" italic when name is null;
+// "(invited)" italic when whatsapp_status='invited' AND name is null.
+function PersonCell({ member, isSelf }: { member: TeamMember; isSelf: boolean }) {
+  const initial = (member.name?.[0] ?? member.email?.[0] ?? '?').toUpperCase()
+  const isInvited = member.whatsapp_status === 'invited' && !member.name
+  const displayName = member.name ?? null
+  const colour = isInvited
+    ? 'from-amber-300 to-amber-500 opacity-70'
+    : member.is_top_tier
+    ? 'from-amber-500 to-amber-700'
+    : 'from-blue-500 to-blue-700'
+
+  return (
+    <div className="flex items-center gap-3">
+      <div
+        className={`w-8 h-8 rounded-full bg-gradient-to-br grid place-items-center text-white text-xs font-semibold shrink-0 ${colour}`}
+      >
+        {initial}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-gray-800 truncate">
+          {displayName ? (
+            <>{displayName}{isSelf && <span className="ml-1 text-xs text-gray-400 font-normal">(you)</span>}</>
+          ) : isInvited ? (
+            <span className="italic text-gray-400">(invited)</span>
+          ) : (
+            <span className="italic text-gray-400">(unnamed)</span>
+          )}
+        </div>
+        <div className="text-[11px] text-gray-500 truncate">
+          {member.email
+            ? member.email
+            : isInvited
+            ? <span className="text-amber-700">Awaiting &quot;YES&quot; reply on WhatsApp</span>
+            : <span className="italic">Add a name to make WhatsApp messages personal</span>
+          }
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 export default function TeamAndRoles() {
   const { user } = useAuth()
   const qc = useQueryClient()
   const [showInvite, setShowInvite] = useState(false)
-  const [inviteForm, setInviteForm] = useState({ email_or_phone: '', role: 'manager' })
   const [credential, setCredential] = useState<{ email: string; password: string } | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
@@ -62,10 +131,17 @@ export default function TeamAndRoles() {
   const actorIsTopGrantor = !!user
     && (TOP_TIER_GRANT_ROLES as readonly string[]).includes(user.role)
 
-  const { data: members = [], isLoading, isError } = useQuery<TeamMember[]>({
+  const { data: allMembers = [], isLoading, isError } = useQuery<TeamMember[]>({
     queryKey: ['team-members'],
     queryFn: teamApi.list,
   })
+  // v6.3.5 fix: delete is a soft-delete on the backend (sets is_active=False)
+  // so the events table's FK to users.id stays valid for audit purposes. The
+  // v6.3.3 page used to show those rows with an "Inactive" status column;
+  // the v6.3.5 redesign dropped that column, so we hide deactivated users
+  // from the table entirely. Backend still returns them via /api/team for
+  // anyone who wants the full audit list.
+  const members = allMembers.filter(m => m.is_active)
 
   function clearMessages() {
     setErrorMsg('')
@@ -76,22 +152,6 @@ export default function TeamAndRoles() {
     setSuccessMsg(msg)
     setTimeout(() => setSuccessMsg(''), 3500)
   }
-
-  const inviteMut = useMutation({
-    mutationFn: () => teamApi.invite(inviteForm),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['team-members'] })
-      if (data.temp_password) {
-        setCredential({ email: data.member.email, password: data.temp_password })
-      }
-      flashSuccess(`Invited ${data.member.email}.`)
-      setInviteForm({ email_or_phone: '', role: 'manager' })
-      setShowInvite(false)
-    },
-    onError: (err) => {
-      setErrorMsg(getErrorDetail(err, 'Failed to invite member.'))
-    },
-  })
 
   const roleChangeMut = useMutation({
     mutationFn: (vars: { id: number; role: string }) =>
@@ -116,9 +176,6 @@ export default function TeamAndRoles() {
     },
   })
 
-  // Per-row UI gating: a non-top-grantor cannot present TOP_TIER_TARGET roles
-  // in the inline dropdown. Backend enforces this anyway; UI mirroring keeps
-  // the user from picking an option that will 403.
   function rolesAvailableTo(actorIsGrantor: boolean): readonly string[] {
     if (actorIsGrantor) return ALL_ROLES
     return ALL_ROLES.filter(r => !(TOP_TIER_TARGET_ROLES as readonly string[]).includes(r))
@@ -127,16 +184,17 @@ export default function TeamAndRoles() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-end justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-800">Team & Roles</h2>
+          <h2 className="text-xl font-bold text-gray-800">Team &amp; Roles</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Invite, promote, and manage members of your factory team.
+            Invite, promote, and manage members of your factory team. WhatsApp
+            connections and roles in one place.
           </p>
         </div>
         <button
           onClick={() => { clearMessages(); setShowInvite(true) }}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg transition-colors"
+          className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
         >
           <Plus size={16} /> Invite member
         </button>
@@ -154,7 +212,7 @@ export default function TeamAndRoles() {
         </div>
       )}
 
-      {/* One-time login credential reveal after a successful invite */}
+      {/* One-time login credential reveal after a desktop-channel invite */}
       {credential && (
         <div className="flex items-start gap-2 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm">
           <AlertCircle size={16} className="mt-0.5" />
@@ -183,58 +241,24 @@ export default function TeamAndRoles() {
       )}
 
       {/* Invite modal */}
-      {showInvite && (
-        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-gray-700">Invite a new member</h3>
-            <button onClick={() => setShowInvite(false)} className="text-gray-400 hover:text-gray-600">
-              <X size={18} />
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <label className="text-sm">
-              <span className="block text-gray-600 mb-1">Email or phone (E.164)</span>
-              <input
-                type="text"
-                value={inviteForm.email_or_phone}
-                onChange={(e) => setInviteForm({ ...inviteForm, email_or_phone: e.target.value })}
-                placeholder="user@example.com or +919876543210"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="block text-gray-600 mb-1">Role</span>
-              <select
-                value={inviteForm.role}
-                onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {rolesAvailableTo(actorIsTopGrantor).map(r => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setShowInvite(false)}
-              className="text-sm text-gray-600 hover:text-gray-800 px-3 py-2"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => { clearMessages(); inviteMut.mutate() }}
-              disabled={!inviteForm.email_or_phone || inviteMut.isPending}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm px-4 py-2 rounded-lg transition-colors"
-            >
-              {inviteMut.isPending && <Loader2 size={14} className="animate-spin" />}
-              Send invite
-            </button>
-          </div>
-        </div>
-      )}
+      <InviteMemberModal
+        open={showInvite}
+        onClose={() => setShowInvite(false)}
+        onInvited={(m) => {
+          if (m.email && m.password) {
+            // Desktop-channel invite: surface the temp password reveal box.
+            setCredential({ email: m.email, password: m.password })
+            flashSuccess(`Invited ${m.email}.`)
+          } else if (m.email) {
+            flashSuccess(`Invited ${m.email}.`)
+          } else {
+            // WhatsApp-channel invite: no email (synthesised, stripped).
+            flashSuccess('WhatsApp invite sent. Awaiting YES reply.')
+          }
+        }}
+      />
 
-      {/* Member list */}
+      {/* Member table */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         {isLoading && (
           <div className="flex items-center gap-2 p-6 text-sm text-gray-500">
@@ -253,21 +277,28 @@ export default function TeamAndRoles() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-left text-gray-600">
               <tr>
-                <th className="px-4 py-2 font-medium">Email</th>
-                <th className="px-4 py-2 font-medium">Phone</th>
-                <th className="px-4 py-2 font-medium">Role</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 font-medium text-right">Actions</th>
+                <th className="px-4 py-3 font-semibold uppercase text-[10px] tracking-wide">Person</th>
+                <th className="px-4 py-3 font-semibold uppercase text-[10px] tracking-wide">Phone</th>
+                <th className="px-4 py-3 font-semibold uppercase text-[10px] tracking-wide">WhatsApp</th>
+                <th className="px-4 py-3 font-semibold uppercase text-[10px] tracking-wide">Role</th>
+                <th className="px-4 py-3 font-semibold uppercase text-[10px] tracking-wide text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {members.map(m => {
                 const isSelf = user?.id === m.id
                 return (
-                  <tr key={m.id} className="border-t border-gray-100">
-                    <td className="px-4 py-2 text-gray-800">{m.email}{isSelf && <span className="text-xs text-gray-400 ml-1">(you)</span>}</td>
-                    <td className="px-4 py-2 text-gray-600">{m.phone_e164 ?? '-'}</td>
-                    <td className="px-4 py-2">
+                  <tr key={m.id} className="border-t border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <PersonCell member={m} isSelf={isSelf} />
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700 whitespace-nowrap">
+                      {m.phone_e164 ?? <span className="font-sans text-gray-400">- not linked</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <StatusPill status={m.whatsapp_status} />
+                    </td>
+                    <td className="px-4 py-3">
                       <select
                         value={m.role}
                         onChange={(e) => { clearMessages(); roleChangeMut.mutate({ id: m.id, role: e.target.value }) }}
@@ -277,37 +308,39 @@ export default function TeamAndRoles() {
                         {rolesAvailableTo(actorIsTopGrantor).map(r => (
                           <option key={r} value={r} className="bg-white text-gray-800">{r}</option>
                         ))}
-                        {/* If the current role is one the actor cannot grant, still show it
-                            so the dropdown reflects truth. */}
                         {!rolesAvailableTo(actorIsTopGrantor).includes(m.role) && (
                           <option value={m.role} className="bg-white text-gray-800">{m.role}</option>
                         )}
                       </select>
                       {isTopTier(m.role as never) && (
-                        <span className="ml-2 text-[10px] uppercase text-amber-700">Top-tier</span>
+                        <span className="ml-2 text-[10px] uppercase font-semibold tracking-wide text-amber-700">Top-tier</span>
                       )}
                     </td>
-                    <td className="px-4 py-2">
-                      {m.is_active ? (
-                        <span className="text-green-700">Active</span>
-                      ) : (
-                        <span className="text-gray-400">Inactive</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-right">
+                    <td className="px-4 py-3 text-right">
                       {actorIsTopGrantor && m.is_active && !isSelf && (
-                        <button
-                          onClick={() => {
-                            clearMessages()
-                            if (window.confirm(`Remove ${m.email} from the team?`)) {
-                              removeMut.mutate(m.id)
-                            }
-                          }}
-                          disabled={removeMut.isPending}
-                          className="text-red-600 hover:text-red-800 disabled:opacity-50 text-sm inline-flex items-center gap-1"
-                        >
-                          <Trash2 size={14} /> Remove
-                        </button>
+                        <div className="inline-flex items-center gap-1">
+                          {m.whatsapp_status === 'invited' && (
+                            <button
+                              title="Resend WhatsApp invite"
+                              onClick={() => alert('Resend invite (v6.3.6 — placeholder)')}
+                              className="text-gray-400 hover:text-gray-700 p-1.5 rounded hover:bg-gray-100"
+                            >
+                              <RefreshCw size={14} />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              clearMessages()
+                              if (window.confirm(`Remove this member from the team?`)) {
+                                removeMut.mutate(m.id)
+                              }
+                            }}
+                            disabled={removeMut.isPending}
+                            className="text-red-600 hover:text-red-800 disabled:opacity-50 p-1.5 rounded hover:bg-red-50 inline-flex items-center"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -316,6 +349,17 @@ export default function TeamAndRoles() {
             </tbody>
           </table>
         )}
+      </div>
+
+      {/* Info strip - mockup view 1 footer */}
+      <div className="flex items-start gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-xs text-gray-600">
+        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+        <span>
+          <strong>Top-tier roles</strong> (proprietor, factory_manager, co_owner)
+          can invite, promote, and demote others. <strong>Manager</strong> and
+          <strong> operator</strong> have operational rights only. Last-owner
+          protection prevents removing the only proprietor.
+        </span>
       </div>
     </div>
   )

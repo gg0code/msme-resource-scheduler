@@ -199,8 +199,12 @@ export default function RegisterPage() {
       // refresh + auth state are wired up automatically.
       const { next_step } = await register(payload)
 
+      // v6.3.5: 'connect_whatsapp' next_step now routes to the new minimal
+      // post-signup landing (/welcome) instead of the deleted
+      // /connect-whatsapp transitional page. Backend value is preserved
+      // verbatim per Q5 - rename deferred to v6.5+.
       if (next_step === 'connect_whatsapp') {
-        navigate('/connect-whatsapp')
+        navigate('/welcome')
       } else {
         navigate('/dashboard')
       }

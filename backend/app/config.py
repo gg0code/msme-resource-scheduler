@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
     INTERAKT_API_KEY: Optional[str] = None
 
+    # v6.3.5: bot number rendered in the post-signup landing's "Open WhatsApp"
+    # deep-link (https://wa.me/<digits>?text=Hi). Empty string = the CTA renders
+    # disabled with a "Bot number not yet configured" tooltip; the rest of the
+    # landing still renders. Production deployments must set this in .env.
+    # Format: digits only, no leading + or spaces (wa.me requirement).
+    WHATSAPP_BOT_NUMBER: str = ""
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

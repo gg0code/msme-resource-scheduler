@@ -2,7 +2,7 @@
 # Branch: v5-whatsapp
 #
 # FILE PURPOSE
-# Pydantic v2 request/response models for the v6.3.3 Team & Roles UI:
+# Pydantic v2 request/response models for the v6.3.3 + v6.3.5 Team & Roles UI:
 #   - InviteRequest    : POST  /api/team/invite body
 #   - RoleChangeRequest: PATCH /api/team/{user_id}/role body
 #   - TeamMemberOut    : GET   /api/team list element + invite/PATCH response
@@ -13,23 +13,47 @@
 # - app/services/team_service.py    (reads validated payload fields)
 #
 # WHAT THIS FILE CALLS
-# - pydantic v2: BaseModel, ConfigDict, EmailStr, field_validator
+# - pydantic v2: BaseModel, ConfigDict, field_validator
 # - app.services.role_helpers: VALID_USER_ROLES (canonical role list)
 # - re for E.164 phone format validation (same pattern as schemas/auth.py)
+# - typing.Literal for the v6.3.5 channel + whatsapp_status enums
+#
+# v6.3.5 ADDITIONS (decision Q4: option a, back-compat extension)
+# - InviteRequest.channel: Optional['whatsapp', 'desktop']
+#       When None, the service infers from email_or_phone shape - this
+#       preserves every v6.3.3 caller verbatim. When explicit, the service
+#       enforces the shape matches (whatsapp -> phone, desktop -> email).
+# - InviteRequest.consent_given: bool = False
+#       Required True when channel='whatsapp'. The WhatsApp welcome message
+#       handshake then asks the recipient to reply HAAN/YES; the inviter's
+#       consent_given flag is ONLY about the invitation contract.
+# - InviteRequest.name: Optional[str]
+#       Stored on PhoneTenantMap.display_name (whatsapp channel only) so
+#       inbound message logs and the team table can address invited members
+#       by name without a User-table migration.
+# - TeamMemberOut.email: Optional[str]
+#       v6.3.3 returned the synthesised invite-XXX@invite.zetaops.com placeholder
+#       to the UI; v6.3.5 strips it (returns None) so the UI can render the
+#       "(unnamed)" / "(invited)" empty states without pattern-matching.
+# - TeamMemberOut.whatsapp_status: Literal['active','invited','disconnected','none']
+#       Sourced from PhoneTenantMap.is_active + consent_given. See
+#       team_service._compute_whatsapp_status for the truth table.
+# - TeamMemberOut.name: Optional[str]
+#       Surfaced from PhoneTenantMap.display_name when present. v6.5+ adds
+#       a User.full_name column to remove this indirection.
 #
 # DESIGN NOTES
-# - email_or_phone is a single freeform field on InviteRequest. The handler
-#   inspects it: if it parses as an email, the new User row gets that email
-#   and a synthesized "no-phone" placeholder; if it parses as E.164, the
-#   row gets the phone and a synthesized "+slug+nomail@whatsapp.local"
-#   email (same pattern as auth_service.register_tenant_and_user for
-#   whatsapp_first signups). One contract for both invite paths means the
-#   frontend can keep a single input field, not two.
+# - email_or_phone is preserved as a single freeform field on InviteRequest
+#   for back-compat. The handler inspects it: email shape -> User.email path,
+#   E.164 -> phone path with synthesised placeholder email. v6.3.5 adds the
+#   `channel` field as a HINT - the schema does not split into separate
+#   email/phone_e164 fields until the v6.5+ migration sweep (Q4 decision).
 # - role is validated against VALID_USER_ROLES (single source of truth in
 #   role_helpers.py). Future role additions flow through automatically.
 
 import re
-from typing import Optional
+from typing import Literal, Optional
+
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.services.role_helpers import VALID_USER_ROLES
@@ -44,6 +68,13 @@ _E164_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
 _EMAIL_SHAPE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+# v6.3.5 channel + status enums. Kept here (not in a separate module) because
+# they are exclusively used by the team-management surface and no other layer
+# should be defining their own copies (Lesson 22 - one source of truth).
+InviteChannel = Literal["whatsapp", "desktop"]
+WhatsAppStatus = Literal["active", "invited", "disconnected", "none"]
+
+
 class InviteRequest(BaseModel):
     """
     Body for POST /api/team/invite.
@@ -51,10 +82,22 @@ class InviteRequest(BaseModel):
     `email_or_phone` accepts either an email address or an E.164 phone string.
     The handler decides which field of the new User row to populate. `role`
     must be one of role_helpers.VALID_USER_ROLES.
+
+    v6.3.5 fields (all optional for back-compat with v6.3.3 callers):
+      - channel: explicit 'whatsapp' / 'desktop' hint. None means infer
+        from email_or_phone shape.
+      - consent_given: required True when channel == 'whatsapp'. The
+        service raises 400 otherwise.
+      - name: optional display name. Stored on PhoneTenantMap.display_name
+        for whatsapp invites; ignored on desktop invites until v6.5+.
     """
 
     email_or_phone: str
     role: str
+    # v6.3.5 additions - all optional so v6.3.3 callers continue to work.
+    channel: Optional[InviteChannel] = None
+    consent_given: bool = False
+    name: Optional[str] = None
 
     @field_validator("email_or_phone")
     @classmethod
@@ -79,6 +122,16 @@ class InviteRequest(BaseModel):
             )
         return v
 
+    @field_validator("name")
+    @classmethod
+    def name_strip_or_none(cls, v: Optional[str]) -> Optional[str]:
+        # Trim whitespace and treat empty string as None so the service layer
+        # can do `if payload.name:` cleanly.
+        if v is None:
+            return None
+        v = v.strip()
+        return v if v else None
+
 
 class RoleChangeRequest(BaseModel):
     """Body for PATCH /api/team/{user_id}/role. Only the role field changes."""
@@ -99,15 +152,30 @@ class TeamMemberOut(BaseModel):
     """
     Single-user response shape for GET /api/team and the success body of
     invite / PATCH. Mirrors the columns the Team & Roles UI renders.
+
+    v6.3.5 changes:
+      - `email` is now Optional - returns None for users created via WhatsApp
+        invite whose stored email is the synthesised invite-*@invite.zetaops.com
+        placeholder. The frontend renders the empty state instead of leaking
+        the placeholder.
+      - `whatsapp_status` is computed from the user's PhoneTenantMap row in
+        the service layer; values map to the Team & Roles status pill colours
+        (active=green, invited=amber, disconnected=red, none=subtle grey).
+      - `name` surfaces PhoneTenantMap.display_name when present so the UI
+        can render "(unnamed)" italic for unnamed members without a separate
+        round-trip.
     """
 
     id: int
-    email: str
+    email: Optional[str] = None
     phone_e164: Optional[str] = None
     role: str
     is_active: bool
     is_top_tier: bool
     created_via: str
+    # v6.3.5 additions.
+    whatsapp_status: WhatsAppStatus = "none"
+    name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

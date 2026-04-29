@@ -53,7 +53,7 @@
  * - IndustryProvider from ./context/IndustryContext: Context provider that manages industry-specific settings and UI customization
  * - Layout from ./components/Layout: Main application layout component with sidebar navigation and header
  * - LoginPage, RegisterPage, UnauthorizedPage: Authentication-related page components for user access control
- * - Dashboard, Skills, Employees, Machines, Jobs, GanttPage, LinkWhatsApp: Main application page components for different features
+ * - Dashboard, Skills, Employees, Machines, Jobs, GanttPage: Main application page components for different features
  * - ScanPage, PrintJobCard: Special page components that bypass normal layout (QR scanning and print views)
  * 
  * INTERN NOTES
@@ -77,7 +77,7 @@ import Layout from './components/Layout'
 // Auth pages
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
-import ConnectWhatsAppPage from './pages/ConnectWhatsApp'
+import PostSignupLanding from './pages/PostSignupLanding'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 
 // App pages
@@ -87,7 +87,6 @@ import Employees from './pages/Employees'
 import Machines from './pages/Machines'
 import Jobs from './pages/Jobs'
 import GanttPage from './pages/GanttPage'
-import LinkWhatsApp from './pages/LinkWhatsApp'
 import OnboardingSetup from './pages/OnboardingSetup'
 
 // Scheduling engine pages - removed in v3.9.5 (merged into /jobs)
@@ -107,9 +106,9 @@ export default function App() {
         {/* Public routes */}
         <Route path="/login"            element={<LoginPage />} />
         <Route path="/register"         element={<RegisterPage />} />
-        {/* v6.3.2: post-signup placeholder for whatsapp_first / hybrid users.
-            Full QR-scan flow replaces this in v6.3.5. */}
-        <Route path="/connect-whatsapp" element={<ConnectWhatsAppPage />} />
+        {/* v6.3.5: minimal post-signup landing for whatsapp_first / hybrid
+            proprietors. Replaces the deleted /connect-whatsapp page. */}
+        <Route path="/welcome"          element={<PostSignupLanding />} />
         <Route path="/unauthorized"     element={<UnauthorizedPage />} />
 
         {/* -- Block 2: Scan page - no auth, no sidebar -- */}
@@ -144,7 +143,8 @@ export default function App() {
             <Route path="employees"    element={<Employees />} />
             <Route path="machines"     element={<Machines />} />
             <Route path="gantt"        element={<GanttPage />} />
-            <Route path="whatsapp" element={<LinkWhatsApp />} />
+            {/* v6.3.5: /whatsapp route removed. The phone-link flow lives
+                inside Settings -> Team & Roles -> Invite member modal. */}
 
 
             {/* Skills - top-tier only (v6.3.3 reclassified from proprietor-only) */}

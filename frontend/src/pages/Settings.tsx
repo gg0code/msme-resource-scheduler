@@ -18,10 +18,18 @@
 //   authorised to see at least one section).
 
 import { NavLink, Outlet } from 'react-router-dom'
-import { Users, Settings as SettingsIcon } from 'lucide-react'
+import { MessageCircle, Users, Settings as SettingsIcon } from 'lucide-react'
 
 const sections = [
-  { to: 'team',     label: 'Team & Roles', icon: Users },
+  { to: 'team', label: 'Team & Roles', icon: Users, disabled: false, badge: undefined as string | undefined },
+] as const
+
+// v6.3.5 (Q3 decision): "WhatsApp Briefings" appears as a disabled stub
+// since the briefings config UI ships in v6.3.6. Entry Mode / Business
+// Details / Billing are NOT shown in v6.3.5 - they will appear once their
+// pages exist (avoids the "click here, get nothing" anti-pattern).
+const stubs = [
+  { label: 'WhatsApp Briefings', icon: MessageCircle, badge: 'v6.3.6' },
 ] as const
 
 export default function Settings() {
@@ -51,6 +59,25 @@ export default function Settings() {
               <Icon size={16} />
               {label}
             </NavLink>
+          ))}
+
+          {/* Disabled stubs - hint at the v6.3.6+ roadmap without shipping
+              broken links. Cursor goes to not-allowed; clicks are no-ops. */}
+          {stubs.map(({ label, icon: Icon, badge }) => (
+            <div
+              key={label}
+              aria-disabled="true"
+              title={`Coming in ${badge}`}
+              className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 cursor-not-allowed select-none"
+            >
+              <span className="flex items-center gap-2">
+                <Icon size={16} />
+                {label}
+              </span>
+              <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
+                {badge}
+              </span>
+            </div>
           ))}
         </nav>
       </aside>

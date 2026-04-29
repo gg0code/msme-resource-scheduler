@@ -147,6 +147,31 @@ VALID_PHONE_ROLES = {"owner", "manager", "operator"}
 
 
 # ---------------------------------------------------------------------------
+# v6.3.5: bot-number lookup for the post-signup landing page
+# ---------------------------------------------------------------------------
+
+@router.get("/bot-number")
+def get_bot_number() -> dict:
+    """
+    GET /api/v1/whatsapp/bot-number - returns the WhatsApp bot's E.164 digits
+    for the post-signup landing's "Open WhatsApp" deep-link.
+
+    Called by: frontend/src/pages/PostSignupLanding.tsx on mount.
+    Calls into: app.config.settings.WHATSAPP_BOT_NUMBER.
+
+    Returns: {"bot_number": "919876543210" | ""} - empty string when not
+             configured. The frontend renders the CTA disabled in that case
+             instead of producing a broken wa.me link.
+
+    No auth: the value is non-sensitive (it is by definition the public
+    address users contact ZetaOps on) and the landing page is the very
+    first authenticated screen after register, so making this open also
+    keeps the page snappy.
+    """
+    return {"bot_number": settings.WHATSAPP_BOT_NUMBER or ""}
+
+
+# ---------------------------------------------------------------------------
 # PYDANTIC MODELS
 # ---------------------------------------------------------------------------
 
@@ -695,7 +720,14 @@ async def _process_inbound_message(
     # Step 2: First-time consent
     if not identity.consent_given:
         if message_text.lower().strip() == CONSENT_TRIGGER:
-            record_consent(phone_number=phone_number, db=db)
+            # v6.3.5 fix: record_consent is `async def` but the original call
+            # site forgot the await. Without it the coroutine was created and
+            # immediately discarded - the consent flip never reached the DB,
+            # while the "Shukriya..." success line was returned regardless.
+            # Verified during v6.3.5 E2E (test_v6_3_5_onboarding step 9 was
+            # failing because consent_given stayed False after HAAN). The
+            # pattern matches `await resolve_identity(...)` two lines above.
+            await record_consent(phone_number=phone_number, db=db)
             return (
                 "Shukriya! Aapki consent record ho gayi.\n"
                 "Ab aap ZetaOps Copilot use kar sakte hain.\n\n"

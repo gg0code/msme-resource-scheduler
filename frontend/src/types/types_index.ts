@@ -15,19 +15,35 @@
 // loose (string, not the Role union from auth/useAuth.ts) so the API
 // can return roles the client doesn't yet know about without breaking.
 
+// v6.3.5 status pill enum - mirrors backend WhatsAppStatus literal.
+export type WhatsAppStatus = 'active' | 'invited' | 'disconnected' | 'none'
+
+// v6.3.5 invite channel - mirrors backend InviteChannel literal. Optional on
+// the request so v6.3.3 callers (passing only email_or_phone) keep working.
+export type InviteChannel = 'whatsapp' | 'desktop'
+
 export interface TeamMember {
-  id:          number
-  email:       string
-  phone_e164:  string | null
-  role:        string
-  is_active:   boolean
-  is_top_tier: boolean
-  created_via: string
+  id:               number
+  // v6.3.5: synthesised invite-*@invite.zetaops.com emails surface as null
+  // so the UI can render the "(unnamed)" empty state.
+  email:            string | null
+  phone_e164:       string | null
+  role:             string
+  is_active:        boolean
+  is_top_tier:      boolean
+  created_via:      string
+  // v6.3.5 additions.
+  whatsapp_status:  WhatsAppStatus
+  name:             string | null
 }
 
 export interface InviteRequest {
   email_or_phone: string
   role:           string
+  // v6.3.5 additions - optional for back-compat with the v6.3.3 inline form.
+  channel?:       InviteChannel
+  consent_given?: boolean
+  name?:          string | null
 }
 
 export interface InviteResponse {

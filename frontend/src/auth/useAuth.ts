@@ -7,7 +7,7 @@
 //
 // CALLED BY
 // - LoginPage, RegisterPage (indirectly), ProtectedRoute, Layout, IndustryContext,
-//   OnboardingContext, GettingStarted, LinkWhatsApp, UnauthorizedPage,
+//   OnboardingContext, GettingStarted, PostSignupLanding, UnauthorizedPage,
 //   any component that gates UI on auth state or role.
 //
 // CALLS INTO
@@ -66,7 +66,10 @@ export interface RegisterPayload {
 }
 
 // Returned by register() so the caller (RegisterPage) can route to
-// /dashboard or /connect-whatsapp based on the backend's response.
+// /dashboard or /welcome based on the backend's response.
+// (v6.3.5: 'connect_whatsapp' next_step value preserved for back-compat,
+//  but RegisterPage now navigates to /welcome rather than the deleted
+//  /connect-whatsapp page. Value rename deferred to v6.5+ per Q5.)
 export interface RegisterResult {
   next_step?: 'dashboard' | 'connect_whatsapp';
 }

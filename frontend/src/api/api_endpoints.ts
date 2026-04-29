@@ -216,6 +216,9 @@ export const WHATSAPP = {
   simulateVoice:      '/api/v1/whatsapp/simulate-voice',
   triggerDevAlerts:   '/api/v1/whatsapp/trigger-dev-alerts',
   webhook:            '/api/v1/whatsapp/webhook',
+  // v6.3.5 - bot phone-number for the post-signup landing's "Open WhatsApp"
+  // deep-link. Fetched once on /welcome mount.
+  botNumber:          '/api/v1/whatsapp/bot-number',
 } as const
 
 // =============================================================================

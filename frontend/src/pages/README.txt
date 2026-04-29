@@ -23,8 +23,13 @@ FILES
                         Both.
   PrintJobCard.tsx    - Print-optimised job card with QR codes. Auth required,
                         no layout. Both.
-  LinkWhatsApp.tsx    - WhatsApp phone number linking. v5-whatsapp only (nav item
-                        gated by flags.whatsapp).
+  PostSignupLanding.tsx - v6.3.5 minimal landing for whatsapp_first / hybrid
+                        proprietors. Mounted at /welcome by App.tsx. Replaces
+                        the deleted ConnectWhatsApp.tsx transitional page.
+
+  (DELETED in v6.3.5: LinkWhatsApp.tsx and ConnectWhatsApp.tsx. Phone-link
+   functionality consolidated into the InviteMemberModal opened from
+   Settings -> Team & Roles.)
 
 ARCHITECTURE NOTES
 Every page is a route target registered in App.tsx. Pages import from api/, hooks/,
@@ -38,8 +43,10 @@ DESIGN PRINCIPLES
 Principle 1: Pages display data computed by the backend - they never recompute
   scheduling logic, cost calculations, or conflict detection client-side.
 Principle 2: All API calls are tenant-scoped automatically via JWT.
-Principle 8: GanttPage and LinkWhatsApp are gated behind feature flags in Layout.tsx.
+Principle 8: GanttPage is gated behind a feature flag in Layout.tsx.
   Skills.tsx is gated behind proprietor role in App.tsx ProtectedRoute.
+  (v6.3.5: WhatsApp UI consolidated into Settings -> Team & Roles; nav-level
+  WhatsApp item removed.)
 Principle 10: ScanPage.tsx is outside ProtectedRoute intentionally. Never add auth
   to it - printed QR cards must always be scannable.
 
