@@ -10,6 +10,35 @@
 //   - No implicit any - every field explicitly typed
 // -----------------------------------------------------------------------------
 
+// -- Team & Roles (v6.3.3) ----------------------------------------------------
+// Mirrors backend app/schemas/team.py shapes. The Role string is
+// loose (string, not the Role union from auth/useAuth.ts) so the API
+// can return roles the client doesn't yet know about without breaking.
+
+export interface TeamMember {
+  id:          number
+  email:       string
+  phone_e164:  string | null
+  role:        string
+  is_active:   boolean
+  is_top_tier: boolean
+  created_via: string
+}
+
+export interface InviteRequest {
+  email_or_phone: string
+  role:           string
+}
+
+export interface InviteResponse {
+  member:        TeamMember
+  temp_password: string | null
+}
+
+export interface RoleChangeRequest {
+  role: string
+}
+
 // -- Skills -------------------------------------------------------------------
 
 export interface Skill {

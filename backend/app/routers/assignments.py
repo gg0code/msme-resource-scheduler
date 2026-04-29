@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from app.database import get_db
-from app.core.dependencies import get_current_user, require_role
+from app.core.dependencies import get_current_user, require_operational
 from app.models.auth import User
 from app.services.assignment_service import assign_resources, AssignmentError
 from app.services.availability_engine import (
@@ -68,7 +68,7 @@ class AllocationPatchRequest(BaseModel):
 def create_assignment(
     payload: AssignRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     try:
         result = assign_resources(
@@ -89,7 +89,7 @@ def create_assignment(
 def delete_assignment(
     assignment_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """
     Remove a single assignment row.
@@ -113,7 +113,7 @@ def update_allocation(
     job_id: int,
     payload: AllocationPatchRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """
     Bulk update allocation_pct for all assignments on a job.

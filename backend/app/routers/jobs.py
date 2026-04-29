@@ -19,7 +19,7 @@
 #   app/models/employee.py         - Employee (resource-availability endpoint)
 #   app/models/machine.py          - Machine  (resource-availability endpoint)
 #   app/models/auth.py             - User
-#   app/core/dependencies.py       - get_current_user, require_role
+#   app/core/dependencies.py       - get_current_user, require_operational, require_top_tier
 #   app/core/plan_limits.py        - check_plan_limit
 #
 # KEY DESIGN DECISIONS
@@ -45,7 +45,7 @@ from app.database import get_db
 from app.models.job import Job, JobSkillRequirement, JobAssignment
 from app.models.employee import Employee
 from app.models.machine import Machine
-from app.core.dependencies import get_current_user, require_role
+from app.core.dependencies import get_current_user, require_operational, require_top_tier
 from app.core.plan_limits import check_plan_limit
 from app.models.auth import User
 
@@ -213,7 +213,7 @@ def list_jobs(
 def create_job(
     payload: JobCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """
     Create a new production job with optional skill requirements.
@@ -441,7 +441,7 @@ def update_job(
     job_id: int,
     payload: JobUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """
     Partial update of a job. Handles skill_requirements replacement and
@@ -511,7 +511,7 @@ def update_job(
 def delete_job(
     job_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor")),
+    current_user: User = Depends(require_top_tier()),
 ):
     """
     Permanently delete a job and all its related rows (cascade).
@@ -539,7 +539,7 @@ def job_timer(
     job_id: int,
     payload: TimerAction,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """
     Advance the production timer state machine for a job.

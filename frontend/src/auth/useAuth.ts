@@ -18,7 +18,29 @@
 import { createContext, useContext } from 'react'
 
 // -- Types --------------------------------------------------------------------
-export type Role = "proprietor" | "scheduler" | "viewer";
+// v6.3.3: Role union extended to the full SRS Section 6.28.6 taxonomy.
+//   - Top-tier (require_top_tier on backend): owner, proprietor (legacy
+//     synonym), factory_manager, co_owner.
+//   - Mid-tier operator (require_operational): scheduler (legacy synonym),
+//     manager.
+//   - Read-only: viewer.
+// 'proprietor' and 'scheduler' are kept as synonyms for the v6.4 names
+// until the v6.5+ data consolidation runs - see backend
+// app/models/auth.py header notes and memory/feedback_role_synonyms.md.
+// TOP_TIER_ROLES below mirrors backend app.models.auth.TOP_TIER_ROLES
+// for client-side role badge styling and nav gating.
+export type Role =
+  | "owner" | "proprietor" | "factory_manager" | "co_owner"
+  | "scheduler" | "manager"
+  | "viewer";
+
+export const TOP_TIER_ROLES: readonly Role[] = [
+  "owner", "proprietor", "factory_manager", "co_owner",
+] as const;
+
+export function isTopTier(role: Role | undefined | null): boolean {
+  return role !== undefined && role !== null && (TOP_TIER_ROLES as readonly string[]).includes(role);
+}
 
 export interface AuthUser {
   id:            number;

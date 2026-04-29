@@ -37,6 +37,7 @@ import app.main as _app_main  # noqa: side effect registers all ORM models
 # --- Step 2: Explicitly import models that use PG-only types -----------------
 from app.routers.scheduler_router import ScheduleEntryModel  # PG_ARRAY
 from app.models.auth import Tenant, User, RefreshToken       # tenants, users
+from app.models.event import Event                            # events (JSONB)
 from app.database import Base, get_db
 from app.main import app
 

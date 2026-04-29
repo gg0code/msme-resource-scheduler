@@ -9,7 +9,7 @@ import {
   BriefcaseBusiness, Factory,
   LogOut, BarChart2, Bot, MessageCircle,
 } from 'lucide-react'
-import { useAuth } from '../auth/useAuth'
+import { useAuth, isTopTier } from '../auth/useAuth'
 import { useIndustry, useLabels } from '../context/useIndustry'
 import SchedulerToolbar from '../scheduler/SchedulerToolbar'
 import GettingStarted from './onboarding/GettingStarted'
@@ -17,10 +17,17 @@ import TourButton from './onboarding/TourButton'
 import AICopilot from './AICopilot'
 import { useFeatureFlags } from '../context/useFeatureFlags'
 
+// v6.3.3: extended to cover the full SRS Section 6.28.6 role taxonomy.
+// Top-tier roles share a warm/amber/purple palette so they read as a
+// group; mid-tier (scheduler/manager) share green; viewer stays grey.
 const ROLE_BADGE: Record<string, { label: string; color: string }> = {
-  proprietor: { label: 'Proprietor', color: 'bg-blue-600' },
-  scheduler:  { label: 'Scheduler',  color: 'bg-green-600' },
-  viewer:     { label: 'Viewer',     color: 'bg-gray-500' },
+  owner:           { label: 'Owner',           color: 'bg-amber-600'  },
+  proprietor:      { label: 'Proprietor',      color: 'bg-amber-600'  },
+  factory_manager: { label: 'Factory Manager', color: 'bg-blue-600'   },
+  co_owner:        { label: 'Co-owner',        color: 'bg-purple-600' },
+  scheduler:       { label: 'Scheduler',       color: 'bg-green-600'  },
+  manager:         { label: 'Manager',         color: 'bg-green-600'  },
+  viewer:          { label: 'Viewer',          color: 'bg-gray-500'   },
 }
 
 export default function Layout() {
@@ -124,6 +131,23 @@ export default function Layout() {
             >
               <MessageCircle size={16} />
               WhatsApp
+            </NavLink>
+          )}
+
+          {/* Settings (Team & Roles) - v6.3.3, top-tier only */}
+          {isTopTier(user?.role ?? null) && (
+            <NavLink
+              to="/settings/team"
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+                 ${isActive ? 'text-white' : 'text-gray-300 hover:text-white hover:bg-white/10'}`
+              }
+              style={({ isActive }) =>
+                isActive ? { backgroundColor: 'var(--brand-active-bg)' } : undefined
+              }
+            >
+              <Settings size={16} />
+              Settings
             </NavLink>
           )}
         </nav>

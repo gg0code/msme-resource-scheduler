@@ -14,7 +14,7 @@ from typing import List
 from app.database import get_db
 from app.models.employee import Employee, EmployeeSkill
 from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeOut
-from app.core.dependencies import get_current_user, require_role
+from app.core.dependencies import get_current_user, require_operational, require_top_tier
 from app.core.plan_limits import check_plan_limit
 from app.models.auth import User
 
@@ -63,7 +63,7 @@ def get_employee(
 def create_employee(
     payload: EmployeeCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     data = payload.model_dump(exclude={"skills"})
     data["tenant_id"] = current_user.tenant_id
@@ -81,7 +81,7 @@ def update_employee(
     employee_id: int,
     payload: EmployeeUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     emp = db.query(Employee).filter(
         Employee.id == employee_id,
@@ -103,7 +103,7 @@ def update_employee(
 def delete_employee(
     employee_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor")),
+    current_user: User = Depends(require_top_tier()),
 ):
     emp = db.query(Employee).filter(
         Employee.id == employee_id,

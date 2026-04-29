@@ -44,6 +44,7 @@ from app.routers import (
     schedule_suggestions,
     scheduler_router,
     scan,
+    team_management,
     unavailability,
 )
 from app.routers import whatsapp as whatsapp_router
@@ -99,6 +100,7 @@ app.include_router(machines.router,     prefix="/api/machines",     tags=["machi
 app.include_router(skills.router,       prefix="/api/skills",       tags=["skills"])
 app.include_router(gantt.router,        prefix="/api/gantt",        tags=["gantt"])
 app.include_router(timer.router,        prefix="/api/timer",        tags=["timer"])
+app.include_router(team_management.router, prefix="/api/team",      tags=["team"])
 
 # -- /api prefix routers (paths already contain their resource segment) -------
 # steps:                /jobs/{id}/steps/*               -> /api/jobs/{id}/steps/*

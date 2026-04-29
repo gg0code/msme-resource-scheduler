@@ -96,6 +96,10 @@ import OnboardingSetup from './pages/OnboardingSetup'
 import ScanPage from './pages/ScanPage'
 import PrintJobCard from './pages/PrintJobCard'
 
+// v6.3.3 - Settings + Team & Roles
+import Settings from './pages/Settings'
+import TeamAndRoles from './pages/settings/TeamAndRoles'
+
 export default function App() {
   return (
     <AuthProvider>
@@ -143,9 +147,17 @@ export default function App() {
             <Route path="whatsapp" element={<LinkWhatsApp />} />
 
 
-            {/* Skills - proprietor only */}
-            <Route element={<ProtectedRoute roles={['proprietor']} />}>
+            {/* Skills - top-tier only (v6.3.3 reclassified from proprietor-only) */}
+            <Route element={<ProtectedRoute roles={['owner', 'proprietor', 'factory_manager', 'co_owner']} />}>
               <Route path="skills" element={<Skills />} />
+            </Route>
+
+            {/* Settings - top-tier only (v6.3.3) */}
+            <Route element={<ProtectedRoute roles={['owner', 'proprietor', 'factory_manager', 'co_owner']} />}>
+              <Route path="settings" element={<Settings />}>
+                <Route index element={<Navigate to="team" replace />} />
+                <Route path="team" element={<TeamAndRoles />} />
+              </Route>
             </Route>
           </Route>
         </Route>

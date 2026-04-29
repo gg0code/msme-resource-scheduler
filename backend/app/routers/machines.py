@@ -14,7 +14,7 @@ from typing import List
 from app.database import get_db
 from app.models.machine import Machine, MachineSkillRequirement
 from app.schemas.machine import MachineCreate, MachineUpdate, MachineOut
-from app.core.dependencies import get_current_user, require_role
+from app.core.dependencies import get_current_user, require_operational, require_top_tier
 from app.core.plan_limits import check_plan_limit
 from app.models.auth import User
 
@@ -68,7 +68,7 @@ def get_machine(
 def create_machine(
     payload: MachineCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     data = payload.model_dump(exclude={"skill_requirements"})
     data["tenant_id"] = current_user.tenant_id
@@ -86,7 +86,7 @@ def update_machine(
     machine_id: int,
     payload: MachineUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     m = db.query(Machine).filter(
         Machine.id == machine_id,
@@ -108,7 +108,7 @@ def update_machine(
 def delete_machine(
     machine_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor")),
+    current_user: User = Depends(require_top_tier()),
 ):
     m = db.query(Machine).filter(
         Machine.id == machine_id,

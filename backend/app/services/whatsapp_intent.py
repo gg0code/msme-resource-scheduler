@@ -40,6 +40,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
+from app.models.auth import TOP_TIER_ROLES
 from app.services.whatsapp_actions import ActionType
 from app.services.whatsapp_responses import Language, get_response
 
@@ -50,12 +51,33 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# ROLE CONSTANTS (v5.12)
+# ROLE CONSTANTS
 # Match PhoneTenantMap.phone_role column values exactly.
+#
+# v5.12: Three-role taxonomy (owner / manager / operator).
+# v6.3.3: Extended to honour the v6.4 SRS Section 6.28.6 role taxonomy.
+#         Top-tier roles (owner, proprietor=legacy synonym, factory_manager,
+#         co_owner) all pass the role gate unconditionally — same treatment
+#         as 'owner' in v5.12. Mid-tier roles (manager, scheduler=legacy
+#         synonym for manager) get manager-level gating. Anything else
+#         (operator, viewer, unknown) is treated as operator (most
+#         restrictive) for safety.
 # ---------------------------------------------------------------------------
 ROLE_OWNER:    str = "owner"
 ROLE_MANAGER:  str = "manager"
 ROLE_OPERATOR: str = "operator"
+
+# Phone-side top-tier set. Imports TOP_TIER_ROLES from app.models.auth so
+# the user-side and phone-side gates share one canonical role list (Lesson
+# 22: single source of truth). Adding a new top-tier role anywhere flows
+# through both gates automatically.
+PHONE_TOP_TIER_ROLES: frozenset = frozenset(TOP_TIER_ROLES)
+
+# Phone-side mid-tier set. 'manager' is the v6.4 spelling, 'scheduler' is
+# the legacy spelling kept here as a synonym (same pattern as TOP_TIER's
+# proprietor/owner). Both receive manager-level gating: blocked on
+# financial / create / delete keywords, allowed on read + attendance.
+PHONE_MID_TIER_ROLES: frozenset = frozenset(("manager", "scheduler"))
 
 # ---------------------------------------------------------------------------
 # ROLE GATE KEYWORD SETS (v5.12)
@@ -310,51 +332,61 @@ def detect_write_intent(
     tokens: frozenset[str] = frozenset(message_lower.split())
 
     # ------------------------------------------------------------------
-    # ROLE GATE (v5.12) — runs before ALL other checks.
+    # ROLE GATE (v5.12, extended v6.3.3) — runs before ALL other checks.
     # Blocked actions never reach AI. Never move this below intent checks.
+    #
+    # Tier classification (single dispatch on phone_role):
+    #   top-tier (owner / proprietor / factory_manager / co_owner)
+    #     — passes everything, no blocking applied.
+    #   mid-tier (manager / scheduler)
+    #     — blocked on financial / create / delete keywords.
+    #   anything else (operator / viewer / unknown)
+    #     — treated as operator: blocked on the broad write+financial set.
     # ------------------------------------------------------------------
-    if phone_role == ROLE_OPERATOR:
-        if tokens & OPERATOR_BLOCKED_KEYWORDS:
-            block_reply = get_response("role_blocked", language)
-            logger.info(
-                "Role gate blocked operator: tenant=%s tokens_matched=%s",
-                tenant_id,
-                tokens & OPERATOR_BLOCKED_KEYWORDS,
-            )
-            return True, block_reply, None, None
+    if phone_role in PHONE_TOP_TIER_ROLES:
+        pass  # no blocking — owner-equivalent
 
-    elif phone_role == ROLE_MANAGER:
+    elif phone_role in PHONE_MID_TIER_ROLES:
         if tokens & FINANCIAL_KEYWORDS:
             block_reply = get_response("role_blocked", language)
             logger.info(
-                "Role gate blocked manager (financial): tenant=%s", tenant_id
+                "Role gate blocked %s (financial): tenant=%s",
+                phone_role, tenant_id,
             )
             return True, block_reply, None, None
         if tokens & MANAGER_CREATE_KEYWORDS:
             block_reply = get_response("role_blocked", language)
             logger.info(
-                "Role gate blocked manager (create): tenant=%s", tenant_id
+                "Role gate blocked %s (create): tenant=%s",
+                phone_role, tenant_id,
             )
             return True, block_reply, None, None
         if tokens & MANAGER_DELETE_KEYWORDS:
             block_reply = get_response("role_blocked", language)
             logger.info(
-                "Role gate blocked manager (delete): tenant=%s", tenant_id
+                "Role gate blocked %s (delete): tenant=%s",
+                phone_role, tenant_id,
             )
             return True, block_reply, None, None
 
-    elif phone_role != ROLE_OWNER:
-        # Unknown role — treat as operator (most restrictive) for safety
+    else:
+        # Operator, viewer, or unknown — apply most restrictive gating.
+        # Logged at warning when truly unknown (not 'operator') so misconfig
+        # surfaces in logs without breaking the request.
+        if phone_role != ROLE_OPERATOR:
+            logger.warning(
+                "Role gate: unknown phone_role '%s' treated as operator: tenant=%s",
+                phone_role, tenant_id,
+            )
         if tokens & OPERATOR_BLOCKED_KEYWORDS:
             block_reply = get_response("role_blocked", language)
-            logger.warning(
-                "Role gate blocked unknown role '%s' as operator: tenant=%s",
-                phone_role,
-                tenant_id,
+            logger.info(
+                "Role gate blocked %s: tenant=%s tokens_matched=%s",
+                phone_role, tenant_id,
+                tokens & OPERATOR_BLOCKED_KEYWORDS,
             )
             return True, block_reply, None, None
 
-    # Owner always passes. Manager/operator passed the gate above.
     # ------------------------------------------------------------------
     # END ROLE GATE — existing intent detection continues below unchanged
     # ------------------------------------------------------------------

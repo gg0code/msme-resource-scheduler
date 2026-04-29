@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from typing import Optional
 
 from app.database import get_db
-from app.core.dependencies import get_current_user, require_role
+from app.core.dependencies import get_current_user, require_operational
 from app.models.auth import User
 from app.models.unavailability import EmployeeLeave, MachineDowntime
 from app.models.employee import Employee
@@ -125,7 +125,7 @@ def create_employee_leave(
     employee_id: int,
     payload: LeaveIn,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """Create a leave period for an employee."""
     emp = db.query(Employee).filter(
@@ -156,7 +156,7 @@ def delete_employee_leave(
     employee_id: int,
     leave_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """Delete a leave period. Verifies tenant ownership."""
     leave = db.query(EmployeeLeave).filter(
@@ -203,7 +203,7 @@ def create_machine_downtime(
     machine_id: int,
     payload: DowntimeIn,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """Create a downtime period for a machine."""
     machine = db.query(Machine).filter(
@@ -234,7 +234,7 @@ def delete_machine_downtime(
     machine_id: int,
     downtime_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """Delete a downtime period. Verifies tenant ownership."""
     downtime = db.query(MachineDowntime).filter(

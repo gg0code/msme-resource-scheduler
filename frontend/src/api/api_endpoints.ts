@@ -196,6 +196,16 @@ export const FEATURES = {
 } as const
 
 // =============================================================================
+// TEAM (v6.3.3 Team & Roles)
+// =============================================================================
+export const TEAM = {
+  list:        '/api/team/',
+  invite:      '/api/team/invite',
+  changeRole:  (id: number) => `/api/team/${id}/role`,
+  remove:      (id: number) => `/api/team/${id}`,
+} as const
+
+// =============================================================================
 // WHATSAPP  (router self-prefixes with /api/v1/whatsapp)
 // =============================================================================
 export const WHATSAPP = {

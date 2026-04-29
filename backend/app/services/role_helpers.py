@@ -28,9 +28,6 @@
 # - is_top_tier-style checks should NOT be reimplemented here — use
 #   User.is_top_tier / PhoneTenantMap.is_top_tier instead.
 
-from app.models.auth import TOP_TIER_ROLES
-
-
 # Allowed values for User.role. Includes 'proprietor' as a synonym for 'owner'
 # (see TOP_TIER_ROLES in app/models/auth.py). Change this set in lockstep with
 # the auth_service registration logic.
@@ -41,8 +38,6 @@ VALID_USER_ROLES = (
     "manager",                      # operational, mid-tier (per SRS §6.17)
     "viewer",                       # read-only
 )
-
-TOP_TIER_ROLES = ("owner", "proprietor", "factory_manager", "co_owner")
 
 # Allowed values for PhoneTenantMap.phone_role. Same set as VALID_USER_ROLES
 # per the v6.3.1 spec — phone-level role validation mirrors user-level.

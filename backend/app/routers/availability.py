@@ -18,7 +18,7 @@ from app.schemas.availability import (
     AvailabilityOverrideUpdate,
     AvailabilityOverrideOut,
 )
-from app.core.dependencies import get_current_user, require_role
+from app.core.dependencies import get_current_user, require_operational
 from app.models.auth import User
 
 router = APIRouter()
@@ -45,7 +45,7 @@ def list_overrides(
 def create_override(
     payload: AvailabilityOverrideCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     if not payload.employee_id and not payload.machine_id:
         raise HTTPException(status_code=400, detail="Must specify either employee_id or machine_id")
@@ -61,7 +61,7 @@ def update_override(
     override_id: int,
     payload: AvailabilityOverrideUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     override = db.query(AvailabilityOverride).filter(
         AvailabilityOverride.id == override_id,
@@ -80,7 +80,7 @@ def update_override(
 def delete_override(
     override_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     override = db.query(AvailabilityOverride).filter(
         AvailabilityOverride.id == override_id,

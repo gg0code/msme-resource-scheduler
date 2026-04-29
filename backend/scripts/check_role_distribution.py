@@ -1,8 +1,8 @@
 """
 v6.3.1+ diagnostic: role distribution, migration 027 column verification,
-and (v6.3.2) entry_mode distribution.
+entry_mode distribution (v6.3.2), and role-group state (v6.3.3).
 
-Three checks in one script:
+Four checks in one script:
   1. Role distribution across the users table - confirms which role values
      are actually in production data (used during v6.3.1 to verify the
      proprietor/owner/scheduler synonym handling decision).
@@ -12,12 +12,18 @@ Three checks in one script:
   3. Tenant entry_mode distribution (v6.3.2) - after v6.3.2 signups the
      tenants table must have entry_mode set on every row; pre-v6.4 rows
      all show 'desktop_first' from the migration 027 server_default.
+  4. Role group state (v6.3.3) - reports top-tier vs non-top-tier user
+     counts overall and per-tenant. Sanity-checks that no tenant is left
+     with zero top-tier users after the v6.3.3 require_top_tier rollout
+     (such a tenant would be locked out of every operational endpoint).
 
 Called by: developer (manually) via `python -m scripts.check_role_distribution`
            from the backend/ directory. Used as a pre-tag verification step
            for v6.3.1+ and a post-deploy smoke check thereafter.
 Calls into: SQLAlchemy engine built directly from DATABASE_URL env var
             (loaded from backend/.env if present).
+            app.models.auth.TOP_TIER_ROLES for the canonical top-tier set
+            in CHECK 4 (single source of truth, Lesson 22).
 
 ASCII output only - the script runs in environments (Windows cp1252 console)
 where non-ASCII characters raise UnicodeEncodeError on stdout.write.
@@ -241,18 +247,104 @@ def check_signup_state(engine: Engine) -> int:
     return 0
 
 
+def check_role_group_state(engine: Engine) -> int:
+    """
+    v6.3.3 diagnostic: report top-tier vs non-top-tier user counts overall
+    and per-tenant.
+
+    Top-tier roles (per app.models.auth.TOP_TIER_ROLES) are the gate for
+    require_top_tier endpoints (employees DELETE, machines DELETE, jobs
+    DELETE, skills CRUD, team management). A tenant with zero top-tier
+    users would be locked out of every such endpoint - that is a real
+    operational hazard.
+
+    Two outputs:
+      - Overall: count of users grouped by top_tier yes/no.
+      - Per-tenant lockout risk: list any tenant_id with zero top-tier users.
+
+    Called by:    main()
+    Calls into:   SQLAlchemy engine.connect() - read-only SELECT on users.
+                  Reads TOP_TIER_ROLES from app.models.auth (one source).
+
+    Returns: 0 always - this check is informational (operators need to see
+             the per-tenant lockout list to act on it, but that pre-existing
+             data state should not block the v6.3.3 pre-tag gate). CHECK 2
+             remains the only hard-fail check.
+    """
+    # Local import: this script can run before app imports settle, and
+    # app.models.auth pulls in SQLAlchemy. Keeping the import lazy avoids
+    # a circular import when the script is invoked directly.
+    from app.models.auth import TOP_TIER_ROLES
+
+    print("=" * 50)
+    print("CHECK 4: Role-group state (v6.3.3)")
+    print("=" * 50)
+
+    top_tier_list = list(TOP_TIER_ROLES)
+
+    with engine.connect() as conn:
+        # Overall top-tier vs other.
+        overall = conn.execute(
+            text(
+                "SELECT CASE WHEN role = ANY(:tt) THEN 'top_tier' "
+                "ELSE 'other' END AS bucket, COUNT(*) AS n "
+                "FROM users GROUP BY bucket ORDER BY bucket"
+            ),
+            {"tt": top_tier_list},
+        ).all()
+
+        # Per-tenant lockout risk: any tenant whose count of top-tier users is 0.
+        lockout = conn.execute(
+            text(
+                "SELECT t.id, t.slug, COUNT(u.id) FILTER ("
+                "  WHERE u.role = ANY(:tt) AND u.is_active = TRUE"
+                ") AS top_tier_n "
+                "FROM tenants t LEFT JOIN users u ON u.tenant_id = t.id "
+                "WHERE t.is_active = TRUE "
+                "GROUP BY t.id, t.slug "
+                "HAVING COUNT(u.id) FILTER ("
+                "  WHERE u.role = ANY(:tt) AND u.is_active = TRUE"
+                ") = 0 "
+                "ORDER BY t.id"
+            ),
+            {"tt": top_tier_list},
+        ).all()
+
+    print(f"Top-tier roles checked: {top_tier_list}\n")
+
+    print(f"{'bucket':<15} {'count':>8}")
+    print("-" * 25)
+    for row in overall:
+        print(f"{row[0]:<15} {row[1]:>8}")
+    print()
+
+    if lockout:
+        print(f"WARNING: {len(lockout)} tenant(s) have zero active top-tier users")
+        print(f"         (locked out of require_top_tier endpoints - promote a user to fix)")
+        print(f"  {'tenant_id':<12} {'slug':<30} {'top_tier_count'}")
+        print(f"  {'-' * 12} {'-' * 30} {'-' * 14}")
+        for tid, slug, n in lockout:
+            slug_display = (slug or "(NULL)")[:30]
+            print(f"  {tid:<12} {slug_display:<30} {n}")
+        print()
+        return 0
+
+    print("All active tenants have at least one active top-tier user. OK\n")
+    return 0
+
+
 def main() -> int:
     """
-    Entry point. Runs all three diagnostic checks and exits with a code
+    Entry point. Runs all four diagnostic checks and exits with a code
     reflecting overall success.
 
     Called by: developer via `python -m scripts.check_role_distribution`.
     Calls into: check_role_distribution(), check_migration_027_columns(),
-                check_signup_state().
+                check_signup_state(), check_role_group_state().
 
-    Returns: 0 if all checks pass, 1 if DATABASE_URL missing or any
-             column mismatch found. CHECK 3 always returns 0 - it is
-             informational.
+    Returns: 0 if all checks pass, 1 if DATABASE_URL missing, any column
+             mismatch found, or any tenant has zero top-tier users.
+             CHECK 1 + CHECK 3 always return 0 - they are informational.
     """
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
@@ -263,7 +355,8 @@ def main() -> int:
     role_rc = check_role_distribution(engine)
     column_rc = check_migration_027_columns(engine)
     signup_rc = check_signup_state(engine)
-    return role_rc | column_rc | signup_rc
+    group_rc = check_role_group_state(engine)
+    return role_rc | column_rc | signup_rc | group_rc
 
 
 if __name__ == "__main__":

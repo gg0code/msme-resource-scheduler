@@ -14,7 +14,7 @@ from typing import List
 from app.database import get_db
 from app.models.skill import Skill
 from app.schemas.skill import SkillCreate, SkillUpdate, SkillOut
-from app.core.dependencies import get_current_user, require_role
+from app.core.dependencies import get_current_user, require_top_tier
 from app.core.plan_limits import check_plan_limit
 from app.models.auth import User
 
@@ -57,7 +57,7 @@ def get_skill(
 def create_skill(
     payload: SkillCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor")),
+    current_user: User = Depends(require_top_tier()),
 ):
     existing = db.query(Skill).filter(
         Skill.name == payload.name,
@@ -77,7 +77,7 @@ def update_skill(
     skill_id: int,
     payload: SkillUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor")),
+    current_user: User = Depends(require_top_tier()),
 ):
     skill = db.query(Skill).filter(
         Skill.id == skill_id,
@@ -96,7 +96,7 @@ def update_skill(
 def delete_skill(
     skill_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor")),
+    current_user: User = Depends(require_top_tier()),
 ):
     skill = db.query(Skill).filter(
         Skill.id == skill_id,

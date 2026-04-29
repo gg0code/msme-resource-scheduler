@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.utils.csv_import import import_employees, import_machines, import_skills, TEMPLATES
-from app.core.dependencies import get_current_user, require_role
+from app.core.dependencies import get_current_user, require_operational
 from app.models.auth import User
 
 router = APIRouter()
@@ -36,7 +36,7 @@ def download_template(
 async def upload_employees(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only .csv files are accepted")
@@ -49,7 +49,7 @@ async def upload_employees(
 async def upload_machines(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only .csv files are accepted")
@@ -62,7 +62,7 @@ async def upload_machines(
 async def upload_skills(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only .csv files are accepted")

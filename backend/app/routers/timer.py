@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 
 from app.database import get_db
-from app.core.dependencies import get_current_user, require_role
+from app.core.dependencies import get_current_user, require_operational
 from app.models.auth import User
 from app.models.job import Job, JobAssignment
 from app.models.employee import Employee
@@ -155,7 +155,7 @@ def _job_summary(db: Session, job: Job) -> dict:
 def start_job(
     job_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """
     Start a job. Only allowed if:
@@ -199,7 +199,7 @@ def start_job(
 def pause_job(
     job_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     job = _get_job_or_404(db, job_id, current_user.tenant_id)
 
@@ -219,7 +219,7 @@ def pause_job(
 def resume_job(
     job_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     job = _get_job_or_404(db, job_id, current_user.tenant_id)
 
@@ -248,7 +248,7 @@ def resume_job(
 def stop_job(
     job_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """
     Stop job early (black cross button).
@@ -340,7 +340,7 @@ def end_job(
     job_id: int,
     payload: EndJobPayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """
     End job correctly (blue dot).
@@ -396,7 +396,7 @@ def log_outage(
     job_id: int,
     payload: OutagePayload,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("proprietor", "scheduler")),
+    current_user: User = Depends(require_operational()),
 ):
     """
     Log a power outage / interruption event.
