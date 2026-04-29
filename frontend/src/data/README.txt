@@ -18,7 +18,6 @@ returns an array. AICopilot.tsx calls it with useLabels() on every render.
 
 GOTCHAS
 1. Always call getAITools(labels) with useLabels() - never with hardcoded labels.
-   The AI_TOOLS constant at the bottom uses printing defaults and exists only for
-   backward compatibility. New code should use getAITools(labels).
+   (The legacy AI_TOOLS backward-compat constant was removed in v6.3.6.)
 2. Tool ids must be unique (r1-r7, s1-s7 etc). Duplicate ids will cause React key
    warnings in AICopilot.tsx.

@@ -56,7 +56,7 @@ export interface JobSummaryResponse {
   available_machines: AssignedMachine[]
 }
 
-export interface EndJobPayload {
+interface EndJobPayload {
   employee_ids: number[]
   machine_ids: number[]
 }

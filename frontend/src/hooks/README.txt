@@ -3,41 +3,16 @@ Branch: v4-dev | v5-whatsapp (both)
 ────────────────────────────────────────────────────────────
 
 FOLDER: frontend/src/hooks/
-PURPOSE: Shared TanStack Query hooks for data fetching and mutations.
+PURPOSE: Reserved for shared TanStack Query hooks. Currently empty.
 
-FILES
-  hooks_index.ts  - All shared hooks: useEmployees, useMachines, useSkills,
-                    useJobs, useDashboard, useDeleteEmployee, useDeleteMachine,
-                    useDeleteJob, useEmployeeAssignments, useMachineAssignments.
-                    Branch: both.
+HISTORY
+hooks_index.ts (the v4 barrel of useEmployees, useMachines, useSkills, useJobs,
+useDashboard, useDeleteEmployee, useDeleteMachine, useDeleteJob,
+useEmployeeAssignments, useMachineAssignments) was removed in v6.3.6 - it was
+never imported. Pages call useQuery / useMutation directly from
+@tanstack/react-query against the api/api_*.ts modules.
 
-ARCHITECTURE NOTES
-All hooks in this file wrap TanStack Query's useQuery and useMutation. Delete
-mutations invalidate both the resource list cache AND the dashboard cache so the
-dashboard summary stays in sync. The useDashboard hook refetches every 30 seconds
-because the shop floor changes throughout the day.
-
-DESIGN PRINCIPLES
-Principle 2: All API functions called here are already tenant-scoped server-side.
-  No tenant_id is passed from hooks.
-Principle 11: Fix the import paths (../api/api_employees not ../api/employees)
-  before the next tsc run - the source file had wrong paths.
-
-DEPENDENCIES
-  This folder imports from:
-    ../api/api_employees.ts, api_machines.ts, api_skills.ts, api_jobs.ts, api_dashboard.ts
-    @tanstack/react-query
-
-  This folder is imported by:
-    frontend/src/pages/Employees.tsx
-    frontend/src/pages/Machines.tsx
-    frontend/src/pages/Skills.tsx
-    frontend/src/pages/Jobs.tsx
-    frontend/src/pages/Dashboard.tsx
-
-GOTCHAS
-1. The original source file had wrong import paths (../api/employees instead of
-   ../api/api_employees). The documented version has been corrected. Apply the
-   fix to the source file too or tsc will error.
-2. Query keys here must match exactly what pages use and what GettingStarted.tsx
-   reads from cache: ['employees'], ['machines'], ['skills'], ['jobs'], ['dashboard'].
+If you re-introduce shared hooks here, the query key contract is still:
+['employees'], ['machines'], ['skills'], ['jobs'], ['dashboard']. Delete
+mutations must invalidate both the resource key AND ['dashboard'] so the
+dashboard summary stays in sync.

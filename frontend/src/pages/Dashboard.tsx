@@ -34,6 +34,7 @@ import { CoachMark } from '../components/onboarding'
 import timerApi from '../api/api_timer'
 import EndJobModal from '../components/EndJobModal'
 import type { DashboardData, DashboardJob } from '../api/api_dashboard'
+import type { Job } from '../types/types_index'
 import GettingStarted from '../components/onboarding/GettingStarted'
 import EmptyState from '../components/EmptyState'
 import { DASHBOARD, JOBS } from '../api/api_endpoints'
@@ -151,19 +152,22 @@ interface JobCardProps {
 function JobCard({ job, onAction, actionLoading }: JobCardProps) {
   const [expanded, setExpanded] = useState(false)
   const labels = useLabels()
-  const [jobDetail, setJobDetail] = useState<any>(null)
+  const [jobDetail, setJobDetail] = useState<Job | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const loading = actionLoading[job.id] ?? false
 
-  // Fetch full job detail when expanded (to get assigned_employees/machines)
-  useEffect(() => {
-    if (!expanded || jobDetail) return
-    setDetailLoading(true)
-    apiClient.get(JOBS.detail(job.id))
-      .then(r => setJobDetail(r.data))
-      .catch(() => {})
-      .finally(() => setDetailLoading(false))
-  }, [expanded, job.id, jobDetail])
+  // Fetch full job detail (assigned_employees/machines) on first expansion.
+  // Lives in the click handler — not a useEffect — to avoid setState-in-effect.
+  const toggleExpanded = () => {
+    if (!expanded && !jobDetail && !detailLoading) {
+      setDetailLoading(true)
+      apiClient.get<Job>(JOBS.detail(job.id))
+        .then(r => setJobDetail(r.data))
+        .catch(() => {})
+        .finally(() => setDetailLoading(false))
+    }
+    setExpanded(e => !e)
+  }
   const t = job.timer_status
 
   const canStart = t === 'idle' && !job.has_conflict && job.status !== 'Completed' && job.status !== 'Stopped'
@@ -299,7 +303,7 @@ function JobCard({ job, onAction, actionLoading }: JobCardProps) {
 
           {/* Expand toggle */}
           <button
-            onClick={() => setExpanded(e => !e)}
+            onClick={toggleExpanded}
             className="text-gray-300 hover:text-gray-500 transition-colors ml-1"
           >
             {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}

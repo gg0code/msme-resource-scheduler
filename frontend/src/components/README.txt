@@ -9,10 +9,10 @@ WHAT IT DOES
 This folder contains components that are too specific to be a generic UI library
 but too general to live inside a single page file. Every file here is used by
 at least two different pages or by Layout itself. They handle things like empty
-states, plan limit enforcement, the main app shell, the AI chat panel, the job
-completion modal, and the upgrade gate modal. Pages import from here; this folder
-never imports from pages/. Sub-folders handle more specialised component groups
-(common/ for data management UI, onboarding/ for the new-user tour).
+states, plan limit enforcement, the main app shell, the AI chat panel, and the job
+completion modal. Pages import from here; this folder never imports from pages/.
+Sub-folders handle more specialised component groups (common/ for data management
+UI, onboarding/ for the new-user tour).
 
 FILES
   AICopilot.tsx        - Sliding AI chat panel. Sends messages to /api/ai/chat,
@@ -29,25 +29,23 @@ FILES
   PlanLimitGuard.tsx   - Plan limit hook (usePlanLimits) + three components:
                          PlanLimitBanner, RawMaterialLimitHint, LimitedButton.
                          Branch: both.
-  UpgradePrompt.tsx    - Feature gate modal with WhatsApp CTA for enabling features.
-                         Branch: both.
-  ZeroZetaLogo.tsx     - Brand logo component. Branch: both.
+
+  (DELETED in v6.3.6: UpgradePrompt.tsx and ZeroZetaLogo.tsx - never imported.)
 
 ARCHITECTURE NOTES
 Layout.tsx is the most important file in this folder - it is the shell that wraps
 every authenticated page. All other components are rendered either inside Layout
 (GettingStarted, AICopilot button) or inside individual pages (EmptyState,
-EndJobModal, PlanLimitGuard, UpgradePrompt). AICopilot.tsx and UpgradePrompt.tsx
-are the two "floating" components that use fixed positioning over the full screen.
-PlanLimitGuard.tsx is the only file here that exports a hook (usePlanLimits) in
-addition to components - this keeps all plan limit logic in one place.
+EndJobModal, PlanLimitGuard). AICopilot.tsx is the "floating" component that uses
+fixed positioning over the full screen. PlanLimitGuard.tsx is the only file here
+that exports a hook (usePlanLimits) in addition to components - this keeps all
+plan limit logic in one place.
 
 DESIGN PRINCIPLES
 Principle 1: AICopilot.tsx calls /api/ai/chat and displays what the backend returns.
   It never computes scheduling logic client-side.
 Principle 8: Layout.tsx gates Gantt, WhatsApp, and AI Copilot nav items behind
-  feature flags. UpgradePrompt.tsx is shown when a gated feature is accessed.
-  PlanLimitGuard.tsx enforces free-plan resource caps.
+  feature flags. PlanLimitGuard.tsx enforces free-plan resource caps.
 Principle 11: All files must pass tsc --noEmit. Layout.tsx imports many components -
   any type error in a dependency will surface here.
 
@@ -74,6 +72,5 @@ GOTCHAS
    in App.tsx and that the CSS variables are being set.
 2. PlanLimitGuard.tsx calls /dashboard/plan-limits WITHOUT the /api/ prefix.
    This is the one exception to the /api/ prefix rule. Do not add /api/ to it.
-3. AICopilot.tsx and UpgradePrompt.tsx use fixed positioning. Both require z-40
-   or higher to appear above page content. If they appear behind other elements,
-   check z-index values.
+3. AICopilot.tsx uses fixed positioning and requires z-40 or higher to appear above
+   page content. If it appears behind other elements, check z-index values.

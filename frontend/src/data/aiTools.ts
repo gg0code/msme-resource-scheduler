@@ -320,18 +320,3 @@ export function getAITools(labels: IndustryLabels): AITool[] {
   ]
 }
 
-// Keep backward compat export for any code still importing AI_TOOLS directly
-// Components should migrate to getAITools(labels)
-export const AI_TOOLS = getAITools({
-  job: 'job', jobs: 'Jobs',
-  employee: 'employee', employees: 'Employees',
-  machine: 'machine', machines: 'Machines',
-  material: 'Raw Material', materials: 'Raw Materials',
-  skill: 'Skill', skills: 'Skills',
-  step: 'Step', steps: 'Steps',
-  jobsPageTitle: 'Jobs', jobsPageSubtitle: 'Production job board',
-  employeesPageTitle: 'Employees', machinesPageTitle: 'Machines',
-  jobNamePlaceholder: '', jobTypePlaceholder: '',
-  newJobButton: 'New Job',
-  kpiJobs: 'Active Jobs', kpiOrderBook: 'Order Book', kpiProfit: 'Est. Profit',
-})

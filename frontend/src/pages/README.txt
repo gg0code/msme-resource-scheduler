@@ -17,8 +17,6 @@ FILES
   Machines.tsx        - Machine CRUD + skill requirements + downtime + CSV import. Both.
   Skills.tsx          - Skills catalogue. Proprietor-only. Both.
   GanttPage.tsx       - Production timeline visualisation. Feature-flagged. Both.
-  Availability.tsx    - Availability override management. Both.
-  Checker.tsx         - Resource availability checker for a specific job. Both.
   ScanPage.tsx        - QR scan execution. NO AUTH. Mobile-first. Uses native fetch.
                         Both.
   PrintJobCard.tsx    - Print-optimised job card with QR codes. Auth required,
@@ -30,6 +28,10 @@ FILES
   (DELETED in v6.3.5: LinkWhatsApp.tsx and ConnectWhatsApp.tsx. Phone-link
    functionality consolidated into the InviteMemberModal opened from
    Settings -> Team & Roles.)
+
+  (DELETED in v6.3.6: Availability.tsx and Checker.tsx - never wired into
+   App.tsx routes; resource-availability data is now consumed inline by Jobs.tsx
+   via getResourceAvailability().)
 
 ARCHITECTURE NOTES
 Every page is a route target registered in App.tsx. Pages import from api/, hooks/,
@@ -54,7 +56,8 @@ GOTCHAS
 1. Jobs.tsx is 2500 lines. Do not try to read it all at once. Each major section
    starts with a ── SectionName ── comment block.
 2. The ['jobs'], ['employees'], ['machines'], ['skills'], ['dashboard'] query keys
-   in these pages must match exactly what GettingStarted.tsx reads from cache and
-   what hooks_index.ts invalidates on mutations.
+   in these pages must match exactly what GettingStarted.tsx reads from cache.
+   Pages call useQuery/useMutation directly; the legacy hooks_index.ts barrel was
+   removed in v6.3.6.
 3. ScanPage uses VITE_API_URL (not VITE_API_BASE_URL). Check both env vars if
    the scan page cannot reach the backend.

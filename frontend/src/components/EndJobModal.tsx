@@ -2,21 +2,10 @@
 // Modal shown when user clicks End button on a running/paused job.
 // Allows editing final employee/machine list, shows live cost preview.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { X, Users, Wrench, TrendingUp, TrendingDown, Loader2, CheckCircle2 } from 'lucide-react'
 import timerApi from '../api/api_timer'
-import type { JobSummaryResponse } from '../api/api_timer'
-
-interface CostBreakdown {
-  hours: number
-  employee_cost: number
-  machine_cost: number
-  material_cost: number
-  misc_cost: number
-  total_cost: number
-  order_value: number
-  profit: number
-}
+import type { CostBreakdown, JobSummaryResponse } from '../api/api_timer'
 
 interface Props {
   jobId: number
@@ -47,8 +36,6 @@ export default function EndJobModal({ jobId, jobName, onConfirm, onClose }: Prop
 
   const [selectedEmpIds, setSelectedEmpIds] = useState<number[]>([])
   const [selectedMacIds, setSelectedMacIds] = useState<number[]>([])
-  const [preview, setPreview] = useState<CostBreakdown | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
 
   // Load summary on mount
   useEffect(() => {
@@ -57,54 +44,42 @@ export default function EndJobModal({ jobId, jobName, onConfirm, onClose }: Prop
         setSummary(s)
         setSelectedEmpIds(s.current_employee_ids)
         setSelectedMacIds(s.current_machine_ids)
-        setPreview(s.cost_preview)
       })
       .catch(() => setError('Failed to load job summary'))
       .finally(() => setLoading(false))
   }, [jobId])
 
-  // Recompute preview when selections change
-  // We call summary endpoint with updated IDs via a lightweight approach:
-  // Since cost_preview is computed server-side, we re-fetch summary when selections change.
-  // To avoid excessive calls, we debounce via useEffect dependency.
-  useEffect(() => {
-    if (!summary) return
-    setPreviewLoading(true)
-    // Re-fetch summary to get updated cost preview
-    // (summary endpoint always uses current actual_hours from DB)
-    timerApi.summary(jobId)
-      .then(s => {
-        // Build local preview from the rates we have
-        const empRate = selectedEmpIds.reduce((sum, id) => {
-          const emp = s.available_employees.find(e => e.id === id)
-          return sum + (emp?.hourly_rate ?? 0)
-        }, 0)
-        const macRate = selectedMacIds.reduce((sum, id) => {
-          const mac = s.available_machines.find(m => m.id === id)
-          return sum + (mac?.hourly_rate ?? 0)
-        }, 0)
-        const hours = s.actual_hours
-        const empCost = empRate * hours
-        const macCost = macRate * hours
-        const matCost = s.cost_preview.material_cost
-        const misc = s.cost_preview.misc_cost
-        const total = empCost + macCost + matCost + misc
-        const profit = s.cost_preview.order_value - total
+  // Derived preview: rates + hours already live in `summary`, so we recompute
+  // synchronously rather than re-hitting /summary on every checkbox toggle.
+  const preview = useMemo<CostBreakdown | null>(() => {
+    if (!summary) return null
+    const empRate = selectedEmpIds.reduce((sum, id) => {
+      const emp = summary.available_employees.find(e => e.id === id)
+      return sum + (emp?.hourly_rate ?? 0)
+    }, 0)
+    const macRate = selectedMacIds.reduce((sum, id) => {
+      const mac = summary.available_machines.find(m => m.id === id)
+      return sum + (mac?.hourly_rate ?? 0)
+    }, 0)
+    const hours = summary.actual_hours
+    const empCost = empRate * hours
+    const macCost = macRate * hours
+    const matCost = summary.cost_preview.material_cost
+    const misc = summary.cost_preview.misc_cost
+    const total = empCost + macCost + matCost + misc
+    const profit = summary.cost_preview.order_value - total
 
-        setPreview({
-          hours,
-          employee_cost: empCost,
-          machine_cost: macCost,
-          material_cost: matCost,
-          misc_cost: misc,
-          total_cost: total,
-          order_value: s.cost_preview.order_value,
-          profit,
-        })
-      })
-      .catch(() => {})
-      .finally(() => setPreviewLoading(false))
-  }, [selectedEmpIds, selectedMacIds])
+    return {
+      hours,
+      employee_cost: empCost,
+      machine_cost: macCost,
+      material_cost: matCost,
+      misc_cost: misc,
+      total_cost: total,
+      order_value: summary.cost_preview.order_value,
+      profit,
+    }
+  }, [summary, selectedEmpIds, selectedMacIds])
 
   const toggleEmp = (id: number) => {
     setSelectedEmpIds(prev =>
@@ -219,7 +194,6 @@ export default function EndJobModal({ jobId, jobName, onConfirm, onClose }: Prop
                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                     Final Cost Summary
                   </span>
-                  {previewLoading && <Loader2 size={12} className="animate-spin text-gray-400" />}
                 </div>
                 <div className="divide-y divide-gray-100">
                   <CostRow label="Employee Cost" value={preview.employee_cost} />
