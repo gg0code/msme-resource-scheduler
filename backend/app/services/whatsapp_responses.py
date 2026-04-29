@@ -61,6 +61,36 @@ RESPONSES: dict[str, dict[Language, str]] = {
             "\u0939\u0948\u0964"
         ),
     },
+    # v6.3.4 - polite refusal when a non-top-tier phone asks for a briefing.
+    # Top-tier roles (owner / proprietor / factory_manager / co_owner) get the
+    # actual briefing instead; this string is only ever sent to mid-tier
+    # (manager / scheduler) and operator-equivalent phones.
+    "briefing_refused": {
+        "english":  (
+            "Daily briefings are sent to factory owners and managers. "
+            "Please ask your owner to share."
+        ),
+        "hinglish": (
+            "Daily briefing sirf owner aur factory manager ko jaati hai. "
+            "Owner se request kar lijiye."
+        ),
+        "hindi":    (
+            "\u092f\u0939 \u092c\u094d\u0930\u0940\u092b\u093f\u0902\u0917 "
+            "\u0938\u093f\u0930\u094d\u092b \u092e\u093e\u0932\u093f\u0915 "
+            "\u0915\u094b \u091c\u093e\u0924\u0940 \u0939\u0948\u0964"
+        ),
+    },
+    # v6.3.4 - sent only when manual_trigger_briefing finishes but the
+    # requester has no linked active phone (rare). Lets them know their
+    # request was processed even if delivery is degraded.
+    "briefing_sent_ack": {
+        "english":  "Briefing prepared. Please ensure your WhatsApp is linked.",
+        "hinglish": "Briefing ready hai. WhatsApp link active hona zaroori hai.",
+        "hindi":    (
+            "\u092c\u094d\u0930\u0940\u092b\u093f\u0902\u0917 "
+            "\u0924\u0948\u092f\u093e\u0930 \u0939\u0948\u0964"
+        ),
+    },
 }
 
 

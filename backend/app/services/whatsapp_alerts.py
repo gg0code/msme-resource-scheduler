@@ -1,15 +1,16 @@
-# whatsapp_alerts.py - Version 2.0
+# whatsapp_alerts.py - Version 2.1
 # Branch: v5-whatsapp
 #
 # FILE PURPOSE
 # All scheduled and on-demand WhatsApp alert jobs for ZetaOps Copilot.
 # Owns the APScheduler lifecycle and every outbound proactive message:
-#   Job 1 — Morning briefing to owner (7:00am IST, scheduled data)
-#   Job 2 — Delayed job check (every 2 hours, 8am-8pm IST)
-#   Job 3 — Conflict check (every 4 hours)
-#   Job 4 — Manager check-in prompt (7:00am IST) [v5.15]
-#   Job 5 — Owner briefing from checkin (7:15am IST) [v5.15]
-#   On-demand — Machine down alert (triggered from machine router)
+#   Job 1 - Morning briefing to owner (7:00am IST, scheduled data)
+#   Job 2 - Delayed job check (every 2 hours, 8am-8pm IST)
+#   Job 3 - Conflict check (every 4 hours)
+#   Job 4 - Manager check-in prompt (7:00am IST) [v5.15]
+#   Job 5 - Owner briefing from checkin (7:15am IST) [v5.15]
+#   Job 6 - Daily push briefing dispatcher (every 5 minutes) [v6.3.4]
+#   On-demand - Machine down alert (triggered from machine router)
 #
 # WHO CALLS THIS FILE
 #   app/main.py                      - start_scheduler() on FastAPI startup
@@ -79,6 +80,12 @@ ALERT_TYPE_BRIEFING     = "morning_briefing"
 ALERT_TYPE_JOB_DELAY    = "job_delay"
 ALERT_TYPE_MACHINE_DOWN = "machine_down"
 ALERT_TYPE_CONFLICT     = "conflict"
+
+# v6.3.4 - Daily push briefing dispatcher cadence. The dispatcher itself
+# decides which tenants are due inside the 5-minute window per their
+# briefing_morning_time / briefing_evening_time config; APScheduler just
+# needs to fire often enough that no configured time falls between ticks.
+BRIEFING_DISPATCH_INTERVAL_MINUTES = 5
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +196,27 @@ def start_scheduler() -> None:
     )
     logger.info("Scheduled: owner briefing from checkin at 07:15 IST daily")
 
+    # Register daily push briefing dispatcher - every 5 minutes (v6.3.4).
+    # The dispatcher iterates tenants and sends briefings whose configured
+    # morning_time / evening_time falls in the current 5-minute window.
+    # Coexists with the v5.15 manager_checkin (07:00 IST) and
+    # owner_briefing_checkin (07:15 IST) jobs - those are tied to a
+    # specific clock time; this one is a recurring sweep.
+    scheduler.add_job(
+        func=run_briefing_dispatch_tick,
+        trigger="interval",
+        minutes=BRIEFING_DISPATCH_INTERVAL_MINUTES,
+        id="briefing_dispatch_job",
+        name="Daily push briefing dispatcher (every 5 minutes)",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
+    logger.info(
+        "Scheduled: daily push briefing dispatcher every %d minutes",
+        BRIEFING_DISPATCH_INTERVAL_MINUTES,
+    )
+
     # Start the scheduler
     scheduler.start()
     logger.info(
@@ -247,6 +275,7 @@ def set_dev_schedule() -> None:
         (check_scheduling_conflicts,        "conflict_check"),
         (send_manager_checkin,              "manager_checkin"),
         (send_owner_briefing_from_checkin,  "owner_briefing_checkin"),
+        (run_briefing_dispatch_tick,        "briefing_dispatch_job"),
     ]:
         scheduler.add_job(
             func=job_func,
@@ -605,6 +634,57 @@ async def send_owner_briefing_from_checkin() -> None:
             )
 
     logger.info("Owner briefings from checkin sent to %d phones.", sent_count)
+
+
+# ---------------------------------------------------------------------------
+# ALERT JOB 6 - Daily push briefing dispatcher (v6.3.4)
+# ---------------------------------------------------------------------------
+
+async def run_briefing_dispatch_tick() -> None:
+    """
+    APScheduler entry point for the v6.3.4 daily push briefings.
+
+    Fires every BRIEFING_DISPATCH_INTERVAL_MINUTES (5). Delegates to
+    app.services.briefings.dispatcher.dispatch_due_briefings which:
+      - Iterates every tenant.
+      - Computes whether morning_time / evening_time falls in the
+        current 5-minute window in the tenant's timezone.
+      - Resolves top-tier subscribed recipients.
+      - Builds industry-aware content (morning forward-looking,
+        evening backward-looking).
+      - Sends via the existing _send_alert wiring (mock-mode aware).
+      - Writes briefing.* events for every send / skip / failure.
+
+    Called by:   APScheduler 'briefing_dispatch_job' interval trigger.
+    Calls into:  app.services.briefings.dispatcher.dispatch_due_briefings.
+    Args:        none - APScheduler invokes with no positional args.
+    Returns:     None (the dispatcher's DispatchSummary is logged here).
+    Side effects:
+        DB reads for every tenant. DB writes (Event rows) for sends,
+        skips, and failures. WhatsApp sends per recipient (logged in
+        mock mode, real Interakt POST in production).
+
+    Why this thin wrapper instead of registering dispatch_due_briefings
+    directly: APScheduler captures exceptions silently in some
+    versions; centralising the try/except here ensures any unexpected
+    crash inside the dispatcher surfaces as a logged error rather than
+    a silently swallowed schedule run.
+    """
+    # Late import keeps the module's import graph free of v6.3.4 deps
+    # so v5-only callers can still load whatsapp_alerts without a
+    # zoneinfo / briefing-package penalty.
+    from app.services.briefings.dispatcher import dispatch_due_briefings
+
+    try:
+        summary = await dispatch_due_briefings()
+        logger.info(
+            "briefing_dispatch_job tick: tenants=%d sent=%d skipped=%d",
+            summary.tenants_processed,
+            summary.briefings_sent,
+            summary.briefings_skipped,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("briefing_dispatch_job crashed: %s", exc)
 
 
 # ---------------------------------------------------------------------------

@@ -1,20 +1,26 @@
-# whatsapp_intent.py - Version 1.1
+# whatsapp_intent.py - Version 1.2
 # Branch: v5-whatsapp
 #
 # FILE PURPOSE
-# Two responsibilities:
+# Three responsibilities:
 #   1. Role gate (v5.12): checks phone_role before any action detection.
 #      Blocked roles receive a localised reply and never reach the AI layer.
 #   2. Write intent detection: scans user message for write actions
 #      (mark absent, maintenance, job status) that need confirmation.
+#   3. Briefing request detection (v6.3.4): scans for "morning briefing",
+#      "today's plan", etc. The router uses the result to fan out to
+#      app.services.briefings.dispatcher.manual_trigger_briefing for
+#      top-tier requesters and to a polite refusal for everyone else.
 #
 # WHO CALLS THIS FILE
-#   app/routers/whatsapp.py - calls detect_write_intent() on every inbound
-#                             message that has passed consent check.
+#   app/routers/whatsapp.py - calls detect_write_intent() and
+#                             detect_briefing_request_intent() on every
+#                             inbound message that has passed consent check.
 #
 # WHAT THIS FILE CALLS
 #   app/services/whatsapp_actions.py    - ActionType enum
-#   app/services/whatsapp_responses.py  - get_response() for role_blocked reply
+#   app/services/whatsapp_responses.py  - get_response() for role_blocked
+#                                         and briefing_refused replies
 #   app/models/employee.py              - Employee (name lookup for absent intent)
 #
 # KEY DESIGN DECISIONS (v5.12 additions)
@@ -153,6 +159,36 @@ TOMORROW_KEYWORDS = ["kal", "tomorrow", "agle din"]
 
 
 # ---------------------------------------------------------------------------
+# BRIEFING REQUEST KEYWORDS (v6.3.4)
+# ---------------------------------------------------------------------------
+# The phrases below are matched as substrings (lowercased) against the
+# inbound message. Order matters only inasmuch as the kind returned is
+# the kind whose keyword appeared first in the message - "morning"
+# wins over "evening" when both appear, since the prompt wording
+# typically opens with the desired direction.
+#
+# All keywords are also tested in test_briefings.py so a typo here
+# fails loudly at CI time, not silently in production.
+
+BRIEFING_MORNING_KEYWORDS = [
+    "morning briefing",
+    "today's plan",
+    "todays plan",
+    "aaj ka plan",
+    "aaj ka schedule",
+]
+
+BRIEFING_EVENING_KEYWORDS = [
+    "evening briefing",
+    "today's summary",
+    "todays summary",
+    "aaj ka summary",
+    "din ka summary",
+    "end of day",
+]
+
+
+# ---------------------------------------------------------------------------
 # HELPER - resolve relative date to YYYY-MM-DD string
 # ---------------------------------------------------------------------------
 
@@ -280,6 +316,66 @@ def _find_employee_id(name: str, tenant_id: int, db: Session) -> int | None:
 
     logger.debug(f"No employee found for name='{name}' in tenant_id={tenant_id}")
     return None, None
+
+
+# ---------------------------------------------------------------------------
+# BRIEFING REQUEST DETECTOR (v6.3.4)
+# ---------------------------------------------------------------------------
+
+def detect_briefing_request_intent(user_message: str) -> str | None:
+    """
+    Pure-function classifier: does this message ask for a briefing?
+
+    Called by:    app/routers/whatsapp.py - before detect_write_intent
+                  so a request like "morning briefing" is routed to the
+                  briefing dispatcher instead of falling through to AI.
+    Calls into:   nothing - lowercase substring match on the keyword
+                  lists above.
+    Args:
+        user_message: Raw inbound text. Original case is preserved by
+                      the caller; this function lowercases internally.
+    Returns:
+        'morning' | 'evening' | None.
+        Tie-break when both kinds appear: the kind whose first keyword
+        appears earliest in the message wins. None when no briefing
+        keyword matches.
+    Side effects:
+        None - pure function. Authorisation, dispatch, and event
+        emission live in the dispatcher / router layers.
+    """
+    if not user_message:
+        return None
+    lower = user_message.lower()
+
+    morning_pos = _earliest_match(lower, BRIEFING_MORNING_KEYWORDS)
+    evening_pos = _earliest_match(lower, BRIEFING_EVENING_KEYWORDS)
+
+    if morning_pos is None and evening_pos is None:
+        return None
+    if morning_pos is None:
+        return "evening"
+    if evening_pos is None:
+        return "morning"
+    return "morning" if morning_pos <= evening_pos else "evening"
+
+
+def _earliest_match(haystack: str, needles: list[str]) -> int | None:
+    """
+    Return the smallest index at which any of `needles` first appears
+    in `haystack`, or None when no needle is present.
+
+    Called by:    detect_briefing_request_intent.
+    Calls into:   str.find (cheaper than re for plain substring sets).
+    Side effects: none.
+    """
+    earliest: int | None = None
+    for needle in needles:
+        pos = haystack.find(needle)
+        if pos < 0:
+            continue
+        if earliest is None or pos < earliest:
+            earliest = pos
+    return earliest
 
 
 # ---------------------------------------------------------------------------

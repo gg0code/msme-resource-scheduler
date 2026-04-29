@@ -78,6 +78,7 @@ import logging
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Query, UploadFile
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -92,7 +93,11 @@ from app.services.whatsapp_actions import (
     clear_pending_action, build_confirmation_prompt,
     ActionType, store_pending_action
 )
-from app.services.whatsapp_intent import detect_write_intent
+from app.services.whatsapp_intent import (
+    detect_write_intent,
+    detect_briefing_request_intent,
+    PHONE_TOP_TIER_ROLES,
+)
 from app.services.whatsapp_whisper import transcribe_voice_note, transcribe_audio_bytes
 from app.models.whatsapp import WhatsAppConversation, PhoneTenantMap
 from app.core.dependencies import get_current_user
@@ -784,9 +789,62 @@ async def _process_inbound_message(
             # Return last reply for caller to send via normal flow
             return replies[-1] if replies else None
 
-    # Step 6: Detect write intent — with role gate (v5.12)
+    # Step 5c: Detect briefing request - on-demand "morning briefing" /
+    # "evening briefing" / "aaj ka plan" etc. Top-tier requesters get
+    # the briefing as the reply; everyone else gets a polite refusal.
+    # Runs BEFORE detect_write_intent so a briefing keyword cannot be
+    # accidentally swallowed by the role gate's broader keyword sweep.
+    briefing_kind = detect_briefing_request_intent(message_text)
+    if briefing_kind is not None:
+        from app.services.whatsapp_responses import get_response
+        if (identity.phone_role or "owner") not in PHONE_TOP_TIER_ROLES:
+            logger.info(
+                "Briefing request refused for non-top-tier phone: "
+                "phone=****%s role=%s kind=%s",
+                phone_number[-4:], identity.phone_role, briefing_kind,
+            )
+            return get_response("briefing_refused", language)
+        # Top-tier: load the User row, dispatch the briefing, return text.
+        from app.services.briefings import manual_trigger_briefing
+        from app.models.auth import User
+        briefing_db = SessionLocal()
+        try:
+            pmap_user = briefing_db.execute(
+                select(PhoneTenantMap).where(
+                    PhoneTenantMap.phone_number == phone_number,
+                    PhoneTenantMap.is_active == True,  # noqa: E712
+                )
+            ).scalars().first()
+            if pmap_user is None:
+                logger.warning(
+                    "Briefing request from un-mapped phone: ****%s",
+                    phone_number[-4:],
+                )
+                return get_response("briefing_sent_ack", language)
+            user_row = briefing_db.get(User, pmap_user.user_id)
+            if user_row is None:
+                logger.warning(
+                    "Briefing request: phone ****%s mapped to missing user_id=%s",
+                    phone_number[-4:], pmap_user.user_id,
+                )
+                return get_response("briefing_sent_ack", language)
+            briefing_text = await manual_trigger_briefing(
+                user=user_row,
+                kind=briefing_kind,
+                db=briefing_db,
+            )
+            briefing_db.commit()
+        finally:
+            briefing_db.close()
+        logger.info(
+            "Briefing manual trigger fired: phone=****%s kind=%s",
+            phone_number[-4:], briefing_kind,
+        )
+        return briefing_text
+
+    # Step 6: Detect write intent - with role gate (v5.12)
     # Returns 4-tuple: (blocked, block_reply, action_type, action_params)
-    # blocked=True means role gate fired — send reply and return immediately.
+    # blocked=True means role gate fired - send reply and return immediately.
     # Never pass blocked messages to AI.
     intent_db = SessionLocal()
     try:
