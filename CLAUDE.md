@@ -197,8 +197,11 @@ Pass structured JSON to LLM. LLM converts to human explanation only. Never ask L
 ### No Non-ASCII in Source Files
 Never use em dash, en dash, box-drawing characters, or curly quotes in source files. Python file headers: `#` comments only, never docstrings as file headers.
 
-### Known Bug
-`RegisterPage.tsx` line 136 uses `localStorage.setItem('access_token')` directly, bypassing `AuthContext.register()`. Scheduled for fix in v6.2.
+### Known Bugs
+
+(Resolved in v6.3.2.3) ~~`RegisterPage.tsx` uses `localStorage.setItem('access_token')` directly, bypassing `AuthContext.register()`.~~ Now routes through `useAuth().register()`; token lives in the in-memory `tokenStore`. `useAuth().register()` returns `{ next_step }` so the page can route to `/dashboard` or `/connect-whatsapp`.
+
+**AI Copilot args-parsing bug (open).** After v6.3.2.3's prompt-routing fix eliminated the `'tool not in request.tools'` error class, a previously-masked bug surfaces: the `/api/ai/chat` endpoint returns `AI service error: '"mode"'` (KeyError on a literal `'"mode"'` key with embedded quotes). Cause is suspected to be Groq sending tool-call arguments as a JSON string instead of an object, OR with double-encoded keys. Investigation needs logging of `tc.function.arguments` at `app/services/ai_service.py:1415` to confirm. Out of v6.3.2.3 scope; defer to a focused AI-debug iteration.
 
 ---
 

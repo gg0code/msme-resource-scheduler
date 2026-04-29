@@ -6,16 +6,16 @@
 //          on team size; phone is required for the two WhatsApp-bearing paths.
 //          Backend response contains `next_step` ('dashboard' or
 //          'connect_whatsapp') that decides the post-signup landing page.
-//
-// Known issue: localStorage.setItem('access_token') below bypasses
-// AuthContext.register(). Tracked in CLAUDE.md (Known Bug) for v6.2 fix; left
-// unchanged in v6.3.2 to keep this iteration scoped to the signup payload.
+// v6.3.2.3 - Routes through useAuth().register() instead of direct apiClient
+//          + localStorage.setItem. Token now lives in the in-memory tokenStore
+//          (axios interceptor) and is rotated by silent refresh. Eliminates
+//          the v6.2 known bug from CLAUDE.md.
 
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import apiClient from '../api/client'
 import { CheckCircle2, XCircle, ChevronRight, ChevronLeft } from 'lucide-react'
-import { AUTH } from '../api/api_endpoints'
+import { useAuth } from '../auth/useAuth'
+import type { RegisterPayload } from '../auth/useAuth'
 
 // -- Industry options ----------------------------------------------------------
 
@@ -120,6 +120,7 @@ const E164_REGEX = /^\+[1-9]\d{1,14}$/
 
 export default function RegisterPage() {
   const navigate = useNavigate()
+  const { register } = useAuth()
 
   // Step 1: industry picker | Step 2: workspace form
   const [step, setStep] = useState<1 | 2>(1)
@@ -183,7 +184,7 @@ export default function RegisterPage() {
       // Build payload — only include optional fields when the user filled
       // them, so the backend Pydantic schema sees Optional[str] = None
       // for whatsapp_first signups that omit email/password.
-      const payload: Record<string, unknown> = {
+      const payload: RegisterPayload = {
         company_name:  form.company_name,
         slug:          form.slug.toLowerCase().replace(/\s+/g, '-'),
         industry_type: selectedIndustry,
@@ -193,18 +194,21 @@ export default function RegisterPage() {
       if (form.password)   payload.password   = form.password
       if (form.phone_e164) payload.phone_e164 = form.phone_e164
 
-      const res = await apiClient.post(AUTH.register, payload)
-      localStorage.setItem('access_token', res.data.access_token)
+      // Goes through useAuth().register() — token lands in the in-memory
+      // tokenStore (axios interceptor) instead of localStorage, and silent
+      // refresh + auth state are wired up automatically.
+      const { next_step } = await register(payload)
 
-      const nextStep = res.data?.next_step
-      if (nextStep === 'connect_whatsapp') {
+      if (next_step === 'connect_whatsapp') {
         navigate('/connect-whatsapp')
       } else {
         navigate('/dashboard')
       }
     } catch (err: unknown) {
-      const detail = (err as {response?:{data?:{detail?:unknown}}})?.response?.data?.detail
-      setError(typeof detail === 'string' ? detail : 'Registration failed. Please try again.')
+      // useAuth().register() throws Error with .message set to the backend's
+      // detail string (HTTPException) or the first Pydantic validation msg.
+      const message = err instanceof Error ? err.message : 'Registration failed. Please try again.'
+      setError(message)
     } finally {
       setLoading(false)
     }

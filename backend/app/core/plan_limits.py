@@ -1,7 +1,16 @@
 """
-app/core/plan_limits.py — V1.1
-Single source of truth for free/paid tier limits.
-Used as a FastAPI dependency on POST endpoints.
+app/core/plan_limits.py — V1.2 (v6.3.2.3)
+Single source of truth for free/paid tier resource limits.
+Used as a FastAPI dependency on POST endpoints AND as the data
+source for GET /api/dashboard/plan-limits (consumed by the UI).
+
+v6.3.2.3 unification: previously there were three sources (this file,
+app/services/plan_limits.py — now deleted, and an inline dict in
+routers/dashboard.py). The POST guards used `jobs=5, machines=5`
+while the UI displayed `jobs=20, machines=10`, so users were
+surprised when creation was blocked below the displayed limit.
+This file is now the only source. Values normalised to the higher
+set (matching the UI's prior promise) and `raw_materials` added.
 """
 
 from typing import Optional
@@ -16,16 +25,18 @@ from app.models.auth import User, Tenant
 # None = unlimited. Change numbers here only — applies everywhere automatically.
 PLAN_LIMITS: dict[str, dict[str, Optional[int]]] = {
     "free": {
-        "employees": 10,
-        "jobs":       5,
-        "machines":   5,
-        "skills":    20,
+        "employees":     10,
+        "jobs":          20,
+        "machines":      10,
+        "skills":        20,
+        "raw_materials":  5,
     },
     "paid": {
-        "employees": None,
-        "jobs":      None,
-        "machines":  None,
-        "skills":    None,
+        "employees":     None,
+        "jobs":          None,
+        "machines":      None,
+        "skills":        None,
+        "raw_materials": None,
     },
 }
 

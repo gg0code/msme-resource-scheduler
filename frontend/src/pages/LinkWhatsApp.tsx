@@ -14,7 +14,8 @@ import { tokenStore } from '../api/client'
 import { WHATSAPP } from '../api/api_endpoints'
 
 // -- Constants -----------------------------------------------------------------
-const API_BASE        = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+// v6.3.2.3: see api/client.ts comment — empty fallback uses Vite proxy in dev.
+const API_BASE        = import.meta.env.VITE_API_BASE_URL ?? ''
 const LINK_URL = `${API_BASE}${WHATSAPP.linkPhone}`
 const LINKED_LIST_URL = `${API_BASE}${WHATSAPP.linkedPhones}`
 

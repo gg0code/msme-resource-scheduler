@@ -12,7 +12,10 @@
 
 import axios from 'axios'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+// v6.3.2.3: empty fallback so axios uses relative URLs in dev (Vite's /api +
+// /auth proxy forwards them to the backend — eliminates CORS preflight cache
+// friction). Production MUST set VITE_API_BASE_URL to the absolute backend URL.
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
 // -- In-memory token store -----------------------------------------------------
 // Exported so AuthContext can set/clear the token after login/logout/refresh.

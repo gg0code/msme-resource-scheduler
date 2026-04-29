@@ -11,9 +11,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { tokenStore } from "../api/client"  // single HTTP client source of truth
 import { AUTH } from "../api/api_endpoints"
-import { AuthContext, type AuthUser, type RegisterPayload } from "./useAuth"
+import { AuthContext, type AuthUser, type RegisterPayload, type RegisterResult } from "./useAuth"
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+// v6.3.2.3: empty fallback so `fetch(`${API_BASE}/auth/...`)` produces relative
+// URLs in dev. Vite's /auth proxy (vite.config.ts) forwards them to the backend
+// — no CORS preflight, no stale-preflight cache after backend restarts.
+// Production deploys MUST set VITE_API_BASE_URL to the absolute backend URL.
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 // -- Internal Provider state shape -------------------------------------------
 // Private to AuthProvider — not exposed via the context value, so it stays
@@ -109,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuth(access_token, me);
   }, [setAuth]);
 
-  const register = useCallback(async (payload: RegisterPayload) => {
+  const register = useCallback(async (payload: RegisterPayload): Promise<RegisterResult> => {
     const res = await fetch(`${API_BASE}${AUTH.register}`, {
       method: "POST",
       credentials: "include",
@@ -117,12 +121,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail ?? "Registration failed");
+      // FastAPI returns `detail: string` for HTTPException, but `detail: array`
+      // for Pydantic validation (422). Surface a useful message in both cases.
+      const err = await res.json().catch(() => ({}));
+      const detail = err?.detail;
+      let message = "Registration failed";
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (Array.isArray(detail) && typeof detail[0]?.msg === "string") {
+        message = detail[0].msg;
+      }
+      throw new Error(message);
     }
-    const { access_token } = await res.json();
-    const me = await fetchMe(access_token);
-    setAuth(access_token, me);
+    const data = await res.json();
+    const me = await fetchMe(data.access_token);
+    setAuth(data.access_token, me);
+    return { next_step: data.next_step };
   }, [setAuth]);
 
   const logout = useCallback(async () => {

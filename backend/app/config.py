@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
-    FREE_TIER_MAX_WORKERS: int = 10
-    FREE_TIER_MAX_JOBS: int = 50
+    # FREE_TIER_MAX_WORKERS / FREE_TIER_MAX_JOBS removed in v6.3.2.3 — they
+    # had zero callers. Resource limits live in app/core/plan_limits.py.
     APP_NAME: str = "ZetaOps Copilot"
     APP_VERSION: str = "4.0.9"
     GROQ_API_KEY: Optional[str] = None

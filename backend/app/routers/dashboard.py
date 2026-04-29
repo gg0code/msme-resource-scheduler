@@ -27,6 +27,7 @@ from app.models.job import Job, JobAssignment
 from app.models.employee import Employee
 from app.models.machine import Machine
 from app.core.dependencies import get_current_user
+from app.core.plan_limits import PLAN_LIMITS
 from app.models.auth import User
 from app.services.cost_service import compute_tentative_cost, compute_actual_cost
 
@@ -227,12 +228,11 @@ def get_plan_limits(
         .scalar() or 0
     )
 
-    LIMITS = {
-        'free':       {'employees': 10, 'machines': 10, 'jobs': 20, 'raw_materials': 5},
-        'pro':        {'employees': None, 'machines': None, 'jobs': None, 'raw_materials': None},
-        'enterprise': {'employees': None, 'machines': None, 'jobs': None, 'raw_materials': None},
-    }
-    lim = LIMITS.get(plan, LIMITS['free'])
+    # v6.3.2.3: read from app.core.plan_limits.PLAN_LIMITS so the UI display
+    # is always consistent with what the POST guards enforce. Plan keys 'pro'
+    # and 'enterprise' fall back to 'paid' (the canonical "unlimited" tier
+    # in core), which renders as unlimited everywhere.
+    lim = PLAN_LIMITS.get(plan) or PLAN_LIMITS.get('paid' if plan in ('pro', 'enterprise') else plan) or PLAN_LIMITS['free']
 
     def make(current, limit):
         return {
@@ -245,9 +245,9 @@ def get_plan_limits(
     return {
         'plan': plan,
         'limits': {
-            'employees':    make(emp_count, lim['employees']),
-            'machines':     make(mac_count, lim['machines']),
-            'jobs':         make(job_count, lim['jobs']),
-            'raw_materials': make(0, lim['raw_materials']),
+            'employees':     make(emp_count, lim.get('employees')),
+            'machines':      make(mac_count, lim.get('machines')),
+            'jobs':          make(job_count, lim.get('jobs')),
+            'raw_materials': make(0,         lim.get('raw_materials')),
         }
     }

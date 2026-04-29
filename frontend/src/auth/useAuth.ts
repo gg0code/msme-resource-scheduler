@@ -29,11 +29,24 @@ export interface AuthUser {
 }
 
 export interface RegisterPayload {
-  email:         string;
-  password:      string;
+  // v6.3.2: email + password are conditionally required per team_size.
+  // Backend Pydantic schema validates the conditional rules; the type
+  // simply allows undefined so whatsapp_first signups can omit them.
+  email?:        string;
+  password?:     string;
   company_name:  string;
   slug:          string;
   industry_type: string;   // v4.0.2
+  // v6.3.2 entry-gate fields (SRS Section 6.28). team_size drives the
+  // backend's entry_mode + size_segment + next_step.
+  team_size:     '1-15' | '16-50' | '51+';
+  phone_e164?:   string;   // required when team_size != '51+'
+}
+
+// Returned by register() so the caller (RegisterPage) can route to
+// /dashboard or /connect-whatsapp based on the backend's response.
+export interface RegisterResult {
+  next_step?: 'dashboard' | 'connect_whatsapp';
 }
 
 export interface AuthContextValue {
@@ -41,7 +54,7 @@ export interface AuthContextValue {
   accessToken: string | null;
   isLoading:   boolean;
   login:    (email: string, password: string) => Promise<void>;
-  register: (payload: RegisterPayload) => Promise<void>;
+  register: (payload: RegisterPayload) => Promise<RegisterResult>;
   logout:   () => Promise<void>;
   hasRole:  (...roles: Role[]) => boolean;
 }
