@@ -17,7 +17,7 @@
 # All tests are service-direct against the in-memory SQLite DB. Time is
 # frozen with freezegun so window matching is deterministic. The
 # dispatcher's WhatsApp send wiring is replaced with a recording stub
-# so no real (or mock-mode) Interakt call is exercised.
+# so no real (or mock-mode) WhatsApp send is exercised.
 #
 # WHO CALLS THIS FILE
 #   pytest tests/ -m "not integration" -v

@@ -257,7 +257,7 @@ async def verify_webhook(
 @router.post("/webhook")
 async def receive_webhook(request: Request, db: Session = Depends(get_db)):
     """
-    Receive and process inbound WhatsApp messages from Meta via Interakt.
+    Receive and process inbound WhatsApp messages from Meta.
 
     Always returns 200 OK — Meta retries on non-200 causing duplicates.
     v5.2: Audio messages are transcribed via Groq Whisper before processing.
@@ -1031,7 +1031,7 @@ def _extract_message_from_payload(payload: dict) -> dict | None:
     handler can download and transcribe the voice note.
 
     Args:
-        payload: Parsed JSON from Meta/Interakt webhook.
+        payload: Parsed JSON from Meta webhook.
 
     Returns:
         Dict with phone_number, text, type, and optionally media_id.
@@ -1052,6 +1052,13 @@ def _extract_message_from_payload(payload: dict) -> dict | None:
         message      = messages[0]
         message_type = message.get("type", "text")
         phone_number = message.get("from", "")
+
+        # Meta sends `from` as digits-only (wa_id format, e.g. "919845539868"),
+        # but resolve_identity() and PhoneTenantMap lookups require E.164
+        # ("+919845539868"). Normalize at the entry point so every downstream
+        # consumer sees a consistent shape.
+        if phone_number and not phone_number.startswith("+"):
+            phone_number = "+" + phone_number
 
         if message_type == "text":
             text     = message.get("text", {}).get("body", "")

@@ -505,8 +505,8 @@ def invite_member(
             )
 
         # Dispatch the welcome handshake. Mock-mode logs [MOCK ALERT];
-        # real-mode POSTs to Interakt. Either way an audit event row
-        # for member.invited_whatsapp is staged on the session.
+        # real-mode POSTs via Meta Cloud API. Either way an audit event
+        # row for member.invited_whatsapp is staged on the session.
         send_invite_welcome(
             user=new_user,
             phone_e164=phone,

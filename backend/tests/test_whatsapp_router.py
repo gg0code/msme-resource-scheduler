@@ -188,3 +188,26 @@ class TestExtractMessageFromPayload:
         }
         result = _extract_message_from_payload(payload)
         assert result is None
+
+    def test_normalizes_digits_only_from_to_e164(self):
+        # Meta Cloud API delivers `from` as digits-only wa_id (no leading +).
+        # The extractor must prepend "+" so resolve_identity() and
+        # PhoneTenantMap lookups succeed downstream.
+        payload = _text_payload("919845539868", "Hi")
+        result = _extract_message_from_payload(payload)
+        assert result is not None
+        assert result["phone_number"] == "+919845539868"
+
+    def test_already_e164_from_is_passed_through_unchanged(self):
+        # Defensive: if `from` already has the leading +, do not double it.
+        payload = _text_payload("+919845539868", "Hi")
+        result = _extract_message_from_payload(payload)
+        assert result is not None
+        assert result["phone_number"] == "+919845539868"
+
+    def test_normalizes_audio_from_to_e164(self):
+        # Same normalization must apply to voice messages.
+        payload = _audio_payload("919845539868", "media_abc123")
+        result = _extract_message_from_payload(payload)
+        assert result is not None
+        assert result["phone_number"] == "+919845539868"

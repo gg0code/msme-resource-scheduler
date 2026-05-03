@@ -244,8 +244,8 @@ def resolve_recipients(tenant: Tenant, db: Session) -> list[_Recipient]:
     Why join via PhoneTenantMap: tenant-side WhatsApp linking is the
     source of truth for "this user can be reached on WhatsApp". A user
     who set User.phone_e164 but never linked through the desktop or
-    HAAN flow would silently fail an Interakt send - we filter them
-    out at the resolution step instead.
+    HAAN flow would silently fail at send time - we filter them out
+    at the resolution step instead.
     """
     rows = db.execute(
         select(User, PhoneTenantMap)
@@ -272,10 +272,10 @@ def resolve_recipients(tenant: Tenant, db: Session) -> list[_Recipient]:
 # ---------------------------------------------------------------------------
 # SEND WIRING
 # ---------------------------------------------------------------------------
-# `_default_send` resolves to the existing v5.10 _send_alert under mock
-# mode it logs [MOCK ALERT]; in production it POSTs to Interakt. The
-# dispatcher accepts a send_fn override so tests can inject a fake
-# without monkeypatching imports.
+# `_default_send` resolves to the existing v5.10 _send_alert which logs
+# [MOCK ALERT] in mock mode and routes to _send_whatsapp_message in
+# production. The dispatcher accepts a send_fn override so tests can
+# inject a fake without monkeypatching imports.
 
 DispatchSendFn = Callable[[str, str, str], Awaitable[None]]
 
@@ -285,7 +285,7 @@ async def _default_send(phone_number: str, message: str, alert_type: str) -> Non
 
     Called by:    dispatch_briefing when no send_fn override supplied.
     Calls into:   app.services.whatsapp_alerts._send_alert.
-    Side effects: mock-mode log OR Interakt HTTP POST.
+    Side effects: mock-mode log OR Meta Cloud API HTTP POST.
     """
     from app.services.whatsapp_alerts import _send_alert  # late import to avoid cycle
     await _send_alert(phone_number=phone_number, message=message, alert_type=alert_type)

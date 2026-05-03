@@ -8,8 +8,8 @@ CREATED: 2026-03
 FILES:
   whatsapp.py  — Two endpoints:
                  POST /api/v1/whatsapp/webhook  — receives inbound messages
-                   from Meta/Interakt, verifies signature, routes to AI,
-                   sends response back to factory owner via Interakt.
+                   from Meta, verifies signature, routes to AI, sends
+                   response back to factory owner via Meta Cloud API.
                  POST /api/v1/whatsapp/simulate — development only endpoint,
                    simulates a full inbound message without real WhatsApp.
                    Used for all testing through v5.0-v5.4.
@@ -28,7 +28,7 @@ DEPENDENCIES:
 
 NOTES:
   - Signature verification uses WHATSAPP_APP_SECRET from .env
-  - WHATSAPP_MOCK_MODE=True skips Interakt and logs to console
+  - WHATSAPP_MOCK_MODE=True skips outbound HTTP and logs to console
   - /simulate endpoint is disabled in production (WHATSAPP_MOCK_MODE=False)
   - All endpoints return 200 OK to Meta even on errors — Meta retries
     on non-200 responses which causes duplicate message processing

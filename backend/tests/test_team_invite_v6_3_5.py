@@ -168,10 +168,12 @@ class TestWhatsAppStatusComputation:
 
 class TestInviteChannel:
 
-    def test_whatsapp_channel_emits_welcome_alert(self, db, caplog):
+    def test_whatsapp_channel_emits_welcome_alert(self, db, caplog, monkeypatch):
         """Explicit channel='whatsapp' + consent -> [MOCK ALERT] log line +
         PhoneTenantMap row + member.invited_whatsapp event row."""
         import logging
+        from app.config import settings as app_settings
+        monkeypatch.setattr(app_settings, "WHATSAPP_MOCK_MODE", True)
         caplog.set_level(logging.INFO, logger="app.services.team_invite_whatsapp")
 
         tenant = _make_tenant(db)
@@ -492,8 +494,10 @@ class TestRouterE2E:
         )
         return tenant, owner, {"Authorization": f"Bearer {token}"}
 
-    def test_post_invite_whatsapp_channel_201(self, db, client, caplog):
+    def test_post_invite_whatsapp_channel_201(self, db, client, caplog, monkeypatch):
         import logging
+        from app.config import settings as app_settings
+        monkeypatch.setattr(app_settings, "WHATSAPP_MOCK_MODE", True)
         caplog.set_level(logging.INFO, logger="app.services.team_invite_whatsapp")
 
         _, _, headers = self._seed_owner(db)

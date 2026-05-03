@@ -2,14 +2,13 @@
 # Branch: v5-whatsapp
 #
 # FILE PURPOSE
-# Unit tests for the four-branch send precedence in
-# app/services/whatsapp_send.py::_send_whatsapp_message after v6.3.7.
+# Unit tests for the three-branch send precedence in
+# app/services/whatsapp_send.py::_send_whatsapp_message.
 # Precedence under test:
 #   1. WHATSAPP_MOCK_MODE=True              -> log only, no HTTP
-#   2. INTERAKT_API_KEY set                 -> POST to api.interakt.ai
-#   3. WHATSAPP_ACCESS_TOKEN
+#   2. WHATSAPP_ACCESS_TOKEN
 #      + WHATSAPP_PHONE_NUMBER_ID set       -> POST to graph.facebook.com (Meta)
-#   4. otherwise                            -> log error, no HTTP
+#   3. otherwise                            -> log error, no HTTP
 #
 # httpx.AsyncClient is replaced with _FakeAsyncClient that records every POST.
 # All async calls run via asyncio.run() to avoid pytest-asyncio config.
@@ -22,7 +21,7 @@
 #   app/routers/whatsapp.py       - re-exports _send_whatsapp_message; tests
 #                                    still hit it via the router namespace
 #                                    to prove import-path stability.
-#   app/config.settings           - WHATSAPP_* and INTERAKT_API_KEY (monkeypatched)
+#   app/config.settings           - WHATSAPP_* (monkeypatched)
 
 import asyncio
 
@@ -67,7 +66,7 @@ class _FakeAsyncClient:
 @pytest.fixture(autouse=True)
 def _patch_httpx_and_reset(monkeypatch):
     """
-    Replace httpx.AsyncClient inside the router module and reset capture
+    Replace httpx.AsyncClient inside the send module and reset capture
     state between tests. Default settings: mock off, no providers configured —
     each test opts in to the providers it needs.
     """
@@ -75,14 +74,13 @@ def _patch_httpx_and_reset(monkeypatch):
     _FakeAsyncClient.next_response = _FakeResponse(200, '{"ok": true}')
     monkeypatch.setattr(whatsapp_send.httpx, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setattr(settings, "WHATSAPP_MOCK_MODE", False)
-    monkeypatch.setattr(settings, "INTERAKT_API_KEY", None)
     monkeypatch.setattr(settings, "WHATSAPP_ACCESS_TOKEN", None)
     monkeypatch.setattr(settings, "WHATSAPP_PHONE_NUMBER_ID", None)
     yield
 
 
 # ---------------------------------------------------------------------------
-# Branch 3: Meta direct
+# Branch 2: Meta direct
 # ---------------------------------------------------------------------------
 
 class TestMetaDirectBranch:
@@ -126,30 +124,7 @@ class TestMetaDirectBranch:
 
 
 # ---------------------------------------------------------------------------
-# Precedence: Interakt wins over Meta when both configured
-# ---------------------------------------------------------------------------
-
-class TestProviderPrecedence:
-
-    def test_send_whatsapp_message_prefers_interakt_when_both_configured(self, monkeypatch):
-        monkeypatch.setattr(settings, "INTERAKT_API_KEY", "interakt-key-fake")
-        monkeypatch.setattr(settings, "WHATSAPP_ACCESS_TOKEN", "test-token-fake")
-        monkeypatch.setattr(settings, "WHATSAPP_PHONE_NUMBER_ID", "111122223333444")
-
-        asyncio.run(whatsapp_router._send_whatsapp_message(
-            phone_number="+919876543210",
-            message="hi",
-        ))
-
-        assert len(_FakeAsyncClient.calls) == 1
-        call = _FakeAsyncClient.calls[0]
-        assert "api.interakt.ai" in call["url"]
-        assert "graph.facebook.com" not in call["url"]
-        assert call["headers"]["Authorization"].startswith("Basic ")
-
-
-# ---------------------------------------------------------------------------
-# Branch 4: Unconfigured -> error log, no HTTP
+# Branch 3: Unconfigured -> error log, no HTTP
 # ---------------------------------------------------------------------------
 
 class TestUnconfiguredBranch:
@@ -191,7 +166,6 @@ class TestMockModeShortCircuits:
     def test_send_whatsapp_message_mock_mode_short_circuits(self, monkeypatch, caplog):
         # Mock on AND every real provider configured -> mock still wins.
         monkeypatch.setattr(settings, "WHATSAPP_MOCK_MODE", True)
-        monkeypatch.setattr(settings, "INTERAKT_API_KEY", "interakt-key-fake")
         monkeypatch.setattr(settings, "WHATSAPP_ACCESS_TOKEN", "test-token-fake")
         monkeypatch.setattr(settings, "WHATSAPP_PHONE_NUMBER_ID", "111122223333444")
 

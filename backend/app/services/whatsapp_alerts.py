@@ -27,7 +27,7 @@
 #   app/models/whatsapp.py           - PhoneTenantMap (active phone lookups)
 #   app/services/whatsapp_checkin.py - build_checkin_prompt(), build_owner_briefing_from_checkin()
 #   app/services/whatsapp_formatter.py - format_for_whatsapp()
-#   app/services/whatsapp_send.py    - _send_whatsapp_message (mock>Interakt>Meta>error)
+#   app/services/whatsapp_send.py    - _send_whatsapp_message (mock>meta>error)
 #
 # KEY DESIGN DECISIONS
 #   1. All DB access uses sync SessionLocal — never AsyncSession. APScheduler
@@ -112,7 +112,7 @@ def start_scheduler() -> None:
 
     In mock mode (WHATSAPP_MOCK_MODE=True), jobs still run but
     send output to logs instead of real WhatsApp messages.
-    This lets us test alert content without Interakt subscription.
+    This lets us test alert content without a live WhatsApp provider.
 
     Side effects:
         Starts background scheduler thread.
@@ -663,7 +663,7 @@ async def run_briefing_dispatch_tick() -> None:
     Side effects:
         DB reads for every tenant. DB writes (Event rows) for sends,
         skips, and failures. WhatsApp sends per recipient (logged in
-        mock mode, real Interakt POST in production).
+        mock mode, real Meta Cloud API POST in production).
 
     Why this thin wrapper instead of registering dispatch_due_briefings
     directly: APScheduler captures exceptions silently in some
@@ -1109,8 +1109,8 @@ async def _send_alert(
 
     Logs the alert_type alongside the recipient so multi-alert log streams
     stay debuggable, then delegates the actual transport to
-    _send_whatsapp_message which owns the v6.3.7 mock > Interakt > Meta >
-    error branching.
+    _send_whatsapp_message which owns the mock > meta-direct > error
+    branching.
 
     Args:
         phone_number: E.164 format phone number e.g. +919876543210
@@ -1120,7 +1120,7 @@ async def _send_alert(
     Side effects:
         Always logs an alert-type breadcrumb. The send itself is mock-aware
         inside _send_whatsapp_message — mock-mode writes to log only,
-        non-mock posts to Interakt or Meta per env-var configuration.
+        non-mock posts to Meta per env-var configuration.
     """
     if settings.WHATSAPP_MOCK_MODE:
         logger.info(

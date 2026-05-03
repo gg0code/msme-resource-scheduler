@@ -3,9 +3,9 @@
 #
 # FILE PURPOSE
 # Verify that whatsapp_alerts._send_alert routes through the shared
-# _send_whatsapp_message helper instead of doing inline Interakt POSTs.
-# This is the Phase 1 Interakt-removal contract: every alert send now
-# goes through one helper that owns mock>Interakt>Meta>error precedence.
+# _send_whatsapp_message helper rather than doing its own outbound HTTP.
+# Every alert send goes through one helper that owns mock>meta>error
+# precedence.
 #
 # WHO CALLS THIS FILE
 #   pytest tests/ -m "not integration" -v

@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     WHATSAPP_APP_SECRET: Optional[str] = None
     WHATSAPP_ACCESS_TOKEN: Optional[str] = None
     WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
-    INTERAKT_API_KEY: Optional[str] = None
 
     # v6.3.5: bot number rendered in the post-signup landing's "Open WhatsApp"
     # deep-link (https://wa.me/<digits>?text=Hi). Empty string = the CTA renders

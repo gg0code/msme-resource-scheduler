@@ -93,7 +93,7 @@ async def resolve_identity(
 
     Args:
         phone_number: WhatsApp phone number in E.164 format (+919876543210).
-                      Meta/Interakt always sends numbers in this format.
+                      Meta always sends numbers in this format.
                       E.164 = international format, starts with +, max 15 digits.
         db:           AsyncSession from FastAPI dependency injection.
                       Injected by the router — do not create sessions here.
@@ -119,7 +119,7 @@ async def resolve_identity(
         logger.warning(
             f"Rejected phone number not in E.164 format: '{phone_number}'. "
             f"Expected format: +919876543210. "
-            f"Check Interakt webhook configuration if this keeps happening."
+            f"Check Meta webhook configuration if this keeps happening."
         )
         return None
 
