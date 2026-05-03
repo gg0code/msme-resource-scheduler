@@ -35,7 +35,7 @@ import os
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from groq import Groq
+from groq import Groq, BadRequestError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.job import Job, JobAssignment
@@ -92,6 +92,39 @@ def get_groq_client() -> Groq:
     return Groq(api_key=api_key)
 
 MODEL = "llama-3.3-70b-versatile"
+
+
+# -- Groq tool_use_failed helpers (v6.3.9) ------------------------------------
+# Llama 3.3 70B on Groq sometimes emits XML-style function-call markup in the
+# content channel (instead of structured tool_calls). Groq's wrapper detects it
+# and rejects with HTTP 400 code='tool_use_failed'. The error body shape varies
+# slightly between Groq SDK versions — check both top-level and nested-under-error.
+
+def _is_tool_use_failed(err: BadRequestError) -> bool:
+    """Return True if a Groq BadRequestError is the tool_use_failed variant."""
+    body = getattr(err, "body", None)
+    if not isinstance(body, dict):
+        return False
+    if body.get("code") == "tool_use_failed":
+        return True
+    nested = body.get("error")
+    if isinstance(nested, dict) and nested.get("code") == "tool_use_failed":
+        return True
+    return False
+
+
+def _extract_failed_generation(err: BadRequestError) -> str:
+    """Pull the `failed_generation` field out of a tool_use_failed error body, if present."""
+    body = getattr(err, "body", None)
+    if not isinstance(body, dict):
+        return ""
+    if "failed_generation" in body:
+        return str(body.get("failed_generation", ""))[:500]
+    nested = body.get("error")
+    if isinstance(nested, dict) and "failed_generation" in nested:
+        return str(nested.get("failed_generation", ""))[:500]
+    return ""
+
 
 # -- Tool definitions (sent to Llama) -----------------------------------------
 TOOLS = [
@@ -1158,6 +1191,13 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
 # -- System prompt -------------------------------------------------------------
 _SYSTEM_PROMPT_BASE = """You are an AI Copilot for MSME Resource Scheduler — a production management app used by Indian manufacturing shops.
 
+CRITICAL OUTPUT RULE (read this first, applies to every reply):
+Never write function-call syntax inside your text reply. Do NOT write
+`<function=name>...</function>`, `<|python_tag|>`, JSON tool envelopes, or any
+markup that looks like a tool invocation. To call a tool, use the API's
+structured tool-call channel. Your text reply is for the human only — it
+must contain natural language, not code or syntax hints.
+
 You help the owner/scheduler by:
 1. Answering questions about jobs, employees, machines, costs, revenue
 2. Fetching real data using the tools available to you
@@ -1184,37 +1224,34 @@ Rules:
 - If asked about something you can't answer with available tools, say so honestly
 - Always refer to jobs as "Job Name #ID" (e.g. "Crankshaft Machining #106"). Never use ID alone. The job id is always available in tool results as "job_id", "id", or similar field — always include it.
 
-TOOL ROUTING — always pick the most specific tool. The arrow "→" shows the
-function NAME to invoke via the standard tool-call API. For tools that take
-arguments (e.g. mode), choose the appropriate value from the tool's parameter
-description and pass it via the tool-call's arguments field. Always invoke
-tools through the proper tool-call mechanism — never embed function names
-inside your textual reply.
+TOOL ROUTING — pick the most specific tool for the question. The names below
+are tool identifiers (in backticks) for the structured tool-call channel.
+Never type these names into your text reply.
 
-- "most utilised / busiest employee", "if employee absent"         → get_employee_utilisation
-- "employees by skill / department", "overtime", "most hours"      → get_employees_by_skill
-- "which job highest cost", "most expensive job", "all jobs profit/margin", "best/worst margin" → get_all_jobs_cost_summary
-- "cost of ONE specific job"                                        → get_job_cost_breakdown
-- "total employee cost this month", "total machine cost", "cost vs revenue", "am I profitable", "misc costs", "order book all active jobs" → get_monthly_cost_summary
-- "scheduling conflicts", "double booked", "resource clash"         → get_schedule_overview
-- "jobs not started / should have started"                         → get_schedule_overview
-- "jobs due this week"                                             → get_schedule_overview
-- "busiest day this month"                                         → get_schedule_overview
-- "critical jobs status", "critical not started"                   → get_schedule_overview
-- "ending in 3 days", "ending soon"                                → get_schedule_overview
-- "all alerts", "unassigned jobs", "no raw materials", "low profit jobs" → get_alerts_summary
-- "machine utilisation", "idle machines", "machine cost", "if machine breaks" → get_machine_utilisation
-- "jobs by customer", "customer groups"                            → get_jobs_overview
-- "jobs by priority"                                               → get_jobs_overview
-- "completed this month"                                           → get_jobs_overview
-- "jobs starting next week"                                        → get_jobs_overview
-- "if RM costs increase", "raw material cost impact"               → get_rm_cost_impact
-- "revenue this month", "order book value this month"              → get_monthly_revenue
-- "raw material cost breakdown by job"                             → get_raw_material_cost
-- "delayed jobs", "overdue", "at risk"                             → get_delayed_jobs
-- "who is free today/tomorrow", "who is available"                 → get_employee_availability
-- "free / busy machines today"                                     → get_machine_availability
-- "shop floor summary", "today summary"                            → get_shop_floor_summary"""
+- "most utilised / busiest employee", "if employee absent": call `get_employee_utilisation`
+- "employees by skill / department", "overtime", "most hours": call `get_employees_by_skill`
+- "which job highest cost", "most expensive job", "all jobs profit/margin", "best/worst margin": call `get_all_jobs_cost_summary`
+- "cost of ONE specific job": call `get_job_cost_breakdown`
+- "total employee cost this month", "total machine cost", "cost vs revenue", "am I profitable", "misc costs", "order book all active jobs": call `get_monthly_cost_summary`
+- "scheduling conflicts", "double booked", "resource clash": call `get_schedule_overview`
+- "jobs not started / should have started": call `get_schedule_overview`
+- "jobs due this week": call `get_schedule_overview`
+- "busiest day this month": call `get_schedule_overview`
+- "critical jobs status", "critical not started": call `get_schedule_overview`
+- "ending in 3 days", "ending soon": call `get_schedule_overview`
+- "all alerts", "unassigned jobs", "no raw materials", "low profit jobs": call `get_alerts_summary`
+- "machine utilisation", "idle machines", "machine cost", "if machine breaks": call `get_machine_utilisation`
+- "jobs by customer", "customer groups": call `get_jobs_overview`
+- "jobs by priority": call `get_jobs_overview`
+- "completed this month": call `get_jobs_overview`
+- "jobs starting next week": call `get_jobs_overview`
+- "if RM costs increase", "raw material cost impact": call `get_rm_cost_impact`
+- "revenue this month", "order book value this month": call `get_monthly_revenue`
+- "raw material cost breakdown by job": call `get_raw_material_cost`
+- "delayed jobs", "overdue", "at risk": call `get_delayed_jobs`
+- "who is free today/tomorrow", "who is available": call `get_employee_availability`
+- "free / busy machines today": call `get_machine_availability`
+- "shop floor summary", "today summary": call `get_shop_floor_summary`"""
 
 
 # ---------------------------------------------------------------------------
@@ -1393,15 +1430,44 @@ def run_ai_chat(
     # Add dynamic system prompt (includes today's date + v6.0 context block)
     full_messages = [{"role": "system", "content": _build_system_prompt(industry_type, tenant_id=tenant_id, db=db)}] + trimmed
 
-    # First call - let Llama decide which tool to call
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=full_messages,
-        tools=TOOLS,
-        tool_choice="auto",
-        max_tokens=512,
-        temperature=0.3,
-    )
+    # First call - let Llama decide which tool to call.
+    # v6.3.9 fix: Llama 3.3 70B on Groq occasionally emits XML-style
+    # `<function=name>{json}</function>` markup in the content channel
+    # instead of using structured tool_calls. Groq's wrapper detects malformed
+    # markup and rejects with HTTP 400 code='tool_use_failed', which used to
+    # bubble up to whatsapp.py and produce "Maafi kijiye..." for the user.
+    # We catch it here and retry without tools so the user gets a real answer
+    # (no live data lookup, but no error either).
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=full_messages,
+            tools=TOOLS,
+            tool_choice="auto",
+            max_tokens=512,
+            temperature=0.3,
+        )
+    except BadRequestError as e:
+        if not _is_tool_use_failed(e):
+            raise
+        import logging as _logging
+        _logging.getLogger(__name__).error(
+            "run_ai_chat: Groq rejected tool call (tool_use_failed) for tenant %s. "
+            "Retrying without tools. failed_generation=%r",
+            tenant_id, _extract_failed_generation(e),
+        )
+        # Retry without tools. The model answers from system prompt + context
+        # block alone — no live data, but no broken markup either.
+        retry_response = client.chat.completions.create(
+            model=MODEL,
+            messages=full_messages,
+            max_tokens=512,
+            temperature=0.3,
+        )
+        return (
+            retry_response.choices[0].message.content
+            or "I couldn't fetch that data right now. Please try rephrasing."
+        )
 
     msg = response.choices[0].message
 
