@@ -21,13 +21,13 @@
 #
 # WHAT THIS FILE CALLS
 #   app/database.py                  - SessionLocal (sync session per job)
-#   app/config.py                    - settings (WHATSAPP_MOCK_MODE, INTERAKT_API_KEY)
+#   app/config.py                    - settings (WHATSAPP_MOCK_MODE)
 #   app/models/job.py                - Job (delayed/conflict queries)
 #   app/models/employee.py           - Employee (headcount for briefing)
 #   app/models/whatsapp.py           - PhoneTenantMap (active phone lookups)
 #   app/services/whatsapp_checkin.py - build_checkin_prompt(), build_owner_briefing_from_checkin()
 #   app/services/whatsapp_formatter.py - format_for_whatsapp()
-#   httpx                            - POST to Interakt API (production only)
+#   app/services/whatsapp_send.py    - _send_whatsapp_message (mock>Interakt>Meta>error)
 #
 # KEY DESIGN DECISIONS
 #   1. All DB access uses sync SessionLocal — never AsyncSession. APScheduler
@@ -47,6 +47,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.config import settings
+from app.services.whatsapp_send import _send_whatsapp_message
 
 # ---------------------------------------------------------------------------
 # Module logger
@@ -1101,13 +1102,15 @@ def _build_conflict_alert(conflicts: list, industry_type: str) -> str:
 async def _send_alert(
     phone_number: str,
     message: str,
-    alert_type: str
+    alert_type: str,
 ) -> None:
     """
-    Send a WhatsApp alert message to a phone number.
+    Dispatch a WhatsApp alert via the shared send helper.
 
-    In mock mode (WHATSAPP_MOCK_MODE=True): logs the message to console.
-    In production mode: sends via Interakt API using httpx.
+    Logs the alert_type alongside the recipient so multi-alert log streams
+    stay debuggable, then delegates the actual transport to
+    _send_whatsapp_message which owns the v6.3.7 mock > Interakt > Meta >
+    error branching.
 
     Args:
         phone_number: E.164 format phone number e.g. +919876543210
@@ -1115,61 +1118,19 @@ async def _send_alert(
         alert_type:   For logging — identifies what type of alert was sent.
 
     Side effects:
-        Mock mode: writes to log.
-        Production mode: makes HTTP POST to Interakt API.
+        Always logs an alert-type breadcrumb. The send itself is mock-aware
+        inside _send_whatsapp_message — mock-mode writes to log only,
+        non-mock posts to Interakt or Meta per env-var configuration.
     """
-
     if settings.WHATSAPP_MOCK_MODE:
         logger.info(
             f"[MOCK ALERT] Type={alert_type} "
             f"To=****{phone_number[-4:]} "
-            f"Message='{message[:150]}...'"
+            f"Message='{message[:150]}{'...' if len(message) > 150 else ''}'"
         )
-        return
-
-    if not settings.INTERAKT_API_KEY:
-        logger.error(
-            "INTERAKT_API_KEY not set in .env but WHATSAPP_MOCK_MODE=False. "
-            "Cannot send alert. Set INTERAKT_API_KEY in .env or set "
-            "WHATSAPP_MOCK_MODE=True for development."
+    else:
+        logger.info(
+            f"Dispatching alert. Type={alert_type} To=****{phone_number[-4:]}"
         )
-        return
 
-    try:
-        import httpx
-
-        # Interakt expects number without + prefix
-        phone_without_plus = phone_number.lstrip("+")
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.interakt.ai/v1/public/message/",
-                headers={
-                    "Authorization": f"Basic {settings.INTERAKT_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "countryCode": "91",
-                    "phoneNumber": phone_without_plus,
-                    "type": "Text",
-                    "data": {"message": message}
-                },
-                timeout=10.0
-            )
-
-            if response.status_code == 200:
-                logger.info(
-                    f"Alert sent via Interakt. "
-                    f"Type={alert_type}, To=****{phone_number[-4:]}"
-                )
-            else:
-                logger.error(
-                    f"Interakt API error {response.status_code} "
-                    f"for ****{phone_number[-4:]}: {response.text[:200]}"
-                )
-
-    except Exception as e:
-        logger.error(
-            f"Failed to send alert via Interakt to ****{phone_number[-4:]}: {e}. "
-            f"Check INTERAKT_API_KEY and network connectivity."
-        )
+    await _send_whatsapp_message(phone_number, message)

@@ -49,6 +49,7 @@ UPDATED: 2026-04-10 — v5.15: Manager check-in window routing (step 5c).
          2026-03-30 — v5.2: Voice note support via Groq Whisper.
 
 DEPENDENCIES:
+  app/services/whatsapp_send.py      — _send_whatsapp_message() (shared sender)
   app/services/whatsapp_identity.py  — resolve_identity(), record_consent()
   app/services/whatsapp_session.py   — add_message_to_session(), get_ai_history()
   app/services/whatsapp_bridge.py    — active_bridge.process_message()
@@ -75,7 +76,6 @@ import hmac
 import json
 import logging
 
-import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -83,6 +83,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db, SessionLocal
+from app.services.whatsapp_send import _send_whatsapp_message
 from app.services.whatsapp_identity import resolve_identity, record_consent
 from app.services.whatsapp_session import add_message_to_session, get_ai_history, clear_session
 from app.services.whatsapp_bridge import active_bridge
@@ -1088,58 +1089,6 @@ def _extract_message_from_payload(payload: dict) -> dict | None:
     except (IndexError, KeyError, TypeError) as e:
         logger.error(f"Failed to extract message from payload: {e}")
         return None
-
-
-async def _send_whatsapp_message(phone_number: str, message: str) -> None:
-    """
-    Send a WhatsApp message via Interakt API.
-    Mock mode: logs to console. Production: POST to Interakt.
-
-    Args:
-        phone_number: E.164 format e.g. +919876543210
-        message:      Plain text (already formatted, no markdown).
-
-    Side effects:
-        Mock: writes to log. Production: HTTP POST to Interakt API.
-    """
-    if settings.WHATSAPP_MOCK_MODE:
-        logger.info(
-            f"[MOCK SEND] To=****{phone_number[-4:]} "
-            f"Message='{message[:100]}{'...' if len(message) > 100 else ''}'"
-        )
-        return
-
-    if not settings.INTERAKT_API_KEY:
-        logger.error("INTERAKT_API_KEY not set. Cannot send message.")
-        return
-
-    phone_without_plus = phone_number.lstrip("+")
-
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.interakt.ai/v1/public/message/",
-                headers={
-                    "Authorization": f"Basic {settings.INTERAKT_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "countryCode": "91",
-                    "phoneNumber": phone_without_plus,
-                    "type": "Text",
-                    "data": {"message": message}
-                },
-                timeout=10.0
-            )
-            if response.status_code != 200:
-                logger.error(
-                    f"Interakt error {response.status_code} "
-                    f"for ****{phone_number[-4:]}: {response.text[:200]}"
-                )
-    except httpx.TimeoutException:
-        logger.error(f"Interakt timeout for ****{phone_number[-4:]}.")
-    except Exception as e:
-        logger.error(f"Interakt send failed for ****{phone_number[-4:]}: {e}")
 
 
 async def _log_conversation(
