@@ -18,7 +18,7 @@
 // - Type imports from ../config/industries.
 
 import { createContext, useContext } from 'react'
-import type { IndustryConfig, IndustryLabels } from '../config/industries'
+import type { IndustryConfig, IndustryLabels, IndustryPickers } from '../config/industries'
 
 // -- Context type -------------------------------------------------------------
 export interface IndustryContextValue {
@@ -41,4 +41,10 @@ export function useIndustry(): IndustryContextValue {
 
 export function useLabels(): IndustryLabels {
   return useIndustry().labels
+}
+
+// v6.3.10 — bootstrap UI trim. Returns the industry's one-tap picker
+// suggestions (skills + machineTypes) for the trimmed Employee / Machine forms.
+export function usePickers(): IndustryPickers {
+  return useIndustry().config.pickers
 }

@@ -56,6 +56,23 @@ const fabrication: IndustryConfig = {
     kpiOrderBook: 'Order Value',
     kpiProfit:    'Est. Margin',
   },
+
+  pickers: {
+    skills: [
+      'Fabrication',
+      'Welding',
+      'Grinding',
+      'Fitting',
+      'Helper',
+    ],
+    machineTypes: [
+      'Plasma Cutter',
+      'MIG Welder',
+      'Press Brake',
+      'Bandsaw',
+      'Bench Grinder',
+    ],
+  },
 }
 
 export default fabrication

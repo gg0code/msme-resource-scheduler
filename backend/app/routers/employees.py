@@ -22,9 +22,18 @@ router = APIRouter()
 
 
 def _sync_skills(db: Session, employee: Employee, skills_data: list):
+    # tenant_id must be carried on every join-table row (CLAUDE.md rule 1).
+    # employee_skills.tenant_id is NOT NULL in Postgres; SQLite did not enforce
+    # this in unit tests, which masked the bug until v6.3.10's primary-skill
+    # picker started attaching a skill on every Employee create.
     db.query(EmployeeSkill).filter(EmployeeSkill.employee_id == employee.id).delete()
     for s in skills_data:
-        db.add(EmployeeSkill(employee_id=employee.id, skill_id=s.skill_id, skill_level=s.skill_level))
+        db.add(EmployeeSkill(
+            tenant_id=employee.tenant_id,
+            employee_id=employee.id,
+            skill_id=s.skill_id,
+            skill_level=s.skill_level,
+        ))
 
 
 @router.get("/", response_model=List[EmployeeOut])

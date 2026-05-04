@@ -70,6 +70,17 @@ export interface IndustryBranding {
   tagline:      string
 }
 
+// -- Pickers (v6.3.10 — bootstrap UI trim) ------------------------------------
+// One-tap picker suggestions for the trimmed Employee / Machine forms.
+// 6.19-AC4: skill list is industry-specific, sourced from this config.
+// Aligned with the demo seeder's per-industry skill + machine_type names so
+// taps map cleanly to existing tenant Skill rows when present.
+
+export interface IndustryPickers {
+  skills:       readonly string[]
+  machineTypes: readonly string[]
+}
+
 // -- Full industry config ------------------------------------------------------
 
 export interface IndustryConfig {
@@ -77,4 +88,5 @@ export interface IndustryConfig {
   branding: IndustryBranding
   colours:  IndustryColours
   labels:   IndustryLabels
+  pickers:  IndustryPickers
 }

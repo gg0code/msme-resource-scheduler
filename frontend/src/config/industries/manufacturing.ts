@@ -56,6 +56,23 @@ const manufacturing: IndustryConfig = {
     kpiOrderBook: 'Order Value',
     kpiProfit:    'Est. Margin',
   },
+
+  pickers: {
+    skills: [
+      'CNC Operation',
+      'Welding',
+      'Assembly',
+      'Quality Check',
+      'Helper',
+    ],
+    machineTypes: [
+      'CNC Lathe',
+      'Welding Station',
+      'Assembly Line',
+      'Milling Machine',
+      'Drilling Machine',
+    ],
+  },
 }
 
 export default manufacturing

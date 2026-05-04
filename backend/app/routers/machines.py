@@ -22,9 +22,13 @@ router = APIRouter()
 
 
 def _sync_skill_reqs(db: Session, machine: Machine, reqs: list):
+    # tenant_id must be carried on every join-table row (CLAUDE.md rule 1).
+    # machine_skill_requirements.tenant_id is NOT NULL in Postgres; SQLite did
+    # not enforce this in unit tests, which masked the bug.
     db.query(MachineSkillRequirement).filter(MachineSkillRequirement.machine_id == machine.id).delete()
     for r in reqs:
         db.add(MachineSkillRequirement(
+            tenant_id=machine.tenant_id,
             machine_id=machine.id,
             skill_id=r.skill_id,
             min_skill_level=r.min_skill_level,

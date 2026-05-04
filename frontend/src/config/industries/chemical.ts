@@ -56,6 +56,23 @@ const chemical: IndustryConfig = {
     kpiOrderBook: 'Batch Value',
     kpiProfit:    'Est. Margin',
   },
+
+  pickers: {
+    skills: [
+      'Process Operation',
+      'Quality Control',
+      'Filling Operation',
+      'Safety Officer',
+      'Helper',
+    ],
+    machineTypes: [
+      'Reactor',
+      'Mixer',
+      'Filling Line',
+      'Centrifuge',
+      'Distillation Column',
+    ],
+  },
 }
 
 export default chemical

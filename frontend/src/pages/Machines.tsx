@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
-import { useLabels } from '../context/useIndustry'
+import { useLabels, usePickers } from '../context/useIndustry'
 import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
 import { useFeatureFlags } from '../context/useFeatureFlags'
@@ -22,6 +22,7 @@ import {
   Check,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   IndianRupee,
   Briefcase,
   CalendarDays,
@@ -178,8 +179,13 @@ function AssignmentRows({ machineId }: { machineId: number }) {
   )
 }
 
+// v6.3.10 — bootstrap UI trim. Required: name + machine_type. Everything else
+// is optional and lives behind the "Add more details" expand (6.19-AC2, AC3).
 const emptyForm = () => ({
-  name: '', machine_type: '', location_bay: '', base_availability_pct: 100,
+  // required
+  name: '', machine_type: '',
+  // optional
+  location_bay: '', base_availability_pct: 100,
   status: 'Operational', hourly_rate: '',
   skill_requirements: [] as { skill_id: number; min_skill_level: string; employees_required: number }[],
 })
@@ -197,8 +203,13 @@ export default function Machines() {
   const [showForm, setShowForm]         = useState(false)
   const [editingMachine, setEditingMachine] = useState<Machine | null>(null)
   const [form, setForm]                 = useState(emptyForm())
+  // v6.3.10 — bootstrap UI trim. showMore controls the "Add more details" expand.
+  // typeIsCustom toggles a free-text input when the user picks "+ Other".
+  const [showMore, setShowMore]         = useState(false)
+  const [typeIsCustom, setTypeIsCustom] = useState(false)
   const [deleteId, setDeleteId]         = useState<number | null>(null)
   const [toast, setToast]               = useState('')
+  const pickers = usePickers()
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
@@ -239,21 +250,41 @@ export default function Machines() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); qc.invalidateQueries({ queryKey: ['plan-limits'] }); setDeleteId(null); showToast(`${labels.machine} deleted!`) },
   })
 
-  function openCreate() { setEditingMachine(null); setForm(emptyForm()); setShowForm(true) }
+  function openCreate() {
+    setEditingMachine(null); setForm(emptyForm())
+    // 6.19-AC3: optional section collapsed by default for fresh adds.
+    setShowMore(false); setTypeIsCustom(false)
+    setShowForm(true)
+  }
   function openEdit(m: Machine, e: MouseEvent) {
     e.stopPropagation()
     setEditingMachine(m)
+    const mt = m.machine_type ?? ''
     setForm({
-      name: m.name, machine_type: m.machine_type ?? '', location_bay: m.location_bay ?? '',
+      name: m.name, machine_type: mt, location_bay: m.location_bay ?? '',
       base_availability_pct: m.base_availability_pct, status: m.status,
       hourly_rate: m.hourly_rate != null ? String(m.hourly_rate) : '',
       skill_requirements: m.skill_requirements.map(r => ({
         skill_id: r.skill_id, min_skill_level: r.min_skill_level, employees_required: r.employees_required,
       })),
     })
+    // 6.19-AC3 (edit-flow): auto-expand if any optional value is populated.
+    const hasOptional =
+         m.location_bay !== null
+      || m.hourly_rate !== null
+      || m.base_availability_pct !== 100
+      || m.status !== 'Operational'
+      || m.skill_requirements.length > 0
+    setShowMore(hasOptional)
+    // If existing machine_type is not in the picker list, switch to free-text
+    // mode so the user sees the existing value.
+    setTypeIsCustom(mt !== '' && !pickers.machineTypes.includes(mt))
     setShowForm(true)
   }
-  function closeForm() { setShowForm(false); setEditingMachine(null); setForm(emptyForm()) }
+  function closeForm() {
+    setShowForm(false); setEditingMachine(null); setForm(emptyForm())
+    setShowMore(false); setTypeIsCustom(false)
+  }
 
   function addSkillReq() {
     setForm(f => ({ ...f, skill_requirements: [...f.skill_requirements, { skill_id: skills[0]?.id ?? 0, min_skill_level: 'Generic', employees_required: 1 }] }))
@@ -264,10 +295,15 @@ export default function Machines() {
   }
 
   function submitForm() {
+    // 6.19-AC5: blank optional inputs persist as NULL.
     const payload = {
-      ...form,
+      name: form.name,
+      machine_type: form.machine_type.trim() !== '' ? form.machine_type.trim() : null,
       base_availability_pct: Number(form.base_availability_pct),
-      hourly_rate: (form as { hourly_rate: string }).hourly_rate !== '' ? Number((form as { hourly_rate: string }).hourly_rate) : null,
+      status: form.status,
+      location_bay: form.location_bay.trim() !== '' ? form.location_bay.trim() : null,
+      hourly_rate: form.hourly_rate !== '' ? Number(form.hourly_rate) : null,
+      skill_requirements: form.skill_requirements,
     }
     if (editingMachine) updateMachine.mutate({ id: editingMachine.id, payload })
     else createMachine.mutate(payload)
@@ -275,6 +311,8 @@ export default function Machines() {
 
   const isSaving = createMachine.isPending || updateMachine.isPending
   const getSkillName = (id: number) => skills.find(s => s.id === id)?.name ?? `Skill#${id}`
+  // 6.19-AC2: Save disabled until name + machine_type are filled.
+  const requiredFilled = form.name.trim() !== '' && form.machine_type.trim() !== ''
   const hasFilters = search || filterType !== 'All' || filterBay !== 'All' || filterStatus !== 'All' || filterSkill !== 'All'
 
   return (
@@ -496,7 +534,9 @@ export default function Machines() {
         </div>
       )}
 
-      {/* Add / Edit modal */}
+      {/* Add / Edit modal — v6.3.10 bootstrap UI trim.
+          Required: name + machine_type (6.19-AC2).
+          Everything else collapsed under "Add more details" (6.19-AC3). */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
@@ -504,73 +544,151 @@ export default function Machines() {
               <h3 className="font-bold text-gray-800">{editingMachine ? `Edit ${labels.machine}` : `New ${labels.machine}`}</h3>
               <button onClick={closeForm}><X size={18} className="text-gray-400 hover:text-gray-600"/></button>
             </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Machine Name *</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. CNC Lathe #2"/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Machine Type</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.machine_type} onChange={e => setForm({ ...form, machine_type: e.target.value })} placeholder="e.g. CNC Lathe"/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Location Bay</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.location_bay} onChange={e => setForm({ ...form, location_bay: e.target.value })} placeholder="e.g. Bay A"/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Running Cost (₹/hr)</label>
-                  <input type="number" min="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={(form as { hourly_rate: string }).hourly_rate}
-                    onChange={e => setForm({ ...form, hourly_rate: e.target.value } as typeof form)}
-                    placeholder="Electricity + consumables"/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Base Availability %</label>
-                  <input type="number" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.base_availability_pct} onChange={e => setForm({ ...form, base_availability_pct: Number(e.target.value) })}/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
-                  <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
-                    {STATUSES.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </div>
+
+            <div className="p-6 space-y-5">
+              {/* ------------------- Required section ------------------- */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{labels.machine} Name *</label>
+                <input
+                  data-testid="machine-name"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={form.name}
+                  onChange={e => setForm({ ...form, name: e.target.value })}
+                  placeholder="e.g. CNC Lathe #2"
+                />
               </div>
 
-              {/* Skill requirements */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-600">Skill Requirements</label>
-                  <button onClick={addSkillReq} className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"><Plus size={12}/>Add Skill</button>
-                </div>
-                {form.skill_requirements.length === 0 && (
-                  <p className="text-xs text-gray-400 italic">No skill requirements - machine can be operated by anyone.</p>
-                )}
-                {form.skill_requirements.map((req, i) => (
-                  <div key={i} className="flex gap-2 mb-2 items-center">
-                    <select className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      value={req.skill_id} onChange={e => updateSkillReq(i, 'skill_id', Number(e.target.value))}>
-                      {skills.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                    <select className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      value={req.min_skill_level} onChange={e => updateSkillReq(i, 'min_skill_level', e.target.value)}>
-                      {LEVELS.map(l => <option key={l}>{l}</option>)}
-                    </select>
-                    <input type="number" min="1" className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      value={req.employees_required} onChange={e => updateSkillReq(i, 'employees_required', Number(e.target.value))}/>
-                    <button onClick={() => removeSkillReq(i)} className="text-red-400 hover:text-red-600"><X size={14}/></button>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{labels.machine} Type *</label>
+                {/* 6.19-AC4: industry-specific picker. Empty list -> free-text input. */}
+                {pickers.machineTypes.length === 0 || typeIsCustom ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      data-testid="machine-type-text"
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={form.machine_type}
+                      onChange={e => setForm({ ...form, machine_type: e.target.value })}
+                      placeholder="e.g. CNC Lathe"
+                    />
+                    {pickers.machineTypes.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => { setTypeIsCustom(false); setForm(f => ({ ...f, machine_type: '' })) }}
+                        className="text-xs text-blue-600 hover:text-blue-800 underline whitespace-nowrap"
+                      >
+                        Back to list
+                      </button>
+                    )}
                   </div>
-                ))}
+                ) : (
+                  <div data-testid="machine-type-picker" className="-mx-1 px-1 flex gap-2 overflow-x-auto pb-1">
+                    {pickers.machineTypes.map(mt => {
+                      const selected = form.machine_type === mt
+                      return (
+                        <button
+                          key={mt}
+                          type="button"
+                          onClick={() => setForm({ ...form, machine_type: mt })}
+                          className={`shrink-0 px-3 py-2 rounded-full text-sm border transition-colors ${
+                            selected
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                          }`}
+                          aria-pressed={selected}
+                        >
+                          {mt}
+                        </button>
+                      )
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => { setTypeIsCustom(true); setForm(f => ({ ...f, machine_type: '' })) }}
+                      className="shrink-0 px-3 py-2 rounded-full text-sm border border-dashed border-gray-300 text-gray-500 hover:border-blue-400 hover:text-blue-600"
+                    >
+                      + Other
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {/* ------------------- Optional expand ------------------- */}
+              <button
+                type="button"
+                data-testid="machine-show-more"
+                onClick={() => setShowMore(s => !s)}
+                className="w-full flex items-center justify-between text-sm font-medium text-blue-600 hover:text-blue-800 py-2 border-t border-gray-100"
+                aria-expanded={showMore}
+              >
+                <span>Add more details {showMore ? '' : '(optional)'}</span>
+                {showMore ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+              </button>
+
+              {showMore && (
+                <div data-testid="machine-optional-section" className="space-y-4 pt-1">
+                  <p className="text-[11px] text-gray-400 italic">All fields below are optional — leave blank to fill in later.</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Location Bay</label>
+                      <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.location_bay} onChange={e => setForm({ ...form, location_bay: e.target.value })} placeholder="e.g. Bay A"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Running Cost (₹/hr)</label>
+                      <input type="number" min="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.hourly_rate}
+                        onChange={e => setForm({ ...form, hourly_rate: e.target.value })}
+                        placeholder="Electricity + consumables"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Base Availability %</label>
+                      <input type="number" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.base_availability_pct} onChange={e => setForm({ ...form, base_availability_pct: Number(e.target.value) })}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
+                      <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
+                        {STATUSES.map(s => <option key={s}>{s}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Skill requirements stay optional — most small shops skip these. */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-medium text-gray-600">Skill Requirements</label>
+                      <button onClick={addSkillReq} className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"><Plus size={12}/>Add {labels.skill}</button>
+                    </div>
+                    {form.skill_requirements.length === 0 && (
+                      <p className="text-xs text-gray-400 italic">No skill requirements - {labels.machine.toLowerCase()} can be operated by anyone.</p>
+                    )}
+                    {form.skill_requirements.map((req, i) => (
+                      <div key={i} className="flex gap-2 mb-2 items-center">
+                        <select className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={req.skill_id} onChange={e => updateSkillReq(i, 'skill_id', Number(e.target.value))}>
+                          {skills.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                        <select className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={req.min_skill_level} onChange={e => updateSkillReq(i, 'min_skill_level', e.target.value)}>
+                          {LEVELS.map(l => <option key={l}>{l}</option>)}
+                        </select>
+                        <input type="number" min="1" className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={req.employees_required} onChange={e => updateSkillReq(i, 'employees_required', Number(e.target.value))}/>
+                        <button onClick={() => removeSkillReq(i)} className="text-red-400 hover:text-red-600"><X size={14}/></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+
             <div className="flex gap-2 px-6 pb-6">
-              <button onClick={submitForm} disabled={!form.name || isSaving}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm py-2.5 rounded-lg font-medium transition-colors">
+              <button
+                data-testid="machine-save"
+                onClick={submitForm}
+                disabled={!requiredFilled || isSaving}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm py-2.5 rounded-lg font-medium transition-colors"
+              >
                 {isSaving ? 'Saving...' : editingMachine ? `Update ${labels.machine}` : `Add ${labels.machine}`}
               </button>
               <button onClick={closeForm} className="px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm py-2.5 rounded-lg transition-colors">Cancel</button>

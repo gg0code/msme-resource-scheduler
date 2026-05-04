@@ -56,6 +56,23 @@ const field_service: IndustryConfig = {
     kpiOrderBook: 'Job Value',
     kpiProfit:    'Est. Margin',
   },
+
+  pickers: {
+    skills: [
+      'HVAC',
+      'Electrical',
+      'Plumbing',
+      'Civil Works',
+      'Helper',
+    ],
+    machineTypes: [
+      'Service Van',
+      'Hydraulic Lift',
+      'Diagnostic Kit',
+      'Pressure Washer',
+      'Pipe Threader',
+    ],
+  },
 }
 
 export default field_service

@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '../api/client'
-import { useLabels } from '../context/useIndustry'
+import { useLabels, usePickers } from '../context/useIndustry'
 import { CoachMark } from '../components/onboarding'
 import CsvImport from '../components/common/CsvImport'
 import { useFeatureFlags } from '../context/useFeatureFlags'
@@ -36,6 +36,7 @@ interface Employee {
   id: number; full_name: string; department: string | null; employment_type: string
   base_availability_pct: number; status: string; contact_number: string | null
   join_date: string | null; hourly_rate: number | null; overtime_rate: number | null
+  worker_type: string  // v6.3.10 — 'permanent' | 'contractor' (lower-case per VALID_WORKER_TYPE_VALUES)
   skills: EmployeeSkill[]
 }
 interface Assignment {
@@ -70,9 +71,21 @@ const levelColour: Record<string,string> = {
 const availBar  = (p: number) => p >= 100 ? 'bg-green-400' : p >= 50 ? 'bg-yellow-400' : 'bg-red-400'
 const availText = (p: number) => p >= 100 ? 'text-green-600' : p >= 50 ? 'text-yellow-600' : 'text-red-500'
 
+// v6.3.10 — bootstrap UI trim. Required: full_name + primary_skill + worker_type.
+// Everything else is optional and lives behind the "Add more details" expand.
+// 6.19-AC1, 6.19-AC5: optional fields default to '' (or to the existing column
+// default for non-null columns) so omitted values persist as NULL / default.
+type WorkerType = '' | 'permanent' | 'contractor'
+
 const emptyForm = () => ({
-  full_name:'', department:'Production', employment_type:'Full-time',
-  base_availability_pct: 100, status:'Active', contact_number:'', join_date:'',
+  // required
+  full_name:'',
+  primary_skill: '' as string,           // chosen from pickers.skills (or free-text)
+  worker_type: '' as WorkerType,
+  // optional (collapsed by default)
+  department:'', employment_type:'Full-time',
+  base_availability_pct: 100, status:'Active',
+  contact_number:'', join_date:'',
   hourly_rate:'', overtime_rate:'',
   skills: [] as { skill_id:number; skill_level:string }[],
 })
@@ -195,8 +208,13 @@ export default function Employees() {
   const [showForm, setShowForm]         = useState(false)
   const [editingEmp, setEditingEmp]     = useState<Employee | null>(null)
   const [form, setForm]                 = useState(emptyForm())
+  // v6.3.10 — bootstrap UI trim. showMore controls the "Add more details" expand.
+  // skillIsCustom toggles a free-text input when the user wants a skill not in the picker.
+  const [showMore, setShowMore]         = useState(false)
+  const [skillIsCustom, setSkillIsCustom] = useState(false)
   const [deleteId, setDeleteId]         = useState<number | null>(null)
   const [toast, setToast]               = useState('')
+  const pickers = usePickers()
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
@@ -252,32 +270,99 @@ export default function Employees() {
     onSuccess: () => { qc.invalidateQueries({queryKey:['employees']}); qc.invalidateQueries({queryKey:['dashboard']}); qc.invalidateQueries({queryKey:['plan-limits']}); setDeleteId(null); showToast(`${labels.employee} deleted!`) },
   })
 
-  function openCreate() { setEditingEmp(null); setForm(emptyForm()); setShowForm(true) }
+  function openCreate() {
+    setEditingEmp(null)
+    setForm(emptyForm())
+    // 6.19-AC3: optional section collapsed by default for fresh adds.
+    setShowMore(false)
+    setSkillIsCustom(false)
+    setShowForm(true)
+  }
   function openEdit(emp: Employee, e: MouseEvent) {
     e.stopPropagation()
     setEditingEmp(emp)
+    // v6.3.10 — best-effort recovery of primary_skill: take the first attached
+    // skill's name. If no skill attached, primary_skill is empty (validation
+    // will block save until the user picks one).
+    const firstSkillName = emp.skills.length > 0
+      ? (skills.find(s => s.id === emp.skills[0].skill_id)?.name ?? '')
+      : ''
+    const wt: WorkerType = emp.worker_type === 'contractor' ? 'contractor'
+      : emp.worker_type === 'permanent' ? 'permanent'
+      : ''
     setForm({
-      full_name: emp.full_name, department: emp.department ?? 'Production',
+      full_name: emp.full_name,
+      primary_skill: firstSkillName,
+      worker_type: wt,
+      department: emp.department ?? '',
       employment_type: emp.employment_type, base_availability_pct: emp.base_availability_pct,
       status: emp.status, contact_number: emp.contact_number ?? '', join_date: emp.join_date ?? '',
       hourly_rate:   emp.hourly_rate   != null ? String(emp.hourly_rate)   : '',
       overtime_rate: emp.overtime_rate != null ? String(emp.overtime_rate) : '',
       skills: emp.skills.map(s => ({ skill_id: s.skill_id, skill_level: s.skill_level })),
     })
+    // 6.19-AC3 (edit-flow): auto-expand "Add more details" if the existing row
+    // has any optional value populated. Pure visual; collapsing later never
+    // clears values (form state persists independent of showMore).
+    const hasOptional =
+         emp.contact_number !== null
+      || emp.join_date !== null
+      || emp.hourly_rate !== null
+      || emp.overtime_rate !== null
+      || emp.department !== null
+      || emp.employment_type !== 'Full-time'
+      || emp.base_availability_pct !== 100
+      || emp.skills.length > 1
+    setShowMore(hasOptional)
+    // If the recovered primary_skill is not in the industry picker list, switch
+    // to free-text mode so the user sees the existing value.
+    setSkillIsCustom(
+      firstSkillName !== '' && !pickers.skills.includes(firstSkillName),
+    )
     setShowForm(true)
   }
-  function closeForm() { setShowForm(false); setEditingEmp(null); setForm(emptyForm()) }
+  function closeForm() {
+    setShowForm(false); setEditingEmp(null); setForm(emptyForm())
+    setShowMore(false); setSkillIsCustom(false)
+  }
 
   function submitForm() {
+    // v6.3.10 — map primary_skill (string) to a Skill row by name, case-insensitive.
+    // If found and not already in form.skills, prepend it as Generic level.
+    // If no match (custom name or skill not seeded), the picked label is captured
+    // in UI state but no DB skill link is created — the row still saves with the
+    // user's chosen worker_type and full_name. Power users can attach more
+    // specific skills via the optional multi-skill picker below.
+    let skillsOut = form.skills
+    if (form.primary_skill) {
+      const match = skills.find(s => s.name.toLowerCase() === form.primary_skill.toLowerCase())
+      if (match && !skillsOut.some(s => s.skill_id === match.id)) {
+        skillsOut = [{ skill_id: match.id, skill_level: 'Generic' }, ...skillsOut]
+      }
+    }
     const payload = {
-      ...form,
+      full_name: form.full_name,
+      worker_type: form.worker_type || 'permanent',  // belt-and-braces; save button gates this
+      employment_type: form.employment_type,
       base_availability_pct: Number(form.base_availability_pct),
-      hourly_rate:   form.hourly_rate   !== '' ? Number(form.hourly_rate)   : null,
-      overtime_rate: form.overtime_rate !== '' ? Number(form.overtime_rate) : null,
+      status: form.status,
+      // Optional fields: blank input -> null in DB (6.19-AC5).
+      department:     form.department.trim()     !== '' ? form.department.trim()     : null,
+      contact_number: form.contact_number.trim() !== '' ? form.contact_number.trim() : null,
+      join_date:      form.join_date             !== '' ? form.join_date             : null,
+      hourly_rate:    form.hourly_rate           !== '' ? Number(form.hourly_rate)   : null,
+      overtime_rate:  form.overtime_rate         !== '' ? Number(form.overtime_rate) : null,
+      skills: skillsOut,
     }
     if (editingEmp) updateEmp.mutate({ id: editingEmp.id, payload })
     else createEmp.mutate(payload)
   }
+
+  // 6.19-AC1: Save disabled until full_name + primary_skill + worker_type are filled.
+  const requiredFilled =
+       form.full_name.trim() !== ''
+    && form.primary_skill.trim() !== ''
+    && form.worker_type !== ''
 
   const isSaving = createEmp.isPending || updateEmp.isPending
   const getSkillName = (id: number) => skills.find(s => s.id === id)?.name ?? `#${id}`
@@ -528,7 +613,9 @@ export default function Employees() {
         </div>
       )}
 
-      {/* Add / Edit modal */}
+      {/* Add / Edit modal — v6.3.10 bootstrap UI trim.
+          Required: full_name + primary_skill + worker_type (6.19-AC1).
+          Everything else collapsed under "Add more details" (6.19-AC3). */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
@@ -536,85 +623,202 @@ export default function Employees() {
               <h3 className="font-bold text-gray-800">{editingEmp ? `Edit ${labels.employee}` : `New ${labels.employee}`}</h3>
               <button onClick={closeForm}><X size={18} className="text-gray-400 hover:text-gray-600"/></button>
             </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Full Name *</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.full_name} onChange={e => setForm({...form, full_name:e.target.value})} placeholder="e.g. Ramesh Sharma"/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Department</label>
-                  <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.department} onChange={e => setForm({...form, department:e.target.value})}>
-                    {DEPTS.map(d => <option key={d}>{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Employment Type</label>
-                  <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.employment_type} onChange={e => setForm({...form, employment_type:e.target.value})}>
-                    {EMP_TYPES.map(t => <option key={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Base Availability %</label>
-                  <input type="number" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.base_availability_pct} onChange={e => setForm({...form, base_availability_pct:Number(e.target.value)})}/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
-                  <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.status} onChange={e => setForm({...form, status:e.target.value})}>
-                    {STATUSES.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Contact Number</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.contact_number} onChange={e => setForm({...form, contact_number:e.target.value})} placeholder="+91 98xxx xxxxx"/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Hourly Rate (₹)</label>
-                  <input type="number" min="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.hourly_rate} onChange={e => setForm({...form, hourly_rate:e.target.value})} placeholder="e.g. 150"/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Overtime Rate (₹/hr)</label>
-                  <input type="number" min="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.overtime_rate} onChange={e => setForm({...form, overtime_rate:e.target.value})} placeholder="e.g. 225"/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Join Date</label>
-                  <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.join_date} onChange={e => setForm({...form, join_date:e.target.value})}/>
-                </div>
-              </div>
+
+            <div className="p-6 space-y-5">
+              {/* ------------------- Required section ------------------- */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-600">Skills</label>
-                  <button onClick={() => setForm(f => ({...f, skills:[...f.skills,{skill_id:skills[0]?.id??0,skill_level:'Generic'}]}))}
-                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"><Plus size={12}/>Add Skill</button>
-                </div>
-                {form.skills.map((s, i) => (
-                  <div key={i} className="flex gap-2 mb-2 items-center">
-                    <select className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      value={s.skill_id} onChange={e => setForm(f => ({...f, skills:f.skills.map((sk,idx)=>idx===i?{...sk,skill_id:Number(e.target.value)}:sk)}))}>
-                      {skills.map(sk => <option key={sk.id} value={sk.id}>{sk.name}</option>)}
-                    </select>
-                    <select className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      value={s.skill_level} onChange={e => setForm(f => ({...f, skills:f.skills.map((sk,idx)=>idx===i?{...sk,skill_level:e.target.value}:sk)}))}>
-                      {LEVELS.map(l => <option key={l}>{l}</option>)}
-                    </select>
-                    <button onClick={() => setForm(f => ({...f, skills:f.skills.filter((_,idx)=>idx!==i)}))}
-                      className="text-red-400 hover:text-red-600"><X size={14}/></button>
-                  </div>
-                ))}
+                <label className="block text-xs font-medium text-gray-600 mb-1">Full Name *</label>
+                <input
+                  data-testid="emp-full-name"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={form.full_name}
+                  onChange={e => setForm({...form, full_name: e.target.value})}
+                  placeholder="e.g. Ramesh Sharma"
+                />
               </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Primary {labels.skill} *</label>
+                {/* 6.19-AC4: industry-specific picker. Empty list -> free-text input
+                    (defensive). Non-empty list -> horizontal-scroll buttons + an
+                    "Other / Type custom" tap that flips into a free-text input. */}
+                {pickers.skills.length === 0 || skillIsCustom ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      data-testid="emp-primary-skill-text"
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={form.primary_skill}
+                      onChange={e => setForm({...form, primary_skill: e.target.value})}
+                      placeholder={`Type a ${labels.skill.toLowerCase()} name…`}
+                    />
+                    {pickers.skills.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => { setSkillIsCustom(false); setForm(f => ({...f, primary_skill: ''})) }}
+                        className="text-xs text-blue-600 hover:text-blue-800 underline whitespace-nowrap"
+                      >
+                        Back to list
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div data-testid="emp-skill-picker" className="-mx-1 px-1 flex gap-2 overflow-x-auto pb-1">
+                    {pickers.skills.map(s => {
+                      const selected = form.primary_skill === s
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setForm({...form, primary_skill: s})}
+                          className={`shrink-0 px-3 py-2 rounded-full text-sm border transition-colors ${
+                            selected
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                          }`}
+                          aria-pressed={selected}
+                        >
+                          {s}
+                        </button>
+                      )
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => { setSkillIsCustom(true); setForm(f => ({...f, primary_skill: ''})) }}
+                      className="shrink-0 px-3 py-2 rounded-full text-sm border border-dashed border-gray-300 text-gray-500 hover:border-blue-400 hover:text-blue-600"
+                    >
+                      + Other
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Worker Type *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['permanent','contractor'] as const).map(wt => {
+                    const selected = form.worker_type === wt
+                    return (
+                      <button
+                        key={wt}
+                        type="button"
+                        data-testid={`emp-worker-type-${wt}`}
+                        onClick={() => setForm({...form, worker_type: wt})}
+                        className={`px-3 py-2 rounded-lg text-sm border font-medium transition-colors ${
+                          selected
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                        }`}
+                        aria-pressed={selected}
+                      >
+                        {wt === 'permanent' ? 'Permanent' : 'Contractor'}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* ------------------- Optional expand ------------------- */}
+              {/* 6.19-AC3: collapsed by default. Visual collapse only — values
+                  in form state persist regardless of showMore. */}
+              <button
+                type="button"
+                data-testid="emp-show-more"
+                onClick={() => setShowMore(s => !s)}
+                className="w-full flex items-center justify-between text-sm font-medium text-blue-600 hover:text-blue-800 py-2 border-t border-gray-100"
+                aria-expanded={showMore}
+              >
+                <span>Add more details {showMore ? '' : '(optional)'}</span>
+                {showMore ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+              </button>
+
+              {showMore && (
+                <div data-testid="emp-optional-section" className="space-y-4 pt-1">
+                  <p className="text-[11px] text-gray-400 italic">All fields below are optional — leave blank to fill in later.</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Department</label>
+                      <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.department} onChange={e => setForm({...form, department: e.target.value})}>
+                        <option value="">— none —</option>
+                        {DEPTS.map(d => <option key={d}>{d}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Employment Type</label>
+                      <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.employment_type} onChange={e => setForm({...form, employment_type: e.target.value})}>
+                        {EMP_TYPES.map(t => <option key={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Base Availability %</label>
+                      <input type="number" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.base_availability_pct} onChange={e => setForm({...form, base_availability_pct: Number(e.target.value)})}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
+                      <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                        {STATUSES.map(s => <option key={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Contact Number</label>
+                      <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.contact_number} onChange={e => setForm({...form, contact_number: e.target.value})} placeholder="+91 98xxx xxxxx"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Join Date</label>
+                      <input type="date" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.join_date} onChange={e => setForm({...form, join_date: e.target.value})}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Hourly Rate (₹)</label>
+                      <input type="number" min="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.hourly_rate} onChange={e => setForm({...form, hourly_rate: e.target.value})} placeholder="e.g. 150"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Overtime Rate (₹/hr)</label>
+                      <input type="number" min="0" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={form.overtime_rate} onChange={e => setForm({...form, overtime_rate: e.target.value})} placeholder="e.g. 225"/>
+                    </div>
+                  </div>
+
+                  {/* Power-user multi-skill picker. Primary skill above is enough
+                      for the bootstrap path; this lets owners attach more skills
+                      with explicit levels for matching against job requirements. */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-medium text-gray-600">Additional {labels.skills}</label>
+                      <button onClick={() => setForm(f => ({...f, skills:[...f.skills,{skill_id:skills[0]?.id??0,skill_level:'Generic'}]}))}
+                        className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"><Plus size={12}/>Add {labels.skill}</button>
+                    </div>
+                    {form.skills.map((s, i) => (
+                      <div key={i} className="flex gap-2 mb-2 items-center">
+                        <select className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={s.skill_id} onChange={e => setForm(f => ({...f, skills:f.skills.map((sk,idx)=>idx===i?{...sk,skill_id:Number(e.target.value)}:sk)}))}>
+                          {skills.map(sk => <option key={sk.id} value={sk.id}>{sk.name}</option>)}
+                        </select>
+                        <select className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={s.skill_level} onChange={e => setForm(f => ({...f, skills:f.skills.map((sk,idx)=>idx===i?{...sk,skill_level:e.target.value}:sk)}))}>
+                          {LEVELS.map(l => <option key={l}>{l}</option>)}
+                        </select>
+                        <button onClick={() => setForm(f => ({...f, skills:f.skills.filter((_,idx)=>idx!==i)}))}
+                          className="text-red-400 hover:text-red-600"><X size={14}/></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+
             <div className="flex gap-2 px-6 pb-6">
-              <button onClick={submitForm} disabled={!form.full_name || isSaving}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm py-2.5 rounded-lg font-medium">
+              <button
+                data-testid="emp-save"
+                onClick={submitForm}
+                disabled={!requiredFilled || isSaving}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm py-2.5 rounded-lg font-medium"
+              >
                 {isSaving ? 'Saving...' : editingEmp ? `Update ${labels.employee}` : `Add ${labels.employee}`}
               </button>
               <button onClick={closeForm} className="px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm py-2.5 rounded-lg">Cancel</button>

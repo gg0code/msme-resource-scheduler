@@ -56,6 +56,23 @@ const printing: IndustryConfig = {
     kpiOrderBook: 'Order Book',
     kpiProfit:    'Est. Profit',
   },
+
+  pickers: {
+    skills: [
+      'Flexo Printing',
+      'Die Cutting',
+      'Lamination',
+      'Quality Control',
+      'Helper',
+    ],
+    machineTypes: [
+      'Flexo Printer',
+      'Die Cutter',
+      'Laminator',
+      'Offset Press',
+      'Folder/Gluer',
+    ],
+  },
 }
 
 export default printing

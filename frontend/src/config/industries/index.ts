@@ -52,7 +52,7 @@ import chemical      from './chemical'
 import field_service from './field_service'
 
 export type { IndustryConfig }
-export type { IndustryLabels, IndustryBranding, IndustryColours } from './types'
+export type { IndustryLabels, IndustryBranding, IndustryColours, IndustryPickers } from './types'
 
 const INDUSTRY_CONFIGS: Record<string, IndustryConfig> = {
   printing,
