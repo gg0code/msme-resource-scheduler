@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import SessionLocal
 from app.models.employee import Employee, EmployeeSkill
+from app.models.event import Event
 from app.models.job import Job
 from app.models.machine import Machine
 from app.models.skill import Skill
@@ -94,22 +95,37 @@ def save_checkin_state(
     absent_ids: list[int],
     down_machine_ids: list[int],
     for_date: date,
+    db: Optional[Session] = None,
+    manager_user_id: Optional[int] = None,
 ) -> None:
     """
     Persist today's manager checkin state to Redis.
 
     Called by:   handle_manager_checkin_reply() after parsing manager message.
     Calls:       redis_client (whatsapp_session.py pool) or _mock_sessions dict.
+                 db.add(Event(...)) when db is provided (v6.3.11-prereq).
     Args:
         tenant_id:       Tenant this checkin belongs to.
         absent_ids:      List of Employee.id values marked absent today.
         down_machine_ids: List of Machine.id values flagged as down today.
         for_date:        Date of the checkin.
+        db:              Optional sync Session. When provided, an
+                         attendance.recorded Event row is appended for
+                         downstream pattern-aware briefing intelligence.
+                         Caller owns lifecycle. Pre-v6.3.11 callers that
+                         did Redis-only writes still work unchanged.
+        manager_user_id: Optional User.id of the manager who reported the
+                         check-in. Stored as Event.actor_user_id. None is
+                         allowed (e.g. unmapped phone) — Event.actor_user_id
+                         is nullable.
     Returns:
         None
     Side effects:
-        Writes JSON blob to Redis with 24-hour TTL.
-        In mock mode writes to _mock_sessions dict instead.
+        Writes JSON blob to Redis with 24-hour TTL (or _mock_sessions in
+        mock mode). When db is provided, also writes one Event row with
+        event_type='attendance.recorded'. Event-write failures are logged
+        but never raised — Redis is the source of truth for "did the
+        check-in succeed".
     """
     key = _checkin_key(tenant_id, for_date)
     payload = json.dumps({
@@ -128,6 +144,37 @@ def save_checkin_state(
         )
     except Exception as exc:
         logger.error("Failed to save checkin state for tenant %s: %s", tenant_id, exc)
+
+    # v6.3.11-prereq: persist check-in as attendance.recorded event
+    # for downstream pattern-aware briefing intelligence (Section A.7
+    # of v6_3_11_signals_spec.md). Failure is logged but never raised —
+    # Redis is the source of truth for the live check-in flow.
+    if db is not None:
+        try:
+            event = Event(
+                tenant_id=tenant_id,
+                event_type="attendance.recorded",
+                entity_type="checkin",
+                entity_id=None,
+                actor_user_id=manager_user_id,
+                source="whatsapp",
+                payload={
+                    "for_date": for_date.isoformat(),
+                    "absent_employee_ids": list(absent_ids),
+                    "down_machine_ids": list(down_machine_ids),
+                },
+            )
+            db.add(event)
+            db.commit()
+        except Exception:
+            logger.error(
+                "Failed to persist attendance.recorded event for tenant %s on %s.",
+                tenant_id, for_date.isoformat(), exc_info=True,
+            )
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
 
 def get_checkin_state(tenant_id: int, for_date: date) -> dict:
@@ -689,6 +736,21 @@ def handle_manager_checkin_reply(
         reply = build_absent_reply(emp, sub, lang)
         replies.append(reply)
 
+    # Resolve the manager's User.id from their WhatsApp number so the
+    # attendance.recorded event written by save_checkin_state can attribute
+    # who reported the check-in. Lookup is best-effort — if no mapping
+    # exists (rare; possible in dev/test), the event is still written with
+    # actor_user_id=None (Event.actor_user_id is nullable by design).
+    mapping = (
+        db.query(PhoneTenantMap)
+        .filter(
+            PhoneTenantMap.phone_number == phone_number,
+            PhoneTenantMap.tenant_id == tenant_id,
+        )
+        .first()
+    )
+    manager_user_id = mapping.user_id if mapping else None
+
     # Persist checkin state — machine IDs come from pending action context
     # Machine downtime is written by whatsapp_actions.py before we reach here.
     # We store empty machine list here; whatsapp_alerts.py enriches from
@@ -698,6 +760,8 @@ def handle_manager_checkin_reply(
         absent_ids=absent_ids,
         down_machine_ids=[],
         for_date=today,
+        db=db,
+        manager_user_id=manager_user_id,
     )
 
     # Closing confirmation

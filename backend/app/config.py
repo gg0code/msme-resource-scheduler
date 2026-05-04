@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     # Format: digits only, no leading + or spaces (wa.me requirement).
     WHATSAPP_BOT_NUMBER: str = ""
 
+    # v6.3.11-alpha: comma-separated list of tenant IDs opted into the
+    # pattern-aware briefing path (briefing_intelligence package). Empty
+    # = OFF for everyone, which is the safe v6.3.11-alpha default. The
+    # dispatcher falls back to the v6.3.4 templated path for any tenant
+    # not listed here. Format: "12,17,34" — whitespace and bad tokens
+    # are silently skipped.
+    PATTERN_BRIEFING_TENANT_IDS: str = ""
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

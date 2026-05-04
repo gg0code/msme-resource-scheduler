@@ -305,12 +305,43 @@ def _build_content_for_kind(
     Pick the morning or evening content builder.
 
     Called by:    dispatch_briefing, manual_trigger_briefing.
-    Calls into:   build_morning_briefing or build_evening_briefing.
-    Side effects: none.
+    Calls into:   build_morning_briefing or build_evening_briefing, OR
+                  briefing_intelligence.compose_briefing when the
+                  tenant is opted into v6.3.11 pattern briefings.
+    Side effects: pattern path may write briefing.signal_fired Event
+                  rows; templated path is read-only.
 
     Raises ValueError on an unknown kind - that is a programming error,
     not a runtime miss; surface loudly.
+
+    v6.3.11-alpha: when PATTERN_BRIEFING_TENANT_IDS lists this tenant,
+    the new compose_briefing() runs first. Any failure inside that path
+    falls through silently to the v6.3.4 templated builder so a broken
+    signal can never break dispatch.
     """
+    if kind == KIND_MORNING or kind == KIND_EVENING:
+        # v6.3.11-alpha: opt-in pattern path. Failure must NEVER break
+        # the existing templated dispatch — every exception falls
+        # through to build_morning/evening_briefing below.
+        from app.services.briefing_intelligence import (
+            compose_briefing,
+            is_pattern_briefing_enabled,
+        )
+        if is_pattern_briefing_enabled(tenant):
+            try:
+                return compose_briefing(
+                    tenant_id=tenant.id,
+                    kind=kind,
+                    today=today_in_tz,
+                    db=db,
+                )
+            except Exception:
+                logger.exception(
+                    "Pattern briefing failed for tenant %s (%s); "
+                    "falling back to templated path.",
+                    tenant.id, kind,
+                )
+
     if kind == KIND_MORNING:
         return build_morning_briefing(
             tenant_id=tenant.id,
