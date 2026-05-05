@@ -89,6 +89,10 @@ from app.services.onboarding_message import resume_pending_after_consent
 from app.services.whatsapp_session import add_message_to_session, get_ai_history, clear_session
 from app.services.whatsapp_bridge import active_bridge
 from app.services.whatsapp_formatter import format_for_whatsapp, detect_language
+# v6.3.14 — module-level import so Base.metadata picks up
+# ExtractionCandidate at app startup (the import chain reaches the
+# model file). The hook itself runs inside _process_inbound_message.
+from app.services.extraction import schedule_extraction as _schedule_extraction
 from app.services.whatsapp_actions import (
     is_confirmation, is_cancellation,
     get_pending_action, execute_action,
@@ -934,6 +938,18 @@ async def _process_inbound_message(
         phone_number=phone_number,
         role="user",
         content=content_for_session
+    )
+
+    # v6.3.14 — Schedule entity extraction in the background. Per-tenant
+    # gated by ENTITY_EXTRACTION_TENANT_IDS; default OFF for everyone.
+    # Detached task: never blocks the reply path, never raises. The
+    # raw user text is passed (not the [Voice]-prefixed copy used in
+    # the AI history) so the extractor sees what the user actually said.
+    _schedule_extraction(
+        tenant_id=identity.tenant_id,
+        industry_type=identity.industry_type,
+        message_text=message_text,
+        source_message_id=None,
     )
 
     # Step 7: Get conversation history

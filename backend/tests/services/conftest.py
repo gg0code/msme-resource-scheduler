@@ -40,6 +40,7 @@ from sqlalchemy.sql.schema import DefaultClause
 from app.models.auth import RefreshToken, Tenant, User
 from app.models.employee import Employee
 from app.models.event import Event
+from app.models.extraction_candidate import ExtractionCandidate
 from app.models.job import Job, JobAssignment
 from app.models.machine import Machine
 from app.models.unavailability import EmployeeLeave, MachineDowntime
@@ -58,6 +59,8 @@ def patch_now_defaults_for_sqlite():
         Event.__table__, Job.__table__, JobAssignment.__table__,
         Employee.__table__, Machine.__table__,
         EmployeeLeave.__table__, MachineDowntime.__table__,
+        # v6.3.14 — extractor unit tests insert into this table.
+        ExtractionCandidate.__table__,
     )
     patched = []
     for tbl in targets:

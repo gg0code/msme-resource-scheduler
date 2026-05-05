@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     # are silently skipped.
     PATTERN_BRIEFING_TENANT_IDS: str = ""
 
+    # v6.3.14: comma-separated list of tenant IDs opted into the entity
+    # extractor (extraction_candidates writer). Empty = OFF for everyone,
+    # which is the safe v6.3.14 default — no extractor work runs until
+    # an operator explicitly opts a tenant in. Same parser semantics as
+    # PATTERN_BRIEFING_TENANT_IDS above. Format: "12,17,34" — whitespace
+    # and bad tokens are silently skipped.
+    ENTITY_EXTRACTION_TENANT_IDS: str = ""
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
