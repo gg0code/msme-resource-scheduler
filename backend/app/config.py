@@ -55,6 +55,31 @@ class Settings(BaseSettings):
     # and bad tokens are silently skipped.
     ENTITY_EXTRACTION_TENANT_IDS: str = ""
 
+    # v6.3.15: nightly candidate-promotion job thresholds. The promoter
+    # reuses ENTITY_EXTRACTION_TENANT_IDS for tenant scoping (no separate
+    # PROMOTION_TENANT_IDS) — extractor-on implies promoter-on.
+    #
+    # PROMOTION_MENTION_THRESHOLD     - min mention_count to qualify.
+    # PROMOTION_CONFIDENCE_THRESHOLD  - min LLM-self-reported confidence.
+    # PROMOTION_FUZZY_MATCH_THRESHOLD - token_set_ratio cutoff for
+    #                                   "this candidate matches an
+    #                                   existing entity". Single-token
+    #                                   candidates fall back to plain
+    #                                   ratio at the higher cutoff below.
+    # PROMOTION_RATIO_FALLBACK_THRESHOLD - plain ratio cutoff used for
+    #                                      single-token candidates.
+    # PROMOTION_DAILY_CAP_PER_TENANT  - max promotions per tenant per
+    #                                   nightly run. Protects the owner
+    #                                   from a "wall of changes" on the
+    #                                   first run after weeks of capture.
+    # Defaults match the v6.3.15 design doc; env override is the safety
+    # valve documented in Q1 / Q5.
+    PROMOTION_MENTION_THRESHOLD:        int   = 3
+    PROMOTION_CONFIDENCE_THRESHOLD:     float = 0.7
+    PROMOTION_FUZZY_MATCH_THRESHOLD:    int   = 85
+    PROMOTION_RATIO_FALLBACK_THRESHOLD: int   = 90
+    PROMOTION_DAILY_CAP_PER_TENANT:     int   = 10
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

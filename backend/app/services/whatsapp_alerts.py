@@ -88,6 +88,14 @@ ALERT_TYPE_CONFLICT     = "conflict"
 # needs to fire often enough that no configured time falls between ticks.
 BRIEFING_DISPATCH_INTERVAL_MINUTES = 5
 
+# v6.3.15 - Candidate-promotion job. Runs nightly at 02:00 IST — low
+# activity, before the 07:30 morning briefings. The promoter iterates
+# tenants opted into ENTITY_EXTRACTION_TENANT_IDS and materialises
+# qualifying extraction_candidates rows into employees / machines.
+# See app/services/promotion/promoter.py for the full design.
+PROMOTION_JOB_HOUR   = 2
+PROMOTION_JOB_MINUTE = 0
+
 
 # ---------------------------------------------------------------------------
 # SCHEDULER INSTANCE
@@ -218,6 +226,29 @@ def start_scheduler() -> None:
         BRIEFING_DISPATCH_INTERVAL_MINUTES,
     )
 
+    # Register candidate-promotion job - 02:00 IST nightly (v6.3.15).
+    # Late-imported to avoid pulling app.services.promotion (which
+    # imports app.models) at module load — start_scheduler() is called
+    # from app.main lifespan after model registration is complete.
+    from app.services.promotion import promote_for_all_tenants
+    scheduler.add_job(
+        func=promote_for_all_tenants,
+        trigger=CronTrigger(
+            hour=PROMOTION_JOB_HOUR,
+            minute=PROMOTION_JOB_MINUTE,
+            timezone=SCHEDULER_TIMEZONE,
+        ),
+        id="candidate_promotion_job",
+        name="Candidate promotion job (nightly 02:00 IST)",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
+    logger.info(
+        "Scheduled: candidate-promotion job at %02d:%02d IST nightly",
+        PROMOTION_JOB_HOUR, PROMOTION_JOB_MINUTE,
+    )
+
     # Start the scheduler
     scheduler.start()
     logger.info(
@@ -270,6 +301,10 @@ def set_dev_schedule() -> None:
     if scheduler.running:
         scheduler.remove_all_jobs()
 
+    # Late-import the v6.3.15 promoter — avoids dragging the promotion
+    # package into module load if dev never calls set_dev_schedule().
+    from app.services.promotion import promote_for_all_tenants
+
     for job_func, job_id in [
         (send_morning_briefings,            "morning_briefing"),
         (check_delayed_jobs,                "job_delay_check"),
@@ -277,6 +312,7 @@ def set_dev_schedule() -> None:
         (send_manager_checkin,              "manager_checkin"),
         (send_owner_briefing_from_checkin,  "owner_briefing_checkin"),
         (run_briefing_dispatch_tick,        "briefing_dispatch_job"),
+        (promote_for_all_tenants,           "candidate_promotion_job"),
     ]:
         scheduler.add_job(
             func=job_func,

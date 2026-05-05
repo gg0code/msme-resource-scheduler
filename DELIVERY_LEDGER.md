@@ -9,11 +9,12 @@ spec." Both must be reconciled in any release that closes the gap.
 matching row in the same commit. Treat this like a file-header version number —
 not optional, not deferred to a cleanup pass.
 
-**Last updated:** 2026-05-05 — v6.3.12 Day-1 onboarding sequence shipped (`POST /api/v1/onboarding/complete` + WhatsApp confirmation; vertical-aware via `industry_labels()`; HAAN-flip resume hook; smoke 37/37 passing; no migration). AC IDs and SRS §6 entry deferred to the batched v6.3.7..v6.3.12 doc-trinity reconciliation pass.
+**Last updated:** 2026-05-05 — v6.3.15 Candidate Promotion Job shipped (`promote_for_tenant` + `promote_for_all_tenants` registered as APScheduler `candidate_promotion_job` at 02:00 IST nightly; reads `extraction_candidates`, materialises into `employees` + `machines` with `source='whatsapp_inferred'`; rapidfuzz hybrid match for idempotency; daily cap 10/tenant; customer promotion deferred — no `customers` table yet — emitted as deduped `extraction.candidate_skipped` audit events; 33 new tests, **746 passing**; smoke 63/63 against real Postgres; no migration; head stays at `029`). v6.3.13 (extraction_candidates table / migration 029) and v6.3.14 (entity extractor service) are the prerequisite versions; their CHANGELOG and ledger entries are still pending in the batched v6.3.7..v6.3.15 doc-trinity reconciliation pass.
 
-**Current migration head:** `028` (per `alembic heads`). Aligned with SRS v6.5
-Section 9.2. Migration `028` is the events audit table introduced in v6.3.3.
-Next migration must use revision ID `029` and chain `down\_revision = "028"`.
+**Current migration head:** `029` (per `alembic heads`). Migration `028` is the
+events audit table (v6.3.3); migration `029` is the `extraction_candidates`
+staging table (v6.3.13). Next migration must use revision ID `030` and chain
+`down\_revision = "029"`.
 
 \---
 
@@ -79,6 +80,9 @@ open.
 |UI Consolidation (Invite, /welcome)|6.28.4|v6.3.5 doc|partial|v6.3.5|whatsapp\_entry\_gate=True|(no schema)|?/12|6.28.4-AC? (CHANGELOG v6.3.5 claims 12/12 — verify against tests)|
 |Day-1 Onboarding Sequence|? (deferred)|v6.3.12|shipped|v6.3.12|(always on)|—|?/?|locale routing (v6.3.18), field-service grammar (v6.3.18), push\_schedule cascade (v6.3.19), AC IDs (v6.3.7..12 batched pass)|
 |Events audit table|9.2|v6.3.3|shipped|v6.3.3|(no flag)|028|n/a|none|
+|Extraction candidates staging table|? (deferred)|v6.3.13|shipped|v6.3.13|(no flag — schema only)|029|n/a|CHANGELOG entry pending in batched pass|
+|Entity extractor (WhatsApp → candidates)|? (deferred)|v6.3.14|shipped|v6.3.14|ENTITY\_EXTRACTION\_TENANT\_IDS=CSV (default empty=OFF)|—|?/?|CHANGELOG entry pending in batched pass; AC IDs|
+|Candidate Promotion Job (employees + machines)|? (deferred)|v6.3.15|shipped|v6.3.15|ENTITY\_EXTRACTION\_TENANT\_IDS=CSV (reused; default empty=OFF)|—|?/?|customer promotion (no `customers` table yet); user-facing surfacing (v6.3.16); NL undo (v6.3.17); per-tenant settings UI (v6.3.19); 30-day fuzzy-threshold review on tenant 12; AC IDs (batched pass)|
 |Material Estimator (WhatsApp surface)|6.25|v6.5 plan|not started|—|material\_estimator\_freemium=False|—|0/4|6.25-AC1, 6.25-AC2, 6.25-AC3, 6.25-AC4|
 |Compliance Deadline Tracker|6.26|v6.6 plan|not started|—|compliance\_tracker=False|025 plan|0/n|all (6.26-AC1..ACn)|
 |GST E-Invoicing JSON|6.27|v6.7 plan|not started|—|einvoice\_generator=False|026 plan|0/n|all (6.27-AC1..ACn)|

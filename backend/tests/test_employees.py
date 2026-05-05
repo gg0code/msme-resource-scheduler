@@ -135,8 +135,10 @@ class TestEmployeeSourceField:
     def test_valid_source_values_constant(self):
         assert "manual" in VALID_SOURCE_VALUES
         assert "whatsapp" in VALID_SOURCE_VALUES
+        # v6.3.15 added 'whatsapp_inferred' for the candidate-promotion job.
+        assert "whatsapp_inferred" in VALID_SOURCE_VALUES
         assert "erp_sync" in VALID_SOURCE_VALUES
-        assert len(VALID_SOURCE_VALUES) == 3
+        assert len(VALID_SOURCE_VALUES) == 4
 
 
 # ---------------------------------------------------------------------------

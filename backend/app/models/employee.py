@@ -35,7 +35,13 @@ from app.database import Base
 # VALID VALUES for constrained string columns
 # Imported by schemas to keep validation in sync with the model.
 # ---------------------------------------------------------------------------
-VALID_SOURCE_VALUES:      tuple[str, ...] = ("manual", "whatsapp", "erp_sync")
+# v6.3.15 added 'whatsapp_inferred' to distinguish bot-extracted-and-promoted
+# rows (nightly promotion job) from user-typed-via-WhatsApp rows ('whatsapp').
+# The column is plain VARCHAR(20) so this is a constant change only — no
+# migration. The value is written by app/services/promotion/promoter.py.
+VALID_SOURCE_VALUES:      tuple[str, ...] = (
+    "manual", "whatsapp", "whatsapp_inferred", "erp_sync",
+)
 VALID_WORKER_TYPE_VALUES: tuple[str, ...] = ("permanent", "contractor")
 
 

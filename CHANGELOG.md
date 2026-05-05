@@ -47,6 +47,61 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 
 ---
 
+## [v6.3.15] — 2026-05-05
+**Branch:** v5-whatsapp
+
+Candidate-promotion job. Reads from `extraction_candidates` (the
+v6.3.14 staging table) and materialises high-confidence, frequently-
+mentioned candidates into the canonical `employees` and `machines`
+tables. Runs nightly at 02:00 IST via the existing
+`AsyncIOScheduler`. Customer promotion is intentionally out of scope
+at v6.3.15 — no `customers` table exists in the v6.3.x schema — and
+qualifying customer candidates emit a deduped
+`extraction.candidate_skipped` audit event with
+`reason="customer_table_not_yet_implemented"` so the deferred
+backlog stays grep-able when a customers table eventually lands.
+
+### Added
+- **`promote_for_tenant` + `promote_for_all_tenants`** (`app/services/promotion/promoter.py`) — per-tenant unit of work plus the APScheduler entry that fans out across tenants opted into `ENTITY_EXTRACTION_TENANT_IDS`. Per-tenant 60s wall-clock budget via `asyncio.wait_for` + `asyncio.to_thread` (sync DB body offloaded to a worker thread so the timeout actually fires). Per-candidate failures rolled back and recorded in `summary.errors`; per-tenant failures logged with structured tenant_id context. The job NEVER raises into APScheduler.
+- **`fuzzy_best_match`** (`app/services/promotion/fuzzy_match.py`) — hybrid string-similarity helper: `token_set_ratio` for multi-token candidates (threshold 85) with a `ratio` fallback for single-token candidates (threshold 90). Powers v6.3.15's idempotency (Q9): the second nightly run fuzzy-matches the just-inserted entity and writes `extraction.candidate_confirmed` instead of duplicating the row.
+- **Three new audit-event types** on the v6.3.3 `events` table — `extraction.candidate_promoted`, `extraction.candidate_confirmed`, `extraction.candidate_skipped`. Entity_type stamped as `'extraction_candidate'` with `entity_id = candidate.id`. No schema change; existing `event_type String(50)` accepts new values without migration.
+- **`PROMOTION_*` env settings** (`app/config.py`) — `PROMOTION_MENTION_THRESHOLD=3`, `PROMOTION_CONFIDENCE_THRESHOLD=0.7`, `PROMOTION_FUZZY_MATCH_THRESHOLD=85`, `PROMOTION_RATIO_FALLBACK_THRESHOLD=90`, `PROMOTION_DAILY_CAP_PER_TENANT=10`. Defaults in code, env override (matches `ENTITY_EXTRACTION_TENANT_IDS` precedent). Tenant scoping reuses the extractor's flag — no separate `PROMOTION_TENANT_IDS`.
+- **`--show-promotions` flag on `inspect_extractions.py`** — buckets recent `extraction.*` events for a tenant by event_type, sorted by `created_at desc`. Use after a nightly run to see what got promoted, confirmed, or skipped.
+- **APScheduler registration** (`app/services/whatsapp_alerts.py`) — new `candidate_promotion_job` at 02:00 IST (`CronTrigger(hour=2, minute=0, timezone='Asia/Kolkata')`, `coalesce=True`, `max_instances=1`, `replace_existing=True`). Also added to `set_dev_schedule()` for dev-mode parity.
+- **Smoke tooling** — three scripts at backend root: `smoke_promotion_e2e.py` (happy path: 30/30 assertions), `smoke_promotion_idempotency.py` (Q9 critical guarantee: 19/19 assertions across 3 consecutive runs with no duplicates), `smoke_promotion_cap.py` (Q5 cap behaviour: 14/14 assertions). All run against real Postgres using a scratch tenant id `9999` and clean up via CASCADE on exit.
+- `tests/services/test_promotion_promoter.py` — 23 tests covering threshold gating, tenant scoping, customer-skip with dedupe, daily cap, idempotency, audit-event payload shape, per-candidate failure isolation, and per-industry happy paths (printing/manufacturing/fabrication/chemical/field_service).
+- `tests/services/test_promotion_fuzzy_match.py` — 10 tests covering exact match, minor typo, single-token fallback, empty inputs, threshold overrides, and best-of-multiple selection.
+
+### Changed
+- **`VALID_SOURCE_VALUES`** (`app/models/employee.py`) extended from 3 to 4 values to add `whatsapp_inferred`. Distinguishes bot-extracted-and-promoted rows from `whatsapp` (user-typed via WhatsApp). Constants-only change — the `source` column is `String(20)` with no DB-level enum, so no migration. Importers (`app/schemas/{employee,machine}.py`, `app/models/machine.py`) accept the new value automatically because they use `str` not `Literal[VALID_SOURCE_VALUES]`.
+- `tests/test_employees.py::test_valid_source_values_constant` — assertion updated from `len == 3` to `len == 4` and added `whatsapp_inferred` membership check.
+
+### Migration
+- None (head stays at `029`).
+
+### Tests
+- `pytest tests/ -m "not integration"`: **746 passed**, 3 skipped, 12 deselected. Baseline was 713 (post v6.3.14); +33 new tests, zero regressions.
+- All three smoke scripts PASS against real Postgres (63 assertions total across the three scripts). Scratch tenant fully cleaned up afterwards.
+
+### Deferred
+- **Customer promotion** — no `customers` table exists in the v6.3.x schema (the only customer-shaped data is the free-text `Job.customer` String column). Qualifying customer candidates remain in `extraction_candidates` and emit a deduped `extraction.candidate_skipped` event. Re-evaluate when a customers table lands (likely v7.x ERP work or sooner if the roadmap brings it forward).
+- **Per-tenant promotion settings UI** — v6.3.19 will introduce tenant-level settings infrastructure; until then thresholds are global-via-env.
+- **Surfacing promotions back to the user** ("we added Suresh — confirm?") — v6.3.16+.
+- **NL-undo flow** ("undo Suresh promotion") — v6.3.17.
+- **30-day production review of fuzzy threshold (85)** — per Q1 operational note. If romanisation-variant duplicates appear on tenant 12 (e.g. "Suresh" / "Soorish" treated as different people), lower to 80 or add an LLM-judged secondary match step in a future v6.3.x. The env-overridable threshold is the safety valve.
+- **AC IDs** — this version has no SRS section yet; deferred to the batched v6.3.7..v6.3.15 doc-trinity reconciliation pass that already covers v6.3.7..v6.3.12.
+
+### Dependencies
+- **New:** `rapidfuzz>=3.10,<4` pinned in `requirements.txt`. Range pin (not `==`) so wheels are available across Python 3.10..3.14 — exact pinning at the point release would lock out CI / dev environments on different interpreters.
+
+### Notes
+- **Inert until opted in.** No tenant runs the promoter until its id appears in `ENTITY_EXTRACTION_TENANT_IDS`. The flag is empty by default.
+- **Q9 idempotency edge case (acceptable risk).** If the owner renames a just-inserted entity by more than the fuzzy threshold tolerates within 24h (e.g. "Suresh" → "S. Kumar"), the next nightly run treats the candidate as new and inserts a duplicate. Documented in the `promote_for_tenant` docstring; the daily cap of 10 bounds the blast radius.
+- **Builds on v6.3.13 + v6.3.14.** The CHANGELOG entries for v6.3.13 (extraction_candidates table, migration 029) and v6.3.14 (entity extractor service) are still pending and tracked in the same batched v6.3.7..v6.3.15 doc-trinity reconciliation pass. The DELIVERY_LEDGER row added below collapses the three under "Candidate Promotion Job" since v6.3.13/14 alone produced no observable behaviour change.
+- v5.11 WhatsApp go-live remains blocked on Meta portfolio review. v6.3.15 runs end-to-end in mock mode and is feature-complete behind that gate.
+
+---
+
 ## [v6.3.12] — 2026-05-05
 **Commit:** `2833421`
 **Branch:** v5-whatsapp
