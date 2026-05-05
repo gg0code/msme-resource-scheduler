@@ -589,3 +589,139 @@ def test_promotion_works_per_industry(db, monkeypatch, industry):
     summary = P.promote_for_tenant(tenant.id, db, now=FIXED_NOW)
 
     assert summary.promoted == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests — fan-out failure isolation across tenants (Section E item)
+# ---------------------------------------------------------------------------
+# Verifies the per-tenant try/except in promote_for_all_tenants:
+#   - if tenant A's run blows up, tenant B's run still happens
+#   - aggregate counts the failure but does not propagate the exception
+# Per-CANDIDATE failure isolation (within one tenant) is covered by
+# TestFailureIsolation above; this test covers the OUTER fan-out boundary.
+
+class TestFanOutFailureIsolation:
+
+    @pytest.mark.asyncio
+    async def test_promotion_failure_logs_and_continues_other_tenants(
+        self, db, monkeypatch,
+    ):
+        from tests.conftest import TestingSessionLocal
+
+        tenant_a = make_tenant(db)
+        tenant_b = make_tenant(db)
+        _opt_in(monkeypatch, f"{tenant_a.id},{tenant_b.id}")
+        _make_candidate(
+            db, tenant_id=tenant_a.id, entity_type="employee",
+            raw_value="ATenantWorker", mention_count=5, confidence=0.9,
+        )
+        _make_candidate(
+            db, tenant_id=tenant_b.id, entity_type="employee",
+            raw_value="BTenantWorker", mention_count=5, confidence=0.9,
+        )
+        db.commit()
+
+        real_run = P._run_one_tenant_sync
+        call_log: list[int] = []
+
+        def flaky_run(tenant_id, session_factory):
+            call_log.append(tenant_id)
+            if tenant_id == tenant_a.id:
+                raise RuntimeError("synthetic per-tenant failure")
+            return real_run(tenant_id, session_factory)
+
+        monkeypatch.setattr(P, "_run_one_tenant_sync", flaky_run)
+
+        # session_factory: TestingSessionLocal returns a fresh Session
+        # bound to the same StaticPool engine — writes are visible to
+        # the test's `db` session for assertions.
+        aggregate = await P.promote_for_all_tenants(
+            session_factory=TestingSessionLocal,
+            per_tenant_timeout_s=10.0,
+        )
+
+        # Both tenants attempted, A's failure recorded but did not stop B.
+        assert aggregate["tenants_processed"] == 2
+        assert aggregate["errors"] >= 1
+        assert aggregate["promoted"] == 1  # only B's promotion landed
+        assert tenant_a.id in call_log
+        assert tenant_b.id in call_log
+
+        # Tenant B's employee was actually inserted.
+        emps_b = (
+            db.query(Employee)
+            .filter(Employee.tenant_id == tenant_b.id)
+            .all()
+        )
+        assert len(emps_b) == 1
+        assert emps_b[0].full_name == "BTenantWorker"
+        assert emps_b[0].source == "whatsapp_inferred"
+
+        # Tenant A inserted nothing because flaky_run raised before
+        # any DB work could happen.
+        emps_a = (
+            db.query(Employee)
+            .filter(Employee.tenant_id == tenant_a.id)
+            .all()
+        )
+        assert len(emps_a) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests — DB-level failure during insert (Section E item)
+# ---------------------------------------------------------------------------
+# Distinct from TestFailureIsolation above: that test injects a generic
+# RuntimeError. This test injects an actual SQLAlchemy IntegrityError —
+# the kind of failure a real FK violation, NOT NULL violation, or unique-
+# constraint hit would produce in production. Both go through the same
+# `except Exception` block in promote_for_tenant; this asserts that the
+# specific SQLAlchemy class is also handled cleanly.
+
+class TestDBFailureHandling:
+
+    def test_db_failure_during_insert_logs_and_does_not_raise(
+        self, db, monkeypatch,
+    ):
+        from sqlalchemy.exc import IntegrityError
+
+        tenant = make_tenant(db)
+        _opt_in(monkeypatch, str(tenant.id))
+        _make_candidate(
+            db, tenant_id=tenant.id, entity_type="employee",
+            raw_value="ConstraintViolator", mention_count=5, confidence=0.9,
+        )
+        db.commit()
+
+        def db_failure(candidate, db_, *, now, summary):
+            # Synthesise the shape SQLAlchemy raises when the underlying
+            # driver rejects an INSERT (e.g. NOT NULL or FK violation).
+            # The orig_exception positional is required by the constructor.
+            raise IntegrityError(
+                "INSERT INTO employees ...",
+                {"tenant_id": candidate.tenant_id},
+                Exception("synthetic FK violation"),
+            )
+
+        monkeypatch.setattr(P, "_promote_or_confirm_employee", db_failure)
+
+        # Must NOT raise — the spec requires the promoter to swallow
+        # DB exceptions, log structured context, and continue.
+        summary = P.promote_for_tenant(tenant.id, db, now=FIXED_NOW)
+
+        assert summary.promoted == 0
+        assert summary.confirmed == 0
+        assert len(summary.errors) == 1
+        # The error payload includes structured context per spec.
+        err = summary.errors[0]
+        assert "promote_failed" in err
+        assert f"tenant={tenant.id}" in err
+        assert "IntegrityError" in err
+
+        # No employee row was created — the per-candidate try/except
+        # rolled back cleanly.
+        assert (
+            db.query(Employee)
+            .filter(Employee.tenant_id == tenant.id)
+            .count()
+            == 0
+        )
