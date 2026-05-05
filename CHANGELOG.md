@@ -97,8 +97,112 @@ backlog stays grep-able when a customers table eventually lands.
 ### Notes
 - **Inert until opted in.** No tenant runs the promoter until its id appears in `ENTITY_EXTRACTION_TENANT_IDS`. The flag is empty by default.
 - **Q9 idempotency edge case (acceptable risk).** If the owner renames a just-inserted entity by more than the fuzzy threshold tolerates within 24h (e.g. "Suresh" → "S. Kumar"), the next nightly run treats the candidate as new and inserts a duplicate. Documented in the `promote_for_tenant` docstring; the daily cap of 10 bounds the blast radius.
-- **Builds on v6.3.13 + v6.3.14.** The CHANGELOG entries for v6.3.13 (extraction_candidates table, migration 029) and v6.3.14 (entity extractor service) are still pending and tracked in the same batched v6.3.7..v6.3.15 doc-trinity reconciliation pass. The DELIVERY_LEDGER row added below collapses the three under "Candidate Promotion Job" since v6.3.13/14 alone produced no observable behaviour change.
+- **Builds on v6.3.13 + v6.3.14**, whose CHANGELOG entries appear immediately below (backfilled in this same release cycle).
 - v5.11 WhatsApp go-live remains blocked on Meta portfolio review. v6.3.15 runs end-to-end in mock mode and is feature-complete behind that gate.
+
+---
+
+## [v6.3.14] — 2026-05-05
+**Commit:** `1ef8cc4`
+**Branch:** v5-whatsapp
+
+Entity extractor service. Each inbound WhatsApp message triggers
+a fire-and-forget `asyncio.create_task` that runs a Groq JSON-mode
+call extracting candidate entities by 7 categories (employee,
+machine, customer, skill, material, job, issue) and upserts them
+into the `extraction_candidates` table from migration 029. Per-
+tenant feature flag, default OFF. No user-facing change at this
+version — it is the foundation the v6.3.15 promotion job consumes.
+
+### Added
+- **`app/models/extraction_candidate.py`** — SQLAlchemy ORM mapping for the migration-029 table.
+- **`app/services/extraction/`** package:
+  - `__init__.py` — public surface
+  - `feature_flag.py` — `ENTITY_EXTRACTION_TENANT_IDS` parsing with `lru_cache` + `_reset_cache` test helper
+  - `industry_vocabularies.py` — backend mirror of the frontend industry config
+  - `entity_extractor.py` — main service (prompt assembly, JSON parsing, normalisation, upsert)
+- **`inspect_extractions.py`** — dev CLI for prompt tuning and smoke verification (`python inspect_extractions.py --tenant-id 12`).
+- **`schedule_extraction()` call** wired into `app/routers/whatsapp.py` after Step 6b (`add_message_to_session`). The reply path returns immediately; extraction runs as a detached task.
+- **`ENTITY_EXTRACTION_TENANT_IDS`** setting in `app/config.py` (env-CSV, empty = OFF for everyone).
+- `tests/services/test_entity_extractor.py` — 23 tests.
+- `tests/services/test_extraction_feature_flag.py` — 6 tests.
+- `tests/services/test_industry_vocabularies_sync.py` — 6 tests (drift detection between frontend + backend industry configs).
+- `tests/services/conftest.py` — SQLite fixture extended for the `extraction_candidates` table.
+
+### Architecture
+- **Fire-and-forget.** `asyncio.create_task` from the WhatsApp router; tasks held in a module-level set so the event loop's weak ref does not GC them mid-flight.
+- **Same Groq client / model** (`llama-3.3-70b-versatile`) as the chat reply path, but a separate instance configured with `response_format={"type":"json_object"}` so chat-path params can drift independently.
+- **10 few-shot examples** in the prompt — 2 per industry (one positive, one empty/uncertain). The empty case is the critical one: it teaches the model that returning `[]` is the correct answer when a message has no clear entities, instead of fabricating one to avoid an empty answer.
+- **Industry-specific vocabulary** mirrors the frontend config; a sync test enforces drift detection between the two.
+- **Upsert** via PostgreSQL `INSERT ... ON CONFLICT DO UPDATE` keyed on `(tenant_id, entity_type, normalized_value)`; SQLite fallback for the unit-test path uses a query-then-update / insert branch.
+
+### Failure handling
+- Every error path swallowed at the module boundary with `logger.error(..., exc_info=True)` and structured `tenant_id` / `message_id` / `error_class` context.
+- The reply path is sacred — extraction NEVER raises into it.
+
+### Migration
+- None (head stays at `029`; v6.3.13 already added the table).
+
+### Tests
+- `pytest -m "not integration"`: **713 passed** (+35 from v6.3.13's 678).
+
+### Manual smoke
+- Verified against tenant 12 (printing) with real inbound messages. Each message produced an `entity_extraction_ok` log line with `candidates=2`; rows landed in `extraction_candidates` with the expected `entity_type`, `normalized_value`, and `confidence` shape; identity resolved correctly to `industry=printing`.
+
+### Operational note
+- Each extraction call adds 200-500ms of background Groq latency and 3,500-9,000 input tokens. Concentrated dev testing can hit the Groq free-tier 12K TPM limit; production traffic at 1-2 messages/min sits comfortably within budget. Token trim is a candidate optimisation for v6.3.14.1 if real-world volume justifies it.
+
+### Deferred
+- Promotion to canonical tables — **v6.3.15 (now shipped)**.
+- Surfacing extracted entities to users ("we noticed X — should I add this?") — v6.3.16+.
+- NL entity edits reading from this table — v6.3.17.
+- Prompt token trim — v6.3.14.1 if real-world volume justifies.
+- `<function=...>` system-prompt fix — separate hotfix outside the extractor's scope.
+- SRS Section 6.30 expansion — batched doc-trinity reconciliation pass.
+
+### Notes
+- This CHANGELOG entry was backfilled in the v6.3.15 release cycle. The feature itself shipped in commit `1ef8cc4` on 2026-05-05.
+
+---
+
+## [v6.3.13] — 2026-05-05
+**Commit:** `5c6c883`
+**Branch:** v5-whatsapp
+
+Schema-only release. Adds migration 029 introducing the
+`extraction_candidates` staging table — the foundation for the
+v6.3.14 entity extractor and the v6.3.15 candidate-promotion job.
+No application code reads or writes the table at this version; it
+sits empty after the upgrade.
+
+### Added
+- **Migration 029** — `extraction_candidates` table.
+  - 13 columns capturing entity provenance (`raw_value`, `normalized_value`, `source_type`, `source_message_id`), temporal context (`first_seen`, `last_seen`, `created_at`, `updated_at`), and operational state (`confidence`, `mention_count`).
+  - 3 lookup indexes: `(tenant_id, entity_type)`, `(tenant_id, normalized_value)`, and `(tenant_id, mention_count)` — the last one is explicitly for v6.3.15's threshold scan.
+  - Unique constraint on `(tenant_id, entity_type, normalized_value)` enforcing the upsert invariant: one row per distinct entity per tenant. Backs the v6.3.14 `INSERT ... ON CONFLICT DO UPDATE` upsert.
+  - FK CASCADE on `tenant_id` for tenant isolation.
+
+### Schema decisions
+- **`entity_type` is `VARCHAR(50)` with NO CHECK constraint.** The vocabulary (employee, machine, customer, skill, material, job, issue) lives in the migration docstring and is enforced at the application layer. Lets v6.3.14+ add new types without a follow-up schema change.
+- **`confidence` has no CHECK constraint either.** Documented range is [0.0, 1.0] LLM-self-reported; v6.3.15's promotion threshold is `>= 0.7`. Allowing experimental out-of-range values (e.g. `-1` for "unknown") keeps the door open without a migration.
+- **`mention_count` uses upsert-on-conflict semantics** — single row per distinct entity, mutated on re-mention. The events table from migration 028 still provides the immutable audit trail; this table is the materialised running count, not the audit log.
+- **`source_message_id` nullable** for non-WhatsApp or internally triggered candidates.
+
+### Migration
+- 029 chains `down_revision = "028"` (v6.3.3 events table).
+- `alembic upgrade` + `downgrade` + `upgrade` cycle verified clean against dev Postgres. All 13 columns, 3 indexes, and 1 unique constraint landed correctly.
+
+### Tests
+- `pytest -m "not integration"`: **678 passed** (+1 net from the migration chain check).
+
+### Deferred
+- SQLAlchemy ORM model + Pydantic schemas — **v6.3.14**.
+- Entity extractor service — **v6.3.14**.
+- Promotion job — **v6.3.15 (now shipped)**.
+- SRS Section 6.30 — batched doc-trinity reconciliation.
+
+### Notes
+- This CHANGELOG entry was backfilled in the v6.3.15 release cycle. The schema itself shipped in commit `5c6c883` on 2026-05-05.
 
 ---
 
