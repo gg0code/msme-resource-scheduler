@@ -102,17 +102,38 @@ def make_tenant(
     age_days: int | None = 30,
     industry_type: str = "printing",
     created_at: datetime | None = None,
+    today: date | None = None,
 ) -> Tenant:
-    """Build a Tenant whose created_at is `age_days` days before now.
+    """Build a Tenant whose created_at is `age_days` days before the anchor.
 
     Called by:    every evaluator test, plus the integration tests.
     Calls into:   _next_id (this file), Tenant ORM constructor.
     Side effects: stages a Tenant row in the supplied test session.
+
+    Args:
+        today: Optional date anchor for the age calculation. When set,
+               created_at = today - age_days (interpreted as UTC midnight).
+               When None, real datetime.now() is used.
+
+               Tests that pin `TODAY = date(...)` and pass it to a
+               detector MUST also pass `today=TODAY` here. Otherwise
+               UTC-midnight rollover during a CI run can drift the
+               tenant's created_at by one day relative to the detector's
+               anchor and flip boundary assertions (day-2 / day-7 /
+               recurring-customer markers). Bug found 2026-05-05 when
+               UTC clock crossed 04 -> 05 mid-session and 8 evaluator
+               tests started failing.
     """
     n = _next_id()
     now = datetime.now(timezone.utc)
     if created_at is None and age_days is not None:
-        created_at = now - timedelta(days=age_days)
+        if today is not None:
+            anchor = datetime.combine(
+                today, datetime.min.time()
+            ).replace(tzinfo=timezone.utc)
+            created_at = anchor - timedelta(days=age_days)
+        else:
+            created_at = now - timedelta(days=age_days)
     if created_at is None:
         created_at = now
     t = Tenant(

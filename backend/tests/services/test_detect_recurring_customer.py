@@ -52,7 +52,7 @@ class TestDetectRecurringCustomer:
 
     def test_returns_none_off_marker_days(self, db):
         # Tenant aged 3 days — not in {7, 14, 21, 30}.
-        tenant = make_tenant(db, age_days=3)
+        tenant = make_tenant(db, age_days=3, today=TODAY)
         for i in range(4):
             _job_with_customer(db, tenant, f"J{i}", "Cipla")
         db.commit()
@@ -60,7 +60,7 @@ class TestDetectRecurringCustomer:
 
     def test_fires_on_day_7_marker(self, db):
         assert 7 in RECURRING_DAY_MARKERS
-        tenant = make_tenant(db, age_days=7)
+        tenant = make_tenant(db, age_days=7, today=TODAY)
         for i in range(3):
             _job_with_customer(db, tenant, f"Job-{i}", "Cipla")
         db.commit()
@@ -72,14 +72,14 @@ class TestDetectRecurringCustomer:
         assert result.severity_score == 3.0
 
     def test_returns_none_below_min_jobs(self, db):
-        tenant = make_tenant(db, age_days=7)
+        tenant = make_tenant(db, age_days=7, today=TODAY)
         _job_with_customer(db, tenant, "A", "Cipla")
         _job_with_customer(db, tenant, "B", "Cipla")
         db.commit()
         assert detect_recurring_customer(tenant.id, TODAY, db) is None
 
     def test_normalises_customer_name_casing(self, db):
-        tenant = make_tenant(db, age_days=7)
+        tenant = make_tenant(db, age_days=7, today=TODAY)
         _job_with_customer(db, tenant, "A", "cipla")
         _job_with_customer(db, tenant, "B", "CIPLA")
         _job_with_customer(db, tenant, "C", "Cipla")
@@ -89,7 +89,7 @@ class TestDetectRecurringCustomer:
         assert result.severity_score == 3.0
 
     def test_skips_terminal_status_jobs(self, db):
-        tenant = make_tenant(db, age_days=7)
+        tenant = make_tenant(db, age_days=7, today=TODAY)
         _job_with_customer(db, tenant, "Done1", "Cipla", status="Completed")
         _job_with_customer(db, tenant, "Done2", "Cipla", status="completed")
         _job_with_customer(db, tenant, "Active", "Cipla", status="in_progress")
@@ -98,7 +98,7 @@ class TestDetectRecurringCustomer:
         assert detect_recurring_customer(tenant.id, TODAY, db) is None
 
     def test_skips_jobs_outside_30d_window(self, db):
-        tenant = make_tenant(db, age_days=7)
+        tenant = make_tenant(db, age_days=7, today=TODAY)
         _job_with_customer(db, tenant, "Old", "Cipla", created_days_ago=40)
         _job_with_customer(db, tenant, "Recent1", "Cipla", created_days_ago=2)
         _job_with_customer(db, tenant, "Recent2", "Cipla", created_days_ago=1)

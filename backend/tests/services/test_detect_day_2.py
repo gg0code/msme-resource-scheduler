@@ -36,13 +36,14 @@ TODAY = date(2026, 5, 4)
 class TestDetectDay2:
 
     def test_returns_none_off_marker(self, db):
-        tenant = make_tenant(db, age_days=5)
+        tenant = make_tenant(db, age_days=5, today=TODAY)
         db.commit()
         assert detect_day_2(tenant.id, TODAY, db) is None
 
     def test_fires_on_day_2_with_employee_and_machine_counts(self, db):
         tenant = make_tenant(
             db, age_days=DAY_2_TARGET_AGE_DAYS, industry_type="printing",
+            today=TODAY,
         )
         make_employee(db, tenant=tenant, full_name="Suresh")
         make_employee(db, tenant=tenant, full_name="Anil")
@@ -66,6 +67,7 @@ class TestDetectDay2:
         tenant = make_tenant(
             db, age_days=DAY_2_TARGET_AGE_DAYS,
             industry_type="fabrication",
+            today=TODAY,
         )
         make_employee(db, tenant=tenant, full_name="Worker")
         db.commit()
@@ -74,11 +76,11 @@ class TestDetectDay2:
         assert "operators" in result.message_hi_en
 
     def test_returns_none_for_day_1(self, db):
-        tenant = make_tenant(db, age_days=1)
+        tenant = make_tenant(db, age_days=1, today=TODAY)
         db.commit()
         assert detect_day_2(tenant.id, TODAY, db) is None
 
     def test_returns_none_for_day_3(self, db):
-        tenant = make_tenant(db, age_days=3)
+        tenant = make_tenant(db, age_days=3, today=TODAY)
         db.commit()
         assert detect_day_2(tenant.id, TODAY, db) is None

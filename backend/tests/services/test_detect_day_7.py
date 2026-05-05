@@ -34,13 +34,14 @@ TODAY = date(2026, 5, 4)
 class TestDetectDay7:
 
     def test_returns_none_off_marker(self, db):
-        tenant = make_tenant(db, age_days=5)
+        tenant = make_tenant(db, age_days=5, today=TODAY)
         db.commit()
         assert detect_day_7(tenant.id, TODAY, db) is None
 
     def test_fires_on_day_7(self, db):
         tenant = make_tenant(
             db, age_days=DAY_7_TARGET_AGE_DAYS, industry_type="printing",
+            today=TODAY,
         )
         db.commit()
         result = detect_day_7(tenant.id, TODAY, db)
@@ -56,6 +57,7 @@ class TestDetectDay7:
         tenant = make_tenant(
             db, age_days=DAY_7_TARGET_AGE_DAYS,
             industry_type="fabrication",
+            today=TODAY,
         )
         db.commit()
         result = detect_day_7(tenant.id, TODAY, db)
@@ -63,11 +65,11 @@ class TestDetectDay7:
         assert "orders" in result.message_hi_en
 
     def test_returns_none_at_day_6(self, db):
-        tenant = make_tenant(db, age_days=6)
+        tenant = make_tenant(db, age_days=6, today=TODAY)
         db.commit()
         assert detect_day_7(tenant.id, TODAY, db) is None
 
     def test_returns_none_at_day_8(self, db):
-        tenant = make_tenant(db, age_days=8)
+        tenant = make_tenant(db, age_days=8, today=TODAY)
         db.commit()
         assert detect_day_7(tenant.id, TODAY, db) is None
