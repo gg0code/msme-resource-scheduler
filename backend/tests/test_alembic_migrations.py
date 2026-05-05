@@ -64,17 +64,29 @@ class TestMigrationFileIntegrity:
             f"A merge migration may be needed."
         )
 
-    def test_head_is_028(self, script_dir):
-        """Current head must be revision 028 (v6.3.3 events table)."""
+    def test_head_is_029(self, script_dir):
+        """Current head must be revision 029 (v6.3.13 extraction_candidates)."""
         heads = script_dir.get_heads()
-        assert "028" in heads, (
-            f"Expected head to be '028', got: {heads}"
+        assert "029" in heads, (
+            f"Expected head to be '029', got: {heads}"
         )
 
     def test_021_in_chain(self, script_dir):
         """Migration 021 (add is_locked to jobs) must be in the chain."""
         ids = {r.revision for r in script_dir.walk_revisions()}
         assert "021" in ids, "Migration 021 (add_is_locked_to_jobs) not found"
+
+    def test_029_in_chain(self, script_dir):
+        """Migration 029 (extraction_candidates table) must be in the chain
+        and chain off 028."""
+        revisions = {r.revision: r for r in script_dir.walk_revisions()}
+        assert "029" in revisions, (
+            "Migration 029 (add_extraction_candidates_table) not found"
+        )
+        assert revisions["029"].down_revision == "028", (
+            f"Expected 029 to chain off 028, got down_revision="
+            f"{revisions['029'].down_revision!r}"
+        )
 
     def test_all_migration_files_importable(self, script_dir):
         """All migration files can be parsed without import errors."""
