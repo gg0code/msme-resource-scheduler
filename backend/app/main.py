@@ -41,6 +41,7 @@ from app.routers import (
     timer,
     steps,
     material_estimate,
+    onboarding,
     schedule_suggestions,
     scheduler_router,
     scan,
@@ -119,6 +120,12 @@ app.include_router(features.router,             prefix="/api", tags=["features"]
 
 # -- AI Copilot ---------------------------------------------------------------
 app.include_router(ai_chat.router, prefix="/api/ai", tags=["ai"])
+
+# -- Onboarding (v6.3.12 Day-1 confirmation) ---------------------------------
+# POST /api/v1/onboarding/complete - fired once per tenant from the
+# OnboardingSetup.tsx Save & Continue button, dispatches the Day-1
+# WhatsApp confirmation message via app/services/onboarding_message.py.
+app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["onboarding"])
 
 # -- WhatsApp (no prefix - webhook paths are self-contained) ------------------
 app.include_router(whatsapp_router.router)

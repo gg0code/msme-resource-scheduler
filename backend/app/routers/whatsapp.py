@@ -85,6 +85,7 @@ from app.config import settings
 from app.database import get_db, SessionLocal
 from app.services.whatsapp_send import _send_whatsapp_message
 from app.services.whatsapp_identity import resolve_identity, record_consent
+from app.services.onboarding_message import resume_pending_after_consent
 from app.services.whatsapp_session import add_message_to_session, get_ai_history, clear_session
 from app.services.whatsapp_bridge import active_bridge
 from app.services.whatsapp_formatter import format_for_whatsapp, detect_language
@@ -729,6 +730,15 @@ async def _process_inbound_message(
             # failing because consent_given stayed False after HAAN). The
             # pattern matches `await resolve_identity(...)` two lines above.
             await record_consent(phone_number=phone_number, db=db)
+            # v6.3.12: if a Day-1 onboarding-complete event was staged
+            # before consent landed, deliver it now. No-op when nothing
+            # is pending (the common case for HAAN replies that aren't
+            # tied to a fresh signup). The reply text below is unchanged
+            # because the resumed message is a separate WhatsApp send,
+            # not part of this conversation turn.
+            await resume_pending_after_consent(
+                tenant_id=identity.tenant_id, db=db,
+            )
             return (
                 "Shukriya! Aapki consent record ho gayi.\n"
                 "Ab aap ZetaOps Copilot use kar sakte hain.\n\n"

@@ -206,6 +206,16 @@ export const TEAM = {
 } as const
 
 // =============================================================================
+// ONBOARDING (v6.3.12 Day-1 confirmation message)
+// =============================================================================
+// POST /complete fires once per tenant from OnboardingSetup.tsx after the
+// Save & Continue Promise.all resolves. Server returns 204; the actual
+// WhatsApp send happens server-side via onboarding_message.send_if_unsent.
+export const ONBOARDING = {
+  complete: '/api/v1/onboarding/complete',
+} as const
+
+// =============================================================================
 // WHATSAPP  (router self-prefixes with /api/v1/whatsapp)
 // =============================================================================
 export const WHATSAPP = {

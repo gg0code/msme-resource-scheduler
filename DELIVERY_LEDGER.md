@@ -9,7 +9,7 @@ spec." Both must be reconciled in any release that closes the gap.
 matching row in the same commit. Treat this like a file-header version number —
 not optional, not deferred to a cleanup pass.
 
-**Last updated:** 2026-05-03 — fill in on every edit. v6.3.9 hotfix release (Groq `tool_use_failed` retry + `remap_phone.py` snapshot fix). No new feature rows; no migration head change.
+**Last updated:** 2026-05-05 — v6.3.12 Day-1 onboarding sequence shipped (`POST /api/v1/onboarding/complete` + WhatsApp confirmation; vertical-aware via `industry_labels()`; HAAN-flip resume hook; smoke 37/37 passing; no migration). AC IDs and SRS §6 entry deferred to the batched v6.3.7..v6.3.12 doc-trinity reconciliation pass.
 
 **Current migration head:** `028` (per `alembic heads`). Aligned with SRS v6.5
 Section 9.2. Migration `028` is the events audit table introduced in v6.3.3.
@@ -77,6 +77,7 @@ open.
 |Entry Mode Configuration|6.28-F1|v6.4|in progress|—|whatsapp\_entry\_gate=True|027 plan|?/13|6.28-AC? (work split across v6.3.1–v6.3.6 — see notes)|
 |Daily Push Briefings (AM+PM)|6.28-F3|v6.4|in progress|—|whatsapp\_entry\_gate=True|027 plan|?/13|6.28-AC? (CHANGELOG suggests dispatcher landed at v6.3.4 — verify)|
 |UI Consolidation (Invite, /welcome)|6.28.4|v6.3.5 doc|partial|v6.3.5|whatsapp\_entry\_gate=True|(no schema)|?/12|6.28.4-AC? (CHANGELOG v6.3.5 claims 12/12 — verify against tests)|
+|Day-1 Onboarding Sequence|? (deferred)|v6.3.12|shipped|v6.3.12|(always on)|—|?/?|locale routing (v6.3.18), field-service grammar (v6.3.18), push\_schedule cascade (v6.3.19), AC IDs (v6.3.7..12 batched pass)|
 |Events audit table|9.2|v6.3.3|shipped|v6.3.3|(no flag)|028|n/a|none|
 |Material Estimator (WhatsApp surface)|6.25|v6.5 plan|not started|—|material\_estimator\_freemium=False|—|0/4|6.25-AC1, 6.25-AC2, 6.25-AC3, 6.25-AC4|
 |Compliance Deadline Tracker|6.26|v6.6 plan|not started|—|compliance\_tracker=False|025 plan|0/n|all (6.26-AC1..ACn)|

@@ -47,6 +47,49 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 
 ---
 
+## [v6.3.12] — 2026-05-05
+**Commit:** `2833421`
+**Branch:** v5-whatsapp
+
+Day-1 onboarding sequence. When a fresh tenant finishes adding their first
+employees + machines on `/onboarding`, the backend now dispatches a single
+hinglish WhatsApp confirmation message acknowledging the setup and setting
+expectations for tomorrow's morning push.
+
+### Added
+- **`POST /api/v1/onboarding/complete`** — fire-and-forget endpoint called from `OnboardingSetup.tsx`'s "Save and continue" handler after the employee + machine `Promise.all` save resolves. Auth-gated by `require_top_tier()`. Returns 204 on every outcome path. (`app/routers/onboarding.py`)
+- **Three-state idempotency via the v6.3.3 events table** — `onboarding.message_sent` (consent ready, dispatched), `onboarding.pending_consent` (phone exists, awaiting HAAN), `onboarding.skipped_no_phone` (desktop-first, no phone). Single-fire enforced via `_is_already_handled()` check before dispatch. (`app/services/onboarding_message.py`)
+- **HAAN-flip resume hook** in `routers/whatsapp.py` — when an owner replies HAAN to the consent welcome, any staged `onboarding.pending_consent` event is converted to `message_sent` and the message dispatched. Safe to call on every HAAN reply (no-op when nothing is pending).
+- **Vertical-aware vocabulary** — `INDUSTRY_LABELS` in `briefings/templates.py` gains a new `workspace_label` key for all 5 verticals: `factory` / `shop floor` / `workshop` / `plant` / `sites`. Existing `employees` (plural) and `machines` (plural) keys reused unchanged.
+- **Forward-compat schedule helper** — new `app/services/push_schedule.py` exports `get_morning_briefing_time(tenant)` and `get_evening_briefing_time(tenant)`. Today the body reads `Tenant.briefing_morning/evening_time`; v6.3.19 will swap the body to the `industry_push_config` cascade with tenant override fallback. Call sites stay stable.
+- **`onboarding_complete` response strings** — added to `whatsapp_responses.py` `RESPONSES` dict with all three locale variants (en, hinglish, hindi). Hinglish dispatches today; en + hindi stubs wired for v6.3.18 locale routing.
+- **Frontend wiring** — `ONBOARDING.complete` constant in `api_endpoints.ts`; `OnboardingSetup.tsx`'s `handleSave` fires `apiClient.post(ONBOARDING.complete).catch(() => {})` after the existing `Promise.all` resolves and before navigation to `<DoneScreen>`.
+- **Smoke tooling** — `tests/smoke/smoke_v6_3_12.py` (4 scenarios: consented immediate / pending / HAAN-resume / desktop-first skip; 37 assertions including idempotency on re-fire) and `tests/smoke/preview_onboarding_message.py` (renders the message for all 5 verticals + None fallback in all 3 locales).
+
+### Migration
+- None (head stays at `028`).
+
+### Tests
+- `pytest -m "not integration"`: **677 passed**, 3 skipped, 12 deselected. No regressions.
+- Smoke test: 37/37 assertions across 4 scenarios passing in `WHATSAPP_MOCK_MODE=True`.
+- Frontend click-through verified end-to-end: `onboarding.pending_consent` event row landed for the test tenant after clicking "Save and continue".
+
+### Deferred
+- **Locale routing** for en + hindi response stubs — v6.3.18 styling pass will route via `detect_language()`.
+- **Field-service "aapka sites" grammar nit** — acceptable in code-mixed hi-en; v6.3.18 will revisit voice across all sibling messages.
+- **`push_schedule.py` body update** — v6.3.19 swaps direct column reads for the `industry_push_config` cascade. Helper signatures stay the same.
+- **AC ID annotation** — v6.3.7..v6.3.12 doc-trinity reconciliation pass will mint AC IDs and add the corresponding SRS §6 section.
+
+### Notes
+- v5.11 WhatsApp go-live remains blocked on Meta portfolio review. v6.3.12 runs end-to-end in mock mode and is feature-complete behind that gate.
+- The HAAN-flip resume path uses direct `await` from the already-async whatsapp router; no new event-loop architecture introduced.
+- `chemical` industry is supported by templates (`workspace_label="plant"`, `machines="reactors"`) but excluded from signup enum (Plan B only per CLAUDE.md), so it cannot reach this code path today.
+
+### Companion fix
+- A separate commit immediately preceding this one (`fix: time-pin make_tenant fixture for evaluator tests`) repaired 8 v6.3.11 evaluator unit-test failures triggered by UTC midnight rollover (test fixtures were anchored to real `datetime.now()` while test files pinned `TODAY = date(2026, 5, 4)`). No production code touched. Listed here because it was discovered during v6.3.12 smoke testing.
+
+---
+
 ## [v6.3.9] — 2026-05-03
 **Branch:** v5-whatsapp
 

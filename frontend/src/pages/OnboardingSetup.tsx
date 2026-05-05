@@ -28,7 +28,7 @@ import {
   Plus, Trash2, Upload, Wrench, X,
 } from 'lucide-react'
 import apiClient from '../api/client'
-import { EMPLOYEES, IMPORT, MACHINES, SKILLS } from '../api/api_endpoints'
+import { EMPLOYEES, IMPORT, MACHINES, ONBOARDING, SKILLS } from '../api/api_endpoints'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -479,6 +479,13 @@ export default function OnboardingSetup() {
 
       await queryClient.invalidateQueries({ queryKey: ['employees'] })
       await queryClient.invalidateQueries({ queryKey: ['machines'] })
+
+      // v6.3.12: tell the backend the owner just finished Day-1 setup so it
+      // can dispatch the WhatsApp confirmation. Fire-and-forget — we never
+      // block reaching the dashboard on this. The server is idempotent
+      // (events table guarantees single-fire) and any failure is recorded
+      // server-side, so swallowing the error here is safe.
+      apiClient.post(ONBOARDING.complete).catch(() => { /* non-blocking */ })
 
       setDone(true)
 

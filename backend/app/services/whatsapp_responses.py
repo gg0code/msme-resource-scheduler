@@ -91,6 +91,45 @@ RESPONSES: dict[str, dict[Language, str]] = {
             "\u0924\u0948\u092f\u093e\u0930 \u0939\u0948\u0964"
         ),
     },
+    # v6.3.12 - Day-1 onboarding confirmation. Sent once per tenant when
+    # the owner finishes adding employees + machines (POST /api/v1/
+    # onboarding/complete). Counts and labels are vertical-aware and come
+    # from app/services/onboarding_message.py via industry_labels(). Time
+    # placeholder is the tenant's morning briefing time, formatted HH:MM.
+    #
+    # Only the hinglish variant is dispatched today; en + hindi are kept
+    # as stubs so v6.3.18's styling pass can introduce locale routing
+    # without touching this file's call sites. Placeholders:
+    #   {workspace_label} - factory | shop floor | workshop | plant | sites
+    #   {employee_count}  - integer (active employees)
+    #   {employees_label} - employees | operators | technicians (plural)
+    #   {machine_count}   - integer (operational machines)
+    #   {machines_label}  - presses | machines | reactors | assets (plural)
+    #   {time}            - HH:MM string e.g. "07:30"
+    "onboarding_complete": {
+        "english":  (
+            "Your {workspace_label} is now registered with ZetaOps. "
+            "{employee_count} {employees_label}, "
+            "{machine_count} {machines_label}. "
+            "Tomorrow at {time} you will get the daily attendance + "
+            "briefing. The bot is now active."
+        ),
+        "hinglish": (
+            "Aaj se aapka {workspace_label} ZetaOps pe register. "
+            "{employee_count} {employees_label}, "
+            "{machine_count} {machines_label}. "
+            "Kal subah {time} baje aapka attendance + briefing aayega. "
+            "Bot ab active hai."
+        ),
+        "hindi":    (
+            "\u0906\u091c \u0938\u0947 \u0906\u092a\u0915\u093e "
+            "{workspace_label} ZetaOps \u092a\u0947 register \u0939\u0948\u0964 "
+            "{employee_count} {employees_label}, "
+            "{machine_count} {machines_label}\u0964 "
+            "\u0915\u0932 \u0938\u0941\u092c\u0939 {time} \u092c\u091c\u0947 "
+            "attendance \u0914\u0930 briefing \u0906\u090f\u0917\u093e\u0964"
+        ),
+    },
 }
 
 
