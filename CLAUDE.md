@@ -54,7 +54,7 @@ This is the single most common source of confusion.
 
 - **Product Version** — `vMAJOR.MINOR.PATCH`. Used in git tags, CHANGELOG,
   customer-facing communication. MAJOR = era (V5 WhatsApp-first, V6 AI-first,
-  V7 ERP-connected). Current: **v6.3.6** shipped, **v6.4** is next.
+  V7 ERP-connected). Current: **v6.3.16** shipped, **v6.4** is next.
 - **Document Version** — applies to the SRS only. Format `Document vX.Y`.
   Independent of product version. Current SRS is **v6.5**, describing
   product v5.0 through v6.3.4 (shipped/in-progress) and v6.3.5 through v7.2
@@ -187,25 +187,39 @@ Use with `WHATSAPP_MOCK_MODE=True`. SRS §22.
 
 ---
 
-## Current state in one paragraph (as of 2026-05-02)
+## Current state in one paragraph (as of 2026-05-06)
 
-**Shipped through v6.3.6.** v6.3.0-whatsapp-industry fixed BUG-6 (industry
+**Shipped through v6.3.16.** v6.3.0-whatsapp-industry fixed BUG-6 (industry
 attribution on `PhoneTenantMap`). v6.3.3 added the events audit table
 (migration 028). v6.3.4 landed the daily push briefing dispatcher.
 v6.3.5 consolidated the WhatsApp UI (single Invite modal, redesigned Team
 & Roles, `/welcome` landing, removed standalone `/whatsapp` page) per SRS
-§6.28.4. v6.3.6 is tagged but its scope still needs to be reconciled into
-this file. v5.11 WhatsApp go-live is **blocked on Meta portfolio review**;
-the platform runs in mock mode end-to-end and is feature-complete behind
-that gate.
+§6.28.4. v6.3.7–v6.3.10 covered v6.4 entry-gate columns (migration 027),
+role rename, and inbound intent routing. v6.3.11 introduced pattern-aware
+briefings via `briefing_intelligence/` with thirteen evaluators across
+six categories. v6.3.12 shipped the Day-1 onboarding sequence. v6.3.13
+added the `extraction_candidates` staging table (migration 029). v6.3.14
+shipped the entity extractor service feeding that table. v6.3.15 (revised)
+moved candidate promotion to owner-confirmed (migration 030 added the
+four `confirmation_*` columns) — silent insertion was retracted; nothing
+lands in employees/machines without an explicit HAAN reply. v6.3.16 added
+the Day-7 First-Insight Gate (migration 031): a one-shot owner message
+on the seventh day of delivered morning briefings, picking the strongest
+of attendance / skill bottleneck / machine spread / recurring customer
+or a routine-set fallback. v5.11 WhatsApp go-live is **blocked on Meta
+portfolio review**; the platform runs in mock mode end-to-end and is
+feature-complete behind that gate.
 
 **In progress.** v6.3 KPI Baseline + Monthly Savings Summary (SRS §6.24,
-migration 024 planned). v6.4 WhatsApp as Primary Entry Gate (SRS §6.28,
-migration 027 planned).
+migration not yet written). v6.3.18 message formatter and v6.3.19
+per-tenant push config (prerequisites for the v6.4.0 full engagement
+ladder).
 
-**Not started.** v6.5 Material Estimator surface, v6.6 Compliance Tracker,
-v6.7 GST e-invoicing, v6.8 RAG pgvector, v6.9 Supervisor Agent. All v7
-ERP work.
+**Not started.** v6.4.0 full engagement ladder (Day-1 ack, Day-3 rhythm,
+Day-7 manager mirror, conditional nudges; will reuse and extend
+`tenants.engagement_ladder_state`). v6.5 Material Estimator surface,
+v6.6 Compliance Tracker, v6.7 GST e-invoicing, v6.8 RAG pgvector,
+v6.9 Supervisor Agent. All v7 ERP work.
 
 For per-feature status with feature flags, migrations, and AC pass counts:
 [`DELIVERY_LEDGER.md`](./DELIVERY_LEDGER.md).
