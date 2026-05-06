@@ -55,6 +55,7 @@
 
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Time, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -128,6 +129,29 @@ class Tenant(Base):
     # How this tenant was created. 'desktop_signup' covers everyone before
     # v6.3.1; 'whatsapp_signup' arrives in v6.3.3.
     created_via = Column(String(30), nullable=False, server_default="desktop_signup")
+
+    # ---- v6.3.16 Day-7 First-Insight Gate columns (migration 031) ---------
+    # first_briefing_sent_at is the day-counting anchor for the Day-7 owner
+    # gate. Set the first time briefings/dispatcher.dispatch_briefing emits
+    # a successful morning briefing.sent for this tenant; never updated
+    # after. NULL means "no morning briefing has ever landed" — the gate
+    # silently skips such tenants. See app/services/day7_insight.py.
+    first_briefing_sent_at = Column(DateTime(timezone=True), nullable=True)
+
+    # engagement_ladder_state is the per-tenant idempotency ledger for
+    # engagement-ladder messages. v6.3.16 writes one key:
+    # 'day7_owner_sent_at' — its presence means the Day-7 gate has been
+    # processed (sent OR suppressed) and must not fire again. v6.4.0 will
+    # add more keys here for the full ladder.
+    #
+    # Note: server_default is set in migration 031 ('{}'::jsonb) for
+    # existing Postgres rows. The Python-side default=dict covers both
+    # production new rows and the SQLite test path where ::jsonb DDL
+    # is incompatible (the conftest patches JSONB->JSON and never
+    # applies the server_default text).
+    engagement_ladder_state = Column(
+        JSONB, nullable=False, default=dict,
+    )
 
     users          = relationship("User", back_populates="tenant", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="tenant", cascade="all, delete-orphan")

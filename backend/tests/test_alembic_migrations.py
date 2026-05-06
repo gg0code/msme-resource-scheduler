@@ -64,12 +64,24 @@ class TestMigrationFileIntegrity:
             f"A merge migration may be needed."
         )
 
-    def test_head_is_030(self, script_dir):
-        """Current head must be revision 030 (v6.3.15 revised confirmation
-        state columns on extraction_candidates)."""
+    def test_head_is_031(self, script_dir):
+        """Current head must be revision 031 (v6.3.16 Day-7 First-Insight
+        Gate engagement-ladder columns on tenants)."""
         heads = script_dir.get_heads()
-        assert "030" in heads, (
-            f"Expected head to be '030', got: {heads}"
+        assert "031" in heads, (
+            f"Expected head to be '031', got: {heads}"
+        )
+
+    def test_031_in_chain(self, script_dir):
+        """Migration 031 (Day-7 engagement-ladder columns) must be in the
+        chain and chain off 030."""
+        revisions = {r.revision: r for r in script_dir.walk_revisions()}
+        assert "031" in revisions, (
+            "Migration 031 (add_day7_engagement_columns) not found"
+        )
+        assert revisions["031"].down_revision == "030", (
+            f"Migration 031 must chain off 030, got "
+            f"{revisions['031'].down_revision!r}"
         )
 
     def test_030_in_chain(self, script_dir):

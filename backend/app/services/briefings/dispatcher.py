@@ -537,6 +537,17 @@ async def dispatch_briefing(
             # send_briefing_with_retry already emitted briefing.send_failed.
             result.errors.append((r.user.id, "send_failed_after_retries"))
 
+    # v6.3.16: anchor the Day-7 gate. The first successful morning
+    # briefing for this tenant sets first_briefing_sent_at; never
+    # updated thereafter. day7_insight.evaluate_and_send reads this
+    # column to compute day_count.
+    if (
+        kind == KIND_MORNING
+        and result.sent_count > 0
+        and tenant.first_briefing_sent_at is None
+    ):
+        tenant.first_briefing_sent_at = datetime.now(timezone.utc)
+
     return result
 
 
@@ -668,6 +679,30 @@ async def dispatch_due_briefings(
                     enforce_window=True,
                 )
                 tenant_db.commit()
+
+                # v6.3.16 Day-7 First-Insight Gate. Runs only after a
+                # successful morning dispatch so the gate message lands
+                # inside the open WhatsApp Cloud API session window.
+                # Wrapped in its own try/commit pair so a gate failure
+                # cannot affect the rest of the cron tick OR the morning
+                # briefing's already-committed write.
+                if kind == KIND_MORNING and result.sent_count > 0:
+                    try:
+                        from app.services.day7_insight import evaluate_and_send
+                        await evaluate_and_send(
+                            tenant_id=local_tenant.id,
+                            db=tenant_db,
+                            now_utc=now_utc,
+                            send_fn=send_fn,
+                        )
+                        tenant_db.commit()
+                    except Exception:  # noqa: BLE001 - never raise to scheduler
+                        logger.exception(
+                            "Day-7 gate raised for tenant=%s; "
+                            "suppressing for this tick.",
+                            local_tenant.id,
+                        )
+                        tenant_db.rollback()
             except Exception as exc:
                 logger.exception(
                     "dispatch_briefing crashed for tenant=%s kind=%s: %s",
