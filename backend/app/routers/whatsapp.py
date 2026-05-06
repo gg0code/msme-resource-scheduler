@@ -18,6 +18,12 @@ PURPOSE: FastAPI router — the entry point for all WhatsApp messages.
            2.  Extract message from payload
            2b. If audio message — transcribe via Groq Whisper (v5.2)
            3.  Resolve phone to tenant identity
+           3a. Check for in-flight v6.3.15 (revised) confirmation batch
+               — runs BEFORE the v5.12 pending-action machine so a HAAN
+               reply to a confirmation message is never swallowed by an
+               unrelated pending action. Gated by the 48h
+               INFLIGHT_REPLY_WINDOW_HOURS pending-state filter (Q4
+               routing-precedence rule).
            4.  Check for pending confirmation (write action state machine)
            5.  Handle reset commands
            5b. Detect language (v5.12: moved before intent to localise blocked replies)
@@ -750,6 +756,76 @@ async def _process_inbound_message(
             )
         else:
             return CONSENT_REQUEST
+
+    # Step 2.5: v6.3.15 (revised) confirmation reply branch.
+    # Runs BEFORE Step 3 so a HAAN/NAHI reply to a v6.3.15 confirmation
+    # message is never swallowed by an unrelated v5.12 pending action
+    # (e.g. owner had a "mark Suresh absent" prompt outstanding from
+    # earlier and now answers "haan" intending to confirm a different
+    # batch of extracted entities). The pre-fire query checks for any
+    # extraction_candidates rows with confirmation_state='pending' for
+    # this tenant within the last 48h
+    # (promoter.INFLIGHT_REPLY_WINDOW_HOURS).
+    #
+    # Design choice: when an in-flight batch exists we ALWAYS swallow
+    # the message (return the ack here without falling through). Even
+    # when the parser falls back to "all deferred", the ack instructs
+    # the owner to be more specific — protects the data model from
+    # accidental writes via misinterpreted AI responses.
+    inflight_db = SessionLocal()
+    try:
+        from app.services.promotion import (
+            apply_confirmation_decisions as _apply_decisions,
+            compose_ack as _compose_ack,
+            find_inflight_batch_for_tenant as _find_inflight,
+            parse_reply as _parse_reply,
+        )
+        in_flight = _find_inflight(inflight_db, identity.tenant_id)
+        if in_flight:
+            parsed = _parse_reply(
+                message_text,
+                in_flight,
+                tenant_id=identity.tenant_id,
+            )
+            # All candidates in a single in-flight batch share the same
+            # confirmation_message_id (or all None when the send failed);
+            # take the first row's value for the audit payload.
+            batch_msg_id = in_flight[0].confirmation_message_id
+            _apply_decisions(
+                identity.tenant_id,
+                inflight_db,
+                decisions=parsed.decisions,
+                message_id=batch_msg_id,
+                decided_by_user_id=identity.user_id,
+                parse_strategy=parsed.strategy,
+                raw_reply=parsed.raw_reply,
+            )
+            # Build the owner-facing ack from the (possibly mutated)
+            # candidates — re-fetch so confirmation_state reflects the
+            # apply step.
+            from app.models.extraction_candidate import ExtractionCandidate as _EC
+            refreshed = (
+                inflight_db.query(_EC)
+                .filter(_EC.id.in_([int(c.id) for c in in_flight]))
+                .all()
+            )
+            cand_by_id = {int(c.id): c for c in refreshed}
+            ack_text = _compose_ack(
+                decisions=parsed.decisions,
+                candidates_by_id=cand_by_id,
+                industry_type=identity.industry_type,
+            )
+            logger.info(
+                "v6.3.15 confirmation reply applied: phone=****%s "
+                "tenant=%s strategy=%s decisions=%s",
+                phone_number[-4:],
+                identity.tenant_id,
+                parsed.strategy,
+                parsed.decisions,
+            )
+            return ack_text
+    finally:
+        inflight_db.close()
 
     # Step 3: Pending confirmation state machine
     pending_action = await get_pending_action(phone_number=phone_number)

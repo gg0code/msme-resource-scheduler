@@ -1,4 +1,4 @@
-# whatsapp_alerts.py - Version 2.1
+# whatsapp_alerts.py - Version 2.2
 # Branch: v5-whatsapp
 #
 # FILE PURPOSE
@@ -10,6 +10,8 @@
 #   Job 4 - Manager check-in prompt (7:00am IST) [v5.15]
 #   Job 5 - Owner briefing from checkin (7:15am IST) [v5.15]
 #   Job 6 - Daily push briefing dispatcher (every 5 minutes) [v6.3.4]
+#   Job 7 - Candidate evaluation (02:00 IST nightly) [v6.3.15 revised]
+#   Job 8 - Confirmation send (19:00 IST nightly)    [v6.3.15 revised]
 #   On-demand - Machine down alert (triggered from machine router)
 #
 # WHO CALLS THIS FILE
@@ -88,13 +90,28 @@ ALERT_TYPE_CONFLICT     = "conflict"
 # needs to fire often enough that no configured time falls between ticks.
 BRIEFING_DISPATCH_INTERVAL_MINUTES = 5
 
-# v6.3.15 - Candidate-promotion job. Runs nightly at 02:00 IST — low
-# activity, before the 07:30 morning briefings. The promoter iterates
-# tenants opted into ENTITY_EXTRACTION_TENANT_IDS and materialises
-# qualifying extraction_candidates rows into employees / machines.
+# v6.3.15 (revised) - Candidate evaluation job. Runs nightly at
+# 02:00 IST — low activity, before the 07:30 morning briefings. The
+# evaluator iterates tenants opted into ENTITY_EXTRACTION_TENANT_IDS
+# and: (a) fuzzy-matches qualifying candidates against existing
+# employees/machines (silent confirm); (b) leaves non-matching
+# qualifying candidates in state='none' for the 19:00 IST cron to
+# ask the owner about. NO direct insertions on this tick.
 # See app/services/promotion/promoter.py for the full design.
 PROMOTION_JOB_HOUR   = 2
 PROMOTION_JOB_MINUTE = 0
+
+# v6.3.15 (revised) - Confirmation-send job. Runs at the time
+# configured in settings (PROMOTION_CONFIRMATION_HOUR_IST,
+# PROMOTION_CONFIRMATION_MINUTE_IST — default 19:00 IST). For each
+# enabled tenant: sweeps timeouts, composes one batch (top-N
+# candidates), sends a single WhatsApp confirmation message to the
+# most-recently-active top-tier phone, and records the wamid + emits
+# extraction.confirmation_requested. Owner replies HAAN/NAHI/partial
+# overnight; the inbound webhook applies the decisions before the
+# next morning's briefing.
+CONFIRMATION_SEND_JOB_HOUR   = settings.PROMOTION_CONFIRMATION_HOUR_IST
+CONFIRMATION_SEND_JOB_MINUTE = settings.PROMOTION_CONFIRMATION_MINUTE_IST
 
 
 # ---------------------------------------------------------------------------
@@ -226,27 +243,52 @@ def start_scheduler() -> None:
         BRIEFING_DISPATCH_INTERVAL_MINUTES,
     )
 
-    # Register candidate-promotion job - 02:00 IST nightly (v6.3.15).
-    # Late-imported to avoid pulling app.services.promotion (which
-    # imports app.models) at module load — start_scheduler() is called
-    # from app.main lifespan after model registration is complete.
-    from app.services.promotion import promote_for_all_tenants
+    # Register candidate-evaluation job - 02:00 IST nightly (v6.3.15
+    # revised). Late-imported to avoid pulling app.services.promotion
+    # (which imports app.models) at module load — start_scheduler() is
+    # called from app.main lifespan after model registration is complete.
+    from app.services.promotion import (
+        evaluate_for_all_tenants,
+        send_confirmations_for_all_tenants,
+    )
     scheduler.add_job(
-        func=promote_for_all_tenants,
+        func=evaluate_for_all_tenants,
         trigger=CronTrigger(
             hour=PROMOTION_JOB_HOUR,
             minute=PROMOTION_JOB_MINUTE,
             timezone=SCHEDULER_TIMEZONE,
         ),
-        id="candidate_promotion_job",
-        name="Candidate promotion job (nightly 02:00 IST)",
+        id="candidate_evaluation_job",
+        name="Candidate evaluation job (nightly 02:00 IST)",
         replace_existing=True,
         coalesce=True,
         max_instances=1,
     )
     logger.info(
-        "Scheduled: candidate-promotion job at %02d:%02d IST nightly",
+        "Scheduled: candidate-evaluation job at %02d:%02d IST nightly",
         PROMOTION_JOB_HOUR, PROMOTION_JOB_MINUTE,
+    )
+
+    # Register confirmation-send job - configurable evening time
+    # (v6.3.15 revised). Coalesce + max_instances=1 prevent overlap;
+    # the state-flip in compose_confirmation_for_tenant is the
+    # second-line defence against double-asking.
+    scheduler.add_job(
+        func=send_confirmations_for_all_tenants,
+        trigger=CronTrigger(
+            hour=CONFIRMATION_SEND_JOB_HOUR,
+            minute=CONFIRMATION_SEND_JOB_MINUTE,
+            timezone=SCHEDULER_TIMEZONE,
+        ),
+        id="confirmation_send_job",
+        name="Candidate confirmation send (nightly evening IST)",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
+    logger.info(
+        "Scheduled: confirmation-send job at %02d:%02d IST nightly",
+        CONFIRMATION_SEND_JOB_HOUR, CONFIRMATION_SEND_JOB_MINUTE,
     )
 
     # Start the scheduler
@@ -301,9 +343,13 @@ def set_dev_schedule() -> None:
     if scheduler.running:
         scheduler.remove_all_jobs()
 
-    # Late-import the v6.3.15 promoter — avoids dragging the promotion
-    # package into module load if dev never calls set_dev_schedule().
-    from app.services.promotion import promote_for_all_tenants
+    # Late-import the v6.3.15 (revised) cron entry points — avoids
+    # dragging the promotion package into module load if dev never
+    # calls set_dev_schedule().
+    from app.services.promotion import (
+        evaluate_for_all_tenants,
+        send_confirmations_for_all_tenants,
+    )
 
     for job_func, job_id in [
         (send_morning_briefings,            "morning_briefing"),
@@ -312,7 +358,8 @@ def set_dev_schedule() -> None:
         (send_manager_checkin,              "manager_checkin"),
         (send_owner_briefing_from_checkin,  "owner_briefing_checkin"),
         (run_briefing_dispatch_tick,        "briefing_dispatch_job"),
-        (promote_for_all_tenants,           "candidate_promotion_job"),
+        (evaluate_for_all_tenants,          "candidate_evaluation_job"),
+        (send_confirmations_for_all_tenants, "confirmation_send_job"),
     ]:
         scheduler.add_job(
             func=job_func,

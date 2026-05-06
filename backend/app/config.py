@@ -80,6 +80,39 @@ class Settings(BaseSettings):
     PROMOTION_RATIO_FALLBACK_THRESHOLD: int   = 90
     PROMOTION_DAILY_CAP_PER_TENANT:     int   = 10
 
+    # v6.3.15 (revised): owner-confirmation flow. v6.3.15-original silently
+    # auto-inserted candidates into employees/machines on the 02:00 IST
+    # nightly tick. The revised model splits that into two crons:
+    #   - 02:00 IST: evaluate_for_all_tenants — fuzzy-match short-circuit,
+    #     skip-bookkeeping, no inserts, no confirmation messages.
+    #   - 19:00 IST: send_confirmations_for_all_tenants — pick top-N
+    #     pending candidates per tenant, compose a single WhatsApp
+    #     message, send to the most-recently-active top-tier phone, flip
+    #     state to 'pending'. Owner replies HAAN/NAHI/partial; the
+    #     reply parser flips state to 'confirmed' / 'rejected' and ONLY
+    #     THEN does insertion happen.
+    #
+    # PROMOTION_CONFIRMATION_BATCH_SIZE - max candidates per single
+    #     evening WhatsApp message. 5 keeps the message readable and the
+    #     reply tractable. Surplus qualifying candidates re-qualify
+    #     tomorrow night under the same top-N ordering.
+    # PROMOTION_CONFIRMATION_TIMEOUT_DAYS - days to wait for an owner
+    #     reply before re-asking. 7 days = "you've had a week, here it
+    #     is again." Re-ask resets confirmation_state to 'none' and
+    #     bumps confirmation_retry_count.
+    # PROMOTION_CONFIRMATION_MAX_RETRIES - after this many re-asks with
+    #     no reply, the candidate is auto-rejected. 3 retries × 7 days
+    #     = ~21 days of patient nudging before the system stops asking.
+    # PROMOTION_CONFIRMATION_HOUR_IST / MINUTE_IST - cron clock for the
+    #     evening confirmation send. Owner gets the message in the
+    #     evening to review at leisure; replies arrive overnight; the
+    #     morning briefing reflects approved insertions.
+    PROMOTION_CONFIRMATION_BATCH_SIZE:    int = 5
+    PROMOTION_CONFIRMATION_TIMEOUT_DAYS:  int = 7
+    PROMOTION_CONFIRMATION_MAX_RETRIES:   int = 3
+    PROMOTION_CONFIRMATION_HOUR_IST:      int = 19
+    PROMOTION_CONFIRMATION_MINUTE_IST:    int = 0
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

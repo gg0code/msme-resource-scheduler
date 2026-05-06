@@ -49,9 +49,12 @@
 #   target list in v6.3.14.
 #
 # FORWARD-COMPAT
-# - v6.3.15 — promotion job reads (tenant_id, mention_count, confidence)
-#   to materialise candidates into employees/machines/customers/skills.
-# - v6.3.16 — surface "we noticed X — should I add this?" prompts to
+# - v6.3.15 (revised) - four confirmation_* columns (migration 030)
+#   track the owner-confirmation cycle: candidates are no longer
+#   silently inserted; the nightly cron asks the owner via WhatsApp
+#   and only inserts on explicit HAAN. See promoter.py header for the
+#   full state machine.
+# - v6.3.16 - surface "we noticed X - should I add this?" prompts to
 #   the user; reads same rows.
 
 from sqlalchemy import (
@@ -114,6 +117,42 @@ class ExtractionCandidate(Base):
         nullable=False,
     )
 
+    # ---- v6.3.15 (revised) confirmation columns (migration 030) ----------
+    # Vocabulary enforced at app layer (no DB CHECK), matching the
+    # entity_type / source_type precedent above. See migration 030
+    # header for the full state machine description.
+    #   'none'      - never asked about; eligible for next batch
+    #   'pending'   - asked; awaiting owner reply
+    #   'confirmed' - owner said HAAN OR fuzzy-matched existing entity
+    #   'rejected'  - owner said NAHI OR auto-rejected after retries
+    confirmation_state = Column(
+        String(20),
+        nullable=False,
+        server_default="none",
+    )
+    # When the bot's outbound proposal was queued. Drives the 7-day
+    # timeout window (PROMOTION_CONFIRMATION_TIMEOUT_DAYS).
+    confirmation_asked_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    # wamid of the OUTBOUND bot proposal (NOT the inbound reply).
+    # Lets the inbound webhook match a quoted reply via context.id and
+    # the audit trail follow message -> state -> insertion. NULL in
+    # mock/dev when Meta Cloud API is not reachable.
+    confirmation_message_id = Column(
+        String(120),
+        nullable=True,
+    )
+    # Bumped each time a 'pending' candidate ages past timeout and
+    # gets re-asked. When it hits PROMOTION_CONFIRMATION_MAX_RETRIES
+    # the candidate auto-flips to 'rejected'.
+    confirmation_retry_count = Column(
+        Integer,
+        nullable=False,
+        server_default="0",
+    )
+
     tenant = relationship("Tenant")
 
     __table_args__ = (
@@ -137,5 +176,14 @@ class ExtractionCandidate(Base):
             "idx_extraction_candidates_tenant_mentions",
             "tenant_id",
             "mention_count",
+        ),
+        # v6.3.15 (revised) - powers the per-tenant pre-fire scan
+        # ("only state='none' qualifies for the next batch") in
+        # compose_confirmation_for_tenant. Without this index every
+        # evening run would full-scan the table per tenant.
+        Index(
+            "idx_extraction_candidates_tenant_confirmation_state",
+            "tenant_id",
+            "confirmation_state",
         ),
     )

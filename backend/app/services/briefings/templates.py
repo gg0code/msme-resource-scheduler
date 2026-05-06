@@ -69,6 +69,7 @@ INDUSTRY_LABELS: dict[str, dict[str, str]] = {
     "printing": {
         "job":             "job",
         "jobs":            "jobs",
+        "employee":        "employee",
         "employees":       "employees",
         "machine":         "press",
         "machines":        "presses",
@@ -77,6 +78,7 @@ INDUSTRY_LABELS: dict[str, dict[str, str]] = {
     "fabrication": {
         "job":             "order",
         "jobs":            "orders",
+        "employee":        "operator",
         "employees":       "operators",
         "machine":         "machine",
         "machines":        "machines",
@@ -85,6 +87,7 @@ INDUSTRY_LABELS: dict[str, dict[str, str]] = {
     "manufacturing": {
         "job":             "job",
         "jobs":            "jobs",
+        "employee":        "operator",
         "employees":       "operators",
         "machine":         "machine",
         "machines":        "machines",
@@ -93,6 +96,7 @@ INDUSTRY_LABELS: dict[str, dict[str, str]] = {
     "chemical": {
         "job":             "batch",
         "jobs":            "batches",
+        "employee":        "operator",
         "employees":       "operators",
         "machine":         "reactor",
         "machines":        "reactors",
@@ -101,6 +105,7 @@ INDUSTRY_LABELS: dict[str, dict[str, str]] = {
     "field_service": {
         "job":             "ticket",
         "jobs":            "tickets",
+        "employee":        "technician",
         "employees":       "technicians",
         "machine":         "asset",
         "machines":        "assets",
@@ -212,6 +217,67 @@ TEMPLATES: dict[str, dict[Locale, str]] = {
         "en":    "End of day. Floor was idle today - no {jobs_label} ran. Plan ahead for tomorrow.",
         "hi-en": "Aaj floor idle tha - koi {jobs_label} nahi chala. Kal ka plan banao.",
         "hi":    "Shubh sandhya! Aaj koi {jobs_label} nahi chala.",
+    },
+
+    # ------------------------------------------------------------------
+    # CONFIRMATION MESSAGE - v6.3.15 (revised)
+    # Sent at the configured PROMOTION_CONFIRMATION_HOUR_IST (19:00 IST
+    # default) when one or more extraction candidates have qualified
+    # and have confirmation_state='none'. Owner sees a single
+    # WhatsApp message listing top-N candidates and replies HAAN /
+    # NAHI / partial. Per Q6 we replaced the original "Pichhle hafte
+    # mein" with "Pichhle kuch dino mein" (last few days) since the
+    # accumulation period varies by tenant activity.
+    #
+    # Placeholders:
+    #   {workspace_label}   - factory / workshop / plant / shop floor / sites
+    #   {employees_label}   - employees / operators / technicians (plural)
+    #   {machines_label}    - presses / machines / reactors / assets
+    #
+    # The composer iterates `confirmation_line_employee` /
+    # `confirmation_line_machine` per candidate so the singular labels
+    # ('employee', 'machine'/'press'/'reactor'/'asset', 'technician')
+    # come from industry_labels(industry_type).
+    # ------------------------------------------------------------------
+    "confirmation_intro": {
+        "en":    "In the last few days these names came up in {workspace_label} chat - are these your {employees_label} or {machines_label}?",
+        "hi-en": "Pichhle kuch dino mein {workspace_label} mein ye naam mention hue - shayad ye aapke {employees_label} ya {machines_label} hain?",
+        "hi":    "Pichhle kuch dino mein {workspace_label} mein ye naam mention hue - shayad aapke {employees_label} ya {machines_label}?",
+    },
+    "confirmation_line_employee": {
+        "en":    "{idx}. {name} - mentioned {count} times ({employee_label}?)",
+        "hi-en": "{idx}. {name} - {count} baar mention hua ({employee_label}?)",
+        "hi":    "{idx}. {name} - {count} baar mention hua ({employee_label}?)",
+    },
+    "confirmation_line_machine": {
+        "en":    "{idx}. {name} - mentioned {count} times ({machine_label}?)",
+        "hi-en": "{idx}. {name} - {count} baar mention hua ({machine_label}?)",
+        "hi":    "{idx}. {name} - {count} baar mention hua ({machine_label}?)",
+    },
+    "confirmation_outro": {
+        "en":    "Add them? Reply HAAN or NAHI. Specific picks: 'Suresh haan, Mukesh nahi'. To skip: 'Skip'.",
+        "hi-en": "Add karna hai? Reply HAAN ya NAHI. Specific kuch chahiye to: 'Suresh haan, Mukesh nahi'. Skip karna ho to: 'Skip'.",
+        "hi":    "Add karna hai? HAAN ya NAHI bhejein. Specific: 'Suresh haan, Mukesh nahi'. Skip ke liye: 'Skip'.",
+    },
+    "confirmation_ack_partial": {
+        "en":    "Done. Added: {added}. Skipped: {skipped}.",
+        "hi-en": "Theek hai. Add ho gaye: {added}. Skip kar diye: {skipped}.",
+        "hi":    "Theek. Add: {added}. Skip: {skipped}.",
+    },
+    "confirmation_ack_none": {
+        "en":    "OK, nothing added. They will stay pending and may come back later.",
+        "hi-en": "Theek hai, kuch add nahi kiya. Ye pending mein rahenge, baad mein dobara poochenge.",
+        "hi":    "Theek. Kuch add nahi. Pending mein rahenge.",
+    },
+    "confirmation_ack_all_added": {
+        "en":    "Done. Added: {added}.",
+        "hi-en": "Theek hai. Add ho gaye: {added}.",
+        "hi":    "Theek. Add: {added}.",
+    },
+    "confirmation_ack_unparsed": {
+        "en":    "Not sure if that was a yes or no. Reply HAAN to add all, NAHI to skip all, or be specific: 'Suresh haan, Mukesh nahi'.",
+        "hi-en": "Samajh nahi aaya - HAAN ya NAHI bhejein, ya specific bolo: 'Suresh haan, Mukesh nahi'.",
+        "hi":    "Samajh nahi aaya. HAAN, NAHI, ya specific naam ke saath jawab dein.",
     },
 }
 
