@@ -9,14 +9,19 @@ spec." Both must be reconciled in any release that closes the gap.
 matching row in the same commit. Treat this like a file-header version number —
 not optional, not deferred to a cleanup pass.
 
-**Last updated:** 2026-05-05 — v6.3.13 + v6.3.14 CHANGELOG entries backfilled (the prerequisite versions for the v6.3.15 Candidate Promotion Job that shipped earlier today); ledger "pending" notes for those two rows dropped. The remaining pre-v6.3.13 stubs (v6.3.1, v6.3.2.x, v6.3.4, v6.3.6 — see Doc-trinity reconciliation note in CHANGELOG) remain open.
+**Last updated:** 2026-05-07 — v6.3.16 Day-7 First-Insight Gate and v6.3.17 WhatsApp owner-bypass entity writes shipped and tagged on dev. Both verified end-to-end against real Postgres tenant 12 in mock-mode. CHANGELOG entries written in the same pass that updated this ledger.
 
-Prior update (same day): v6.3.15 Candidate Promotion Job shipped (`promote_for_tenant` + `promote_for_all_tenants` registered as APScheduler `candidate_promotion_job` at 02:00 IST nightly; reads `extraction_candidates`, materialises into `employees` + `machines` with `source='whatsapp_inferred'`; rapidfuzz hybrid match for idempotency; daily cap 10/tenant; customer promotion deferred — no `customers` table yet — emitted as deduped `extraction.candidate_skipped` audit events; 33 new tests, **746 passing**; smoke 63/63 against real Postgres; no migration; head stays at `029`).
+Prior update (2026-05-06 → 2026-05-07): v6.3.15 (revised) Owner-Confirmed Candidate Promotion landed (silent insertion retracted; nightly job now batches qualifying candidates per tenant and sends a single WhatsApp confirmation requesting explicit HAAN/NAHI; only on HAAN does insertion happen; reply-parser is hybrid heuristic+LLM; migration `030` added the four `confirmation_*` columns to `extraction_candidates`).
 
-**Current migration head:** `029` (per `alembic heads`). Migration `028` is the
-events audit table (v6.3.3); migration `029` is the `extraction_candidates`
-staging table (v6.3.13). Next migration must use revision ID `030` and chain
-`down\_revision = "029"`.
+Prior update (2026-05-05): v6.3.13 + v6.3.14 CHANGELOG entries backfilled (the prerequisite versions for the v6.3.15 Candidate Promotion Job that shipped earlier the same day).
+
+**Current migration head:** `032` (per `alembic heads`). Chain through the v6.3.x
+window: `028` events audit table (v6.3.3); `029` `extraction_candidates`
+staging table (v6.3.13); `030` `confirmation_*` columns on
+`extraction_candidates` (v6.3.15 revised); `031` `first_briefing_sent_at`
++ `engagement_ladder_state` columns on `tenants` (v6.3.16); `032` `source`
+column on `skills` (v6.3.17). Next migration must use revision ID `033`
+and chain `down\_revision = "032"`.
 
 \---
 
@@ -84,7 +89,10 @@ open.
 |Events audit table|9.2|v6.3.3|shipped|v6.3.3|(no flag)|028|n/a|none|
 |Extraction candidates staging table|? (deferred)|v6.3.13|shipped|v6.3.13|(no flag — schema only)|029|n/a|none|
 |Entity extractor (WhatsApp → candidates)|? (deferred)|v6.3.14|shipped|v6.3.14|ENTITY\_EXTRACTION\_TENANT\_IDS=CSV (default empty=OFF)|—|?/?|AC IDs (batched pass)|
-|Candidate Promotion Job (employees + machines)|? (deferred)|v6.3.15|shipped|v6.3.15|ENTITY\_EXTRACTION\_TENANT\_IDS=CSV (reused; default empty=OFF)|—|?/?|customer promotion (no `customers` table yet); user-facing surfacing (v6.3.16); NL undo (v6.3.17); per-tenant settings UI (v6.3.19); 30-day fuzzy-threshold review on tenant 12; AC IDs (batched pass)|
+|Candidate Promotion Job (employees + machines)|? (deferred)|v6.3.15|shipped|v6.3.15|ENTITY\_EXTRACTION\_TENANT\_IDS=CSV (reused; default empty=OFF)|—|?/?|customer promotion (no `customers` table yet); per-tenant settings UI (v6.3.19); 30-day fuzzy-threshold review on tenant 12; AC IDs (batched pass)|
+|Owner-confirmed candidate promotion (revised)|? (deferred)|v6.3.15 revised|shipped|v6.3.15|ENTITY\_EXTRACTION\_TENANT\_IDS=CSV (reused)|030|?/?|customer promotion (no `customers` table); confirmation timeout / re-ask cadence tuning post-pilot; AC IDs (batched pass)|
+|Day-7 First-Insight Gate|? (deferred)|v6.3.16|shipped|v6.3.16|(no flag — fires only when `tenants.first_briefing_sent_at` is set AND ledger key absent)|031|6/6 unit + 3/3 PG smoke|existing `detect_day_7` marker left in place (v6.4.0 owns retiring it); `zetaops_day7_routine_set` Meta template not yet submitted (Cloud API session messages used everywhere); AC IDs (batched pass)|
+|WhatsApp owner-bypass entity writes|? (deferred)|v6.3.17|shipped|v6.3.17|(no flag — strict role gate inside `evaluate_and_write` defaults to deny)|032|all 40 unit + 4/4 PG smoke|customer-add (no `customers` table); DELETE / UPDATE / bulk-add intents; reply localisation (v6.3.18); AC IDs (batched pass)|
 |Material Estimator (WhatsApp surface)|6.25|v6.5 plan|not started|—|material\_estimator\_freemium=False|—|0/4|6.25-AC1, 6.25-AC2, 6.25-AC3, 6.25-AC4|
 |Compliance Deadline Tracker|6.26|v6.6 plan|not started|—|compliance\_tracker=False|025 plan|0/n|all (6.26-AC1..ACn)|
 |GST E-Invoicing JSON|6.27|v6.7 plan|not started|—|einvoice\_generator=False|026 plan|0/n|all (6.27-AC1..ACn)|

@@ -47,6 +47,101 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 
 ---
 
+## [v6.3.17] — 2026-05-07
+**Commit:** `4dfc365`
+**Branch:** v5-whatsapp
+
+WhatsApp owner-bypass entity writes. Top-tier WhatsApp messages
+containing an explicit creation verb (`add karo`, `add kar do`,
+`banao`, `bana do`, `jodo`, `daalo`, `register karo`, `create`)
+plus an entity name now write directly to `employees` /
+`machines` / `skills` / `employee_skills` with
+`source='whatsapp_owner'`, bypassing the v6.3.14 extractor
+confidence threshold and the v6.3.15 nightly confirmation cycle.
+Manager / operator / NULL / unknown roles still fall through to
+the existing extractor path unchanged. The heuristic
+deliberately errs toward false negatives — missed creates fall
+through to extraction (fine), false positives (accidental writes
+to a customer's production DB) are not.
+
+### Added
+- **`app/services/owner_entity_writer.py`** — heuristic detector + four writers (`write_employee`, `write_machine`, `write_skill`, `link_employee_skill`) + `evaluate_and_write` entry point. Strict role gate (NULL / unknown / mid-tier / operator return None — no caching, decided per-message). Idempotency via the existing v6.3.15 `fuzzy_match.fuzzy_best_match` (rapidfuzz token_set_ratio threshold 85, ratio fallback 90). Owner-bypass writes skip duplicate inserts and emit no second audit row when the fuzzy short-circuit fires.
+- **New audit-event type `entity.owner_added`** on the v6.3.3 events table. Payload: `{entity_type, entity_id, raw_message, source: 'whatsapp_owner', actor_user_id, parse_strategy: 'heuristic', fuzzy_skipped}`. The `parse_strategy` field is reserved for v6.4.x evolution to a hybrid LLM-assisted parser without payload-schema break.
+- **Dispatcher branch (Step 6a.5)** in `app/routers/whatsapp.py:_process_inbound_message`, between the role-blocked early-return and the existing action_type confirmation loop. Self-contained session, late import, exception-swallowing — gate failures never affect the rest of the pipeline.
+- **`tests/services/test_owner_entity_writer.py`** — 40 tests covering 10 negative heuristic cases (`"Mukesh ko sambhaalo aaj"`, `"Suresh aaj nahi aaya"`, `"Naya welder chahiye"`, `"Mukesh achha kaam karta hai"`, `"Mukesh ki salary kya hai"`, `"Mukesh ko aaj kya kaam mila"`, `"Ek welder kal aayega"`, `"Welder chahiye urgent"`, `"Heidelberg add kar do"`, `"ek aur machine aayi hai, naam Cutter 4"`), 4 positive cases, full role-gate matrix (4 top-tier × proceed + 6 non-top-tier × fall-through including NULL / empty / case-mismatch + role-change between messages), 4 writer happy paths, 3 cross-entity dependency paths, 4 idempotency paths, and the audit-event payload contract.
+- **`'whatsapp_owner'`** added to `VALID_SOURCE_VALUES` in `app/models/employee.py`. Distinguishes owner-asserted writes from manager-typed (`'whatsapp'`) and bot-promoted (`'whatsapp_inferred'`) rows.
+
+### Changed
+- **`app/models/skill.py`** gained a `source` column to match the Employee/Machine pattern (CLAUDE.md rule #2 — provenance is structural, never remove). Imports `VALID_SOURCE_VALUES` from `models/employee.py` so a single canonical vocabulary covers all three entity tables.
+- **`tests/test_employees.py::test_valid_source_values_constant`** updated from `len == 4` to `len == 5` and added `whatsapp_owner` membership check.
+- **`tests/test_alembic_migrations.py`** head test renamed `test_head_is_031` → `test_head_is_032`; added `test_032_in_chain`.
+- **CLAUDE.md** head bumped from `031` to `032` in three places.
+
+### Migration
+- **032 — `add_source_to_skills.py`** — adds `source VARCHAR(20) NOT NULL DEFAULT 'manual'` to the `skills` table. Reversible. Existing rows back-fill atomically via the server_default. Verified end-to-end against dev Postgres: round-trip (`upgrade head` → `downgrade -1` → `upgrade head`) clean.
+
+### Tests
+- `pytest tests/services/test_owner_entity_writer.py -v` — **40 passed**.
+- `pytest tests/ -m "not integration"` — **888 passed**, 4 pre-existing date-drift failures (3 in `test_detect_no_progress`, 1 in `test_detect_new_employee_no_show` — both rely on `TODAY=date(2026,5,4)` and need an unrelated fix), 3 skipped, 12 deselected. Zero regressions caused by v6.3.17.
+- Smoke test against dev Postgres tenant 12 (no Mukesh on disk before): happy path inserted Mukesh as Employee with `source='whatsapp_owner'`, role-gate refused the same message from a manager-role phone with `None`, idempotency short-circuited a second identical owner message with `"Mukesh pehle se team mein hai."` — no duplicate row, no second audit event. Tenant 12 restored to its pre-smoke state (the audit row left intact by design — events are append-only).
+
+### Deferred
+- **`"ek aur machine aayi hai, naam Cutter 4"` phrasing** — has no creation verb in the tight set and is therefore a false negative. The message falls through to the v6.3.14 extractor and surfaces later via the v6.3.15 confirmation cycle. Per the Q1 directive ("missed creates fall through, fine; false positives, not fine"), this is the intended trade-off. Revisit when real owner messages give us evidence that this phrasing is common.
+- **DELETE / UPDATE / bulk-add intents** — explicitly out of scope per the spec; audit / confirmation requirements are stronger and deserve their own version.
+- **Customer-add path** — `customers` table still does not exist; `Job.customer` remains free-text VARCHAR. Defer to whichever future version adds the schema.
+- **Reply localisation** — replies are romanised Hindi/Hinglish, matching the existing dispatcher convention. v6.3.18 message-formatter pass owns the standardisation.
+- **AC IDs** — batched with v6.3.7..v6.3.17 SRS annotation pass.
+
+### Notes
+- Owner-bypass writes are **only** for explicit-creation messages from a top-tier phone. Anything else flows through the existing extractor + nightly confirmation cycle unchanged.
+- The strict role gate is enforced inside `evaluate_and_write` (using the canonical `TOP_TIER_ROLES` from `app.models.auth`), independent of the existing `detect_write_intent` role gate. This means a future change to either gate cannot accidentally widen the bypass surface.
+- v5.11 WhatsApp go-live remains blocked on Meta portfolio review.
+
+---
+
+## [v6.3.16] — 2026-05-06
+**Commit:** `d8fb094`
+**Branch:** v5-whatsapp
+
+Day-7 First-Insight Gate. After seven calendar days of delivered
+morning briefings, the dispatcher fires a one-shot owner message
+that picks the strongest of four signals (attendance pattern,
+skill bottleneck, machine utilisation spread, recurring customer
+name) or a routine-set fallback when no signal crosses threshold.
+Idempotency lives in a new `tenants.engagement_ladder_state` JSONB
+ledger so the gate cannot fire twice per tenant.
+
+### Added
+- **`app/services/day7_insight.py`** — `evaluate_and_send(tenant_id, db)` entry point. Four signal detectors (attendance pattern with two sub-variants — chronic worker absent ≥4 of last 7 working days, OR ≥2 distinct workers absent on the same weekday; skill bottleneck where one worker handles ≥70% of jobs requiring a specific skill over the look-back; machine utilisation spread where the most-used machine ran ≥4× the least-used machine, with a 0.5 hr/day floor on the denominator; recurring customer name from `extraction_candidates` mention_count ≥5 and not appearing in any existing `Job.customer`, with a 4-character contiguous substring overlap rule to skip aliases). Priority order matches the spec; first signal that fires wins. Fallback message — the romanised-Hindi `zetaops_day7_routine_set` body — when no signal qualifies. Three audit event types: `engagement.day7_owner_sent` (happy path, ledger marked), `engagement.day7_owner_suppressed` (anchor older than the 14-day suppression window, ledger marked without sending), `engagement.day7_owner_failed` (fan-out totally failed, ledger NOT marked so the gate retries on the next morning tick).
+- **`app/services/day7_thresholds.py`** — pure-data threshold constants for the four signals plus the >14-day suppression guard. Stdlib only, no logic. Designed to move into `engagement_ladder/thresholds.py` in v6.4.0 without changes.
+- **Dispatcher integration** in `app/services/briefings/dispatcher.py`. Two changes: (a) `dispatch_briefing` now sets `tenant.first_briefing_sent_at = now()` on the first successful morning send for a tenant (one-shot anchor, never updated thereafter); (b) `dispatch_due_briefings` calls `evaluate_and_send` after a successful morning commit, in its own try/commit block so gate failures cannot affect the briefing or the rest of the cron tick.
+- **18 unit tests** in `tests/services/test_day7_insight.py` covering all four signal detectors firing, the fallback when no signal crosses, idempotency of a second call, the three skip paths (no anchor / too early / suppression for >14-day anchor), total + partial send-failure ledger semantics, alias-overlap exclusion in the customer detector, and signal priority (attendance wins over machine when both qualify).
+
+### Changed
+- **`app/models/auth.py:Tenant`** gained two new columns mapped to the migration-031 schema: `first_briefing_sent_at TIMESTAMPTZ NULL` (the day-counting anchor) and `engagement_ladder_state JSONB NOT NULL DEFAULT '{}'` (the per-tenant idempotency ledger; v6.3.16 writes one key, `day7_owner_sent_at`, with v6.4.0 reserved keys documented in the migration header).
+- **`tests/test_alembic_migrations.py`** head test renamed `test_head_is_030` → `test_head_is_031`; added `test_031_in_chain`.
+- **CLAUDE.md** head bumped from `028` (which was already stale) to `031`, plus the "Current state in one paragraph" section refreshed in a follow-up commit (`c30f7d1`) to cover v6.3.7 through v6.3.16.
+
+### Migration
+- **031 — `add_day7_engagement_columns.py`** — adds the two new columns on `tenants`. Backfills `first_briefing_sent_at` for existing tenants from the earliest `briefing.sent` event with payload `kind='morning'` (Postgres `payload ->> 'kind'` text-extract). Tenants with no morning-briefing history retain NULL and the gate silently skips them. Reversible. Verified end-to-end against dev Postgres: round-trip (`upgrade head` → `downgrade -1` → `upgrade head`) clean; 2 of 37 tenants got an anchor backfilled (the rest had never received a morning briefing — correctly NULL).
+
+### Tests
+- `pytest tests/services/test_day7_insight.py -v` — **18 passed**.
+- `pytest tests/test_alembic_migrations.py` — 7 passed, 3 skipped (live-DB tier).
+- `pytest tests/ -m "not integration"` — **848 passed**, 3 pre-existing date-drift failures in `test_detect_no_progress` (verified against unmodified baseline; not introduced by this branch), 3 skipped, 12 deselected.
+- Smoke test against dev Postgres tenant 12: happy path fired the routine-set fallback to two recipient phones (`[MOCK ALERT]` lines visible in uvicorn log), failure mode (raising send_fn) wrote `engagement.day7_owner_failed` and left the ledger untouched, suppression mode (anchor 30 days old) marked the ledger without sending. Tenant 12 restored to its pre-smoke state.
+
+### Deferred
+- **The existing `briefing_intelligence/catalog/tenancy.py:detect_day_7` marker** (a single-line celebratory message inside the morning briefing) is left in place. v6.3.16's docstring explicitly tags this as the "wow gate" that supersedes the marker, but coexistence on day 7 is acceptable per spec — the user receives one short marker line inside the briefing AND one signal-driven (or fallback) message after. v6.4.0 owns retiring or gating the marker.
+- **`zetaops_day7_routine_set` Meta template registration** — the en_US + hi bodies are documented in the spec; submission to Meta as a template fallback for the rare expired-session case is a separate ops step. v6.3.16 uses Cloud API session messages everywhere (the gate fires on the morning push tick, where the 24h session window is always open).
+- **AC IDs** — batched with the v6.3.7..v6.3.17 SRS annotation pass.
+
+### Notes
+- The Q1-confirmed >14-day suppression guard means existing pilot tenants whose backfilled anchor is more than 14 days in the past are silently retired without ever receiving a Day-7 message. This prevents post-hoc surprise messages on production tenants who installed before the gate existed.
+- The customer-recurrence detector treats `Job.customer` (a free-text VARCHAR — there is no customers table) as the "is this name new?" check, with a 4-character contiguous substring rule to catch alias-style duplicates ("Patel Trading Co." vs "Patel Traders").
+
+---
+
 ## [v6.3.15] — 2026-05-05
 **Branch:** v5-whatsapp
 
