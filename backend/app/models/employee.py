@@ -37,10 +37,14 @@ from app.database import Base
 # ---------------------------------------------------------------------------
 # v6.3.15 added 'whatsapp_inferred' to distinguish bot-extracted-and-promoted
 # rows (nightly promotion job) from user-typed-via-WhatsApp rows ('whatsapp').
+# v6.3.17 added 'whatsapp_owner' for direct writes from a top-tier role's
+# explicit-creation message (bypasses the v6.3.14 extractor + v6.3.15
+# confirmation cycle — the owner is authoritative for their own data).
 # The column is plain VARCHAR(20) so this is a constant change only — no
-# migration. The value is written by app/services/promotion/promoter.py.
+# migration. Values are written by app/services/promotion/promoter.py and
+# app/services/owner_entity_writer.py.
 VALID_SOURCE_VALUES:      tuple[str, ...] = (
-    "manual", "whatsapp", "whatsapp_inferred", "erp_sync",
+    "manual", "whatsapp", "whatsapp_inferred", "whatsapp_owner", "erp_sync",
 )
 VALID_WORKER_TYPE_VALUES: tuple[str, ...] = ("permanent", "contractor")
 

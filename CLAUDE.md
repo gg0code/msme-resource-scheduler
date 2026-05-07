@@ -97,8 +97,8 @@ or a v7.0-blocking rewrite.
 2. **`source` and `worker_type` columns (migration 023) are permanent.**
    Removing them forces a full schema rewrite at v7.0 ERP connector. The
    v5.16 decision is structural, not cosmetic. Never remove. SRS §21.
-3. **Migration head must be a single value.** Currently `031`. Next
-   migration is `032` with `down_revision = "031"`. Verify with
+3. **Migration head must be a single value.** Currently `032`. Next
+   migration is `033` with `down_revision = "032"`. Verify with
    `alembic heads` — exactly one head, ever.
 4. **Industry labels via `useLabels()` hook only.** No hardcoded "Jobs",
    "Employees", "Machines" strings in `frontend/src/pages/` or
@@ -134,7 +134,7 @@ Run these four. Any failure = don't merge. From SRS §22:
 npx tsc --noEmit                           # zero errors
 python -m py_compile app/                  # zero errors
 pytest tests/ -m "not integration" -v      # zero failures
-alembic heads                              # exactly one head (currently 031)
+alembic heads                              # exactly one head (currently 032)
 ```
 
 Integration tests (`-m integration`) hit real Postgres and are skipped in
@@ -159,8 +159,8 @@ v6.3 work, not new test infrastructure.
   `context_builder.py` (prompt assembly).
 - `app/schemas/` — Pydantic models. `team.py` notable for the
   `email_or_phone` back-compat shape.
-- `alembic/versions/` — migration chain. Head `031` (Day-7 engagement
-  ledger columns on tenants).
+- `alembic/versions/` — migration chain. Head `032` (source column
+  on skills, v6.3.17).
 - `rag_data/_templates/{industry}/` — RAG knowledge by vertical (4
   verticals — chemical excluded, Plan B only).
 - `scripts/` — backfills. Notable: `backfill_phone_industry_type.py`
@@ -235,8 +235,8 @@ These four things, in order:
 2. **What does the ledger say about this feature today?** If it's `?`, the
    ledger has the recipe ("How to fill in the `?` rows" section) — git
    tag → SRS section → test file → counts.
-3. **Will this need a migration?** If yes, head goes from `031` to `032`,
-   `down_revision = "031"`. Update SRS §9.2 in the same commit.
+3. **Will this need a migration?** If yes, head goes from `032` to `033`,
+   `down_revision = "032"`. Update SRS §9.2 in the same commit.
 4. **Does this touch a feature flag?** SRS §5.1 lists them with their
    defaults. Defaults are decisions, not accidents — flipping one is a
    PM-level call.

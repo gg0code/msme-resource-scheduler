@@ -990,6 +990,44 @@ async def _process_inbound_message(
         )
         return block_reply
 
+    # Step 6a.5: v6.3.17 owner-bypass direct-write branch.
+    # Top-tier (proprietor/owner/factory_manager/co_owner) explicit
+    # creation messages — "naya welder hai - Mukesh add kar do",
+    # "ek aur skill banao - powder coating", etc. — write directly
+    # to employees/machines/skills with source='whatsapp_owner',
+    # bypassing the v6.3.14 extractor confidence threshold and the
+    # v6.3.15 confirmation cycle. evaluate_and_write enforces a strict
+    # role gate (NULL / unknown / mid-tier / operator return None) and
+    # a tight heuristic that requires both a creation verb AND an
+    # entity name. Anything else returns None and the rest of the
+    # pipeline runs unchanged.
+    owner_writer_db = SessionLocal()
+    try:
+        from app.services.owner_entity_writer import evaluate_and_write
+        owner_reply = evaluate_and_write(
+            message=message_text,
+            tenant_id=identity.tenant_id,
+            phone_role=identity.phone_role,
+            actor_user_id=identity.user_id,
+            db=owner_writer_db,
+        )
+        owner_writer_db.commit()
+    except Exception:  # noqa: BLE001 - never raise to the dispatcher
+        logger.exception(
+            "Owner-bypass write raised: phone=****%s tenant=%s",
+            phone_number[-4:], identity.tenant_id,
+        )
+        owner_writer_db.rollback()
+        owner_reply = None
+    finally:
+        owner_writer_db.close()
+    if owner_reply is not None:
+        logger.info(
+            "Owner-bypass write fired: phone=****%s tenant=%s",
+            phone_number[-4:], identity.tenant_id,
+        )
+        return owner_reply
+
     if action_type is not None:
         await store_pending_action(
             phone_number=phone_number,

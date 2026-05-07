@@ -137,8 +137,11 @@ class TestEmployeeSourceField:
         assert "whatsapp" in VALID_SOURCE_VALUES
         # v6.3.15 added 'whatsapp_inferred' for the candidate-promotion job.
         assert "whatsapp_inferred" in VALID_SOURCE_VALUES
+        # v6.3.17 added 'whatsapp_owner' for the owner-bypass direct-write
+        # path (app/services/owner_entity_writer.py).
+        assert "whatsapp_owner" in VALID_SOURCE_VALUES
         assert "erp_sync" in VALID_SOURCE_VALUES
-        assert len(VALID_SOURCE_VALUES) == 4
+        assert len(VALID_SOURCE_VALUES) == 5
 
 
 # ---------------------------------------------------------------------------
