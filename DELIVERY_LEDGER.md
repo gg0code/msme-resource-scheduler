@@ -9,6 +9,8 @@ spec." Both must be reconciled in any release that closes the gap.
 matching row in the same commit. Treat this like a file-header version number —
 not optional, not deferred to a cleanup pass.
 
+**Last updated:** 2026-05-08 — version-number gap policy documented; v5.11 / v5.13 / v5.14 retired from "blocked" list (work shipped under v6.3.7+v6.3.8, v5.2-voice-notes, v6.3.5 respectively).
+
 **Last updated:** 2026-05-07 — v6.3.16 Day-7 First-Insight Gate and v6.3.17 WhatsApp owner-bypass entity writes shipped and tagged on dev. Both verified end-to-end against real Postgres tenant 12 in mock-mode. CHANGELOG entries written in the same pass that updated this ledger.
 
 Prior update (2026-05-06 → 2026-05-07): v6.3.15 (revised) Owner-Confirmed Candidate Promotion landed (silent insertion retracted; nightly job now batches qualifying candidates per tenant and sends a single WhatsApp confirmation requesting explicit HAAN/NAHI; only on HAAN does insertion happen; reply-parser is hybrid heuristic+LLM; migration `030` added the four `confirmation_*` columns to `extraction_candidates`).
@@ -62,10 +64,10 @@ open.
 |-|-|-|-|-|-|-|-|-|
 |WhatsApp Copilot pipeline (mock)|6.13|v5.0–5.9|shipped|v5.9|whatsapp\_copilot=True|017|n/a|none|
 |Proactive alerts (briefing/conflict)|6.13|v5.10|shipped|v5.10|whatsapp\_copilot=True|—|n/a|none|
-|WhatsApp go-live (real Interakt)|—|v5.11|blocked|—|(env switch)|—|0/n|Meta review pending|
+|WhatsApp production cutover|—|originally v5.11; shipped at v6.3.7 + v6.3.8|blocked on Meta approval (engineering complete)|v6.3.7 + v6.3.8|(env switch: WHATSAPP\_MOCK\_MODE)|—|0/n|Meta Business portfolio review pending; v5.11 number unused — see CLAUDE.md "Version-number gaps are normal"|
 |Role limiting (owner/manager/viewer)|6.17|v5.12|shipped|v5.12|(always on)|018|n/a|none|
 |3-language support (Hi/Hg/En)|6.18|v5.12|shipped|v5.12|(always on)|—|n/a|none|
-|Voice notes (Whisper)|6.13|v5.13|blocked|—|(env switch)|—|0/n|depends on v5.11 go-live|
+|Voice notes (Whisper)|6.13|originally v5.13; shipped at v5.2-voice-notes|shipped (mock); blocked on Meta approval for real audio|v5.2-voice-notes|whatsapp\_copilot=True|—|n/a|v5.13 number unused — implementation landed Mar 30 at v5.2-voice-notes; real inbound audio gated by Meta portfolio review|
 |Manager check-in flow (7:00am)|6.20|v5.15|shipped|v5.15|whatsapp\_copilot=True|—|n/a|none|
 |Owner briefing (7:15am)|6.21|v5.15|shipped|v5.15|whatsapp\_copilot=True|—|n/a|none|
 |Day 1 Simple Table|6.19|v5.16|shipped|v5.16|(always on)|023|n/a|none|

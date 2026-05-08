@@ -42,6 +42,8 @@ Rule: where this document refers to a version number without a "Document" prefix
 
 Note on other repository artifacts: the development prompt (ZETAOPS_DEV_PROMPT.md in the repository root) does not maintain an internal version number. Its edit history is tracked by git. When this SRS references it, the reference is to the current file in the repository, not to any version scheme.
 
+Note on version-number gaps. This repo does not maintain contiguous version numbers. Some numbers were planned and never tagged (v5.1, v5.3, v5.5, v5.11, v5.13, v5.14 in the v5 era are examples), or planned and ultimately shipped under a different number (the v5.11 production cutover shipped at v6.3.7 and v6.3.8). The canonical truth about what shipped is the git tag list, not the arithmetic of the version-number sequence. Future readers and contributors should not attempt to "fill" missing numbers by renaming existing tags or adding placeholder migrations — gaps are valid and permanent. When a planned number is bypassed, the SRS, CHANGELOG, and DELIVERY_LEDGER should describe what shipped and where, not pretend the number is still pending.
+
 ## 1.2 Current State (as of 2026-05-07)
 
 At-a-glance state of all features, reconciled against the actual git tag history on `origin/v5-whatsapp` as of HEAD `e74d264` (2026-05-07). For per-release detail (commit hashes, tests, acceptance criteria pass counts, deferred items), the authoritative sources are `CHANGELOG.md` (release narrative) and `DELIVERY_LEDGER.md` (current shipped state). Where this section, the CHANGELOG, and the ledger disagree, the **git tag and its commit message are ground truth**; the ledger wins for "is it shipped"; this SRS wins for "what is the spec." Migration head as of HEAD is **032**.
@@ -97,11 +99,15 @@ V6 era — AI-first intelligent platform (33 tagged releases):
 - **v6.3.16** (May 6) — Day-7 First-Insight Gate.
 - **v6.3.17** (May 7) — WhatsApp owner-bypass entity writes. Current `HEAD` of `v5-whatsapp`.
 
-### Blocked (external dependency — Meta Business portfolio review)
+### Blocked (single external dependency — Meta Business portfolio review)
 
-- **v5.11** WhatsApp Go-Live — Zero Zeta portfolio appeal in review. **No git tag exists**; this is a planning placeholder for the production cutover, not a shipped release. Note: v6.3.7 / v6.3.8 (May 3) shipped Meta Cloud API direct send and removed Interakt as a dependency — the architectural step that v5.11 was originally meant to gate has effectively been taken; what remains is the Meta portfolio approval itself.
-- **v5.13** Voice Notes (Whisper transcription) — depends on v5.11. Note: a `v5.2-voice-notes` tag exists (Whisper transcription + simulate-voice endpoint), so the *implementation* is shipped; what's blocked is real inbound audio from production WhatsApp.
-- **v5.14** Live End-to-End Test on real device — depends on v5.11 and v5.13.
+One blocker, one fix needed: Meta Business portfolio approval to allow real WhatsApp traffic in production. Engineering for the three milestones originally numbered v5.11 / v5.13 / v5.14 is complete; those numbers were never tagged in git and will not be tagged. The work shipped elsewhere:
+
+- **WhatsApp production cutover** (originally planned as v5.11) — implementation shipped at **v6.3.7** (Meta Cloud API direct send + Phase 1 alerts refactor) and **v6.3.8** (Phase 2 Interakt removal + E.164 inbound normalisation) on 2026-05-03. The original v5.11 plan was Interakt; reality skipped Interakt entirely in favour of direct Meta Cloud API. Production cutover is now a config flip (`WHATSAPP_MOCK_MODE=True` → `False`), not a code change.
+- **Voice notes** (originally planned as v5.13) — implementation shipped at **v5.2-voice-notes** on 2026-03-30: Groq Whisper transcription + `simulate-voice` endpoint. The pipeline transcribes voice messages today; what remains gated by Meta approval is real inbound audio from production WhatsApp.
+- **Live end-to-end test on real device** (originally planned as v5.14) — first pass happened at **v6.3.5** on 2026-04-29 per its commit message: *"3 production bugs fixed via live E2E."* Further E2E passes will continue as production traffic comes online.
+
+See SRS §1.1 ("Version Strategy") for the policy on version-number gaps.
 
 ### Next to build
 

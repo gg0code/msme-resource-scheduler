@@ -67,6 +67,24 @@ history is its versioning.
 
 ---
 
+## Version-number gaps are normal
+
+This repo does not maintain contiguous version numbers. Some numbers are
+planned and never tagged; others are planned and ultimately ship under a
+different number. Examples in the v5 era: v5.1, v5.3, v5.5, v5.11, v5.13,
+v5.14 — none of these are tagged in git. The v5.11 production-cutover work
+ultimately shipped at v6.3.7 and v6.3.8 on 2026-05-03.
+
+**Don't try to "fix" the gaps.** Don't rename existing tags to make the
+sequence contiguous; that breaks every commit message, CHANGELOG entry,
+and ledger row that references the old name. The canonical truth about
+what shipped is `git tag --list`, not arithmetic on the number sequence.
+
+The same logic applies to migration numbers — see SRS §9.2 for the
+024-026 skip in the migration chain.
+
+---
+
 ## Acceptance Criterion ID convention (mandatory)
 
 Every numbered AC in the SRS has a stable ID: `{section}-AC{n}`.

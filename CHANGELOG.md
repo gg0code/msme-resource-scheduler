@@ -43,7 +43,9 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 - (work in progress goes here)
 
 ### Changed
-- 
+- SRS §1.2 "Blocked" subsection rewritten to stop treating v5.11 / v5.13 / v5.14 as version numbers. The work originally planned under those numbers shipped at v6.3.7+v6.3.8 (production cutover), v5.2-voice-notes (voice notes), and v6.3.5 (first live E2E pass) respectively. The numbers themselves were never tagged and will not be tagged.
+- SRS §1.1 and CLAUDE.md gained a "Version-number gaps are normal" note documenting the policy: gaps in the version sequence (e.g. v5.1, v5.3, v5.5, v5.11, v5.13, v5.14) are valid and permanent; tags will not be renamed to fill them. The canonical truth is the git tag list.
+- DELIVERY_LEDGER.md "WhatsApp go-live" / "Voice notes" rows updated to reflect engineering-complete-pending-Meta-approval state rather than implying pending engineering.
 
 ### Fixed
 - 
