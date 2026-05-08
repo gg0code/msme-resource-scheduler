@@ -5,7 +5,7 @@ This file is for AI sessions (and humans new to the repo). It captures the
 docs, or migrations. It is intentionally short. For depth, follow the
 pointers.
 
-If you have time for only one thing, read [Section 1.2 of the SRS](./ZetaOps_SRS_v6_5.docx) ("Current State")
+If you have time for only one thing, read [Section 1.2 of the SRS](./ZetaOps_SRS_v6_6.docx) ("Current State")
 and [`DELIVERY_LEDGER.md`](./DELIVERY_LEDGER.md). Together they answer "where
 is this product right now?" in under 5 minutes.
 
@@ -34,7 +34,7 @@ entirely on the question.
 
 | File                   | Question it answers                  | Authoritative for |
 |------------------------|--------------------------------------|-------------------|
-| `ZetaOps_SRS_v6_5.docx`| What should the product be?          | spec / target state |
+| `ZetaOps_SRS_v6_6.docx`| What should the product be?          | spec / target state |
 | `DELIVERY_LEDGER.md`   | What is actually built right now?    | **shipped state** |
 | `CHANGELOG.md`         | What changed in version X?           | per-release narrative |
 
@@ -54,11 +54,10 @@ This is the single most common source of confusion.
 
 - **Product Version** — `vMAJOR.MINOR.PATCH`. Used in git tags, CHANGELOG,
   customer-facing communication. MAJOR = era (V5 WhatsApp-first, V6 AI-first,
-  V7 ERP-connected). Current: **v6.3.16** shipped, **v6.4** is next.
+  V7 ERP-connected). Current: **v6.3.17** shipped, **v6.4** is next.
 - **Document Version** — applies to the SRS only. Format `Document vX.Y`.
-  Independent of product version. Current SRS is **v6.5**, describing
-  product v5.0 through v6.3.4 (shipped/in-progress) and v6.3.5 through v7.2
-  (planned).
+  Independent of product version. Current SRS is **v6.6**, describing
+  product v5.0 through v6.3.17 (shipped) and v6.3.18 through v7.2 (planned).
 
 Rule: when the docs say a version without a "Document" prefix, it's a
 product version.

@@ -80,7 +80,7 @@ open.
 |RegisterPage auth fix|7.2#23|v6.2|shipped|v6.2|(bug fix)|—|n/a|none|
 |Test suite recovery (199 passing)|22|v6.2.2|shipped|v6.2.2-test-recovery|(no flag)|—|n/a|none|
 |BUG-6: industry\_type from Tenant ORM|—|v6.3.0|shipped|v6.3.0-whatsapp-industry|(bug fix)|—|n/a|none|
-|KPI Baseline + Monthly Savings|6.24|v6.3|in progress|—|kpi\_baseline=True|024 plan|?/8|6.24-AC? (verify count)|
+|KPI Baseline + Monthly Savings|6.24|v6.3|in progress|—|kpi\_baseline=True|TBD|?/8|6.24-AC? (verify count)|
 |Top-Tier Role Group (Owner/FM/Co-O)|6.28-F2|v6.4|in progress|—|whatsapp\_entry\_gate=True|027 plan|?/13|6.28-AC? (work split across v6.3.1–v6.3.6 — see notes)|
 |Entry Mode Configuration|6.28-F1|v6.4|in progress|—|whatsapp\_entry\_gate=True|027 plan|?/13|6.28-AC? (work split across v6.3.1–v6.3.6 — see notes)|
 |Daily Push Briefings (AM+PM)|6.28-F3|v6.4|in progress|—|whatsapp\_entry\_gate=True|027 plan|?/13|6.28-AC? (CHANGELOG suggests dispatcher landed at v6.3.4 — verify)|
@@ -94,8 +94,8 @@ open.
 |Day-7 First-Insight Gate|? (deferred)|v6.3.16|shipped|v6.3.16|(no flag — fires only when `tenants.first_briefing_sent_at` is set AND ledger key absent)|031|6/6 unit + 3/3 PG smoke|existing `detect_day_7` marker left in place (v6.4.0 owns retiring it); `zetaops_day7_routine_set` Meta template not yet submitted (Cloud API session messages used everywhere); AC IDs (batched pass)|
 |WhatsApp owner-bypass entity writes|? (deferred)|v6.3.17|shipped|v6.3.17|(no flag — strict role gate inside `evaluate_and_write` defaults to deny)|032|all 40 unit + 4/4 PG smoke|customer-add (no `customers` table); DELETE / UPDATE / bulk-add intents; reply localisation (v6.3.18); AC IDs (batched pass)|
 |Material Estimator (WhatsApp surface)|6.25|v6.5 plan|not started|—|material\_estimator\_freemium=False|—|0/4|6.25-AC1, 6.25-AC2, 6.25-AC3, 6.25-AC4|
-|Compliance Deadline Tracker|6.26|v6.6 plan|not started|—|compliance\_tracker=False|025 plan|0/n|all (6.26-AC1..ACn)|
-|GST E-Invoicing JSON|6.27|v6.7 plan|not started|—|einvoice\_generator=False|026 plan|0/n|all (6.27-AC1..ACn)|
+|Compliance Deadline Tracker|6.26|v6.6 plan|not started|—|compliance\_tracker=False|TBD|0/n|all (6.26-AC1..ACn)|
+|GST E-Invoicing JSON|6.27|v6.7 plan|not started|—|einvoice\_generator=False|TBD|0/n|all (6.27-AC1..ACn)|
 |RAG pgvector migration|21|v6.8 plan|not started|—|(always on)|planned|0/n|all|
 |Supervisor Agent|17.4|v6.9 plan|not started|—|(always on)|—|0/n|all|
 

@@ -29,6 +29,12 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 > suite is the tiebreaker; update whichever doc is wrong in the same
 > commit that closes the stub.
 
+> **Dual-tag reconciliation — 2026-05-08.** `v5.10`/`v5.12` and `v6.0`/`v6.1`
+> are dual-tagged single commits, not separate releases. CHANGELOG entries
+> below combine each pair into one section with both tag names. Closes
+> Findings #7 and #8 in `SRS_RECONCILIATION_FINDINGS.md`. Git tags
+> unchanged; only documentation updated.
+
 ---
 
 ## [Unreleased]
@@ -602,26 +608,45 @@ Bug-fix release. Two issues found during v6.3.7 live testing closed.
 
 ---
 
-## [v6.1] — 2026-04-10
+## [v6.0 + v6.1-rag-pipeline] — 2026-04-10
+**Commit:** `f3516436c844c374246cea3cb8ec648e1354212b`
+**Tag:** `v6.1-rag-pipeline` (single tag covering both v6.0 and v6.1 scope)
+**Branch:** v5-whatsapp
+**Spec:** SRS Section 17.2 (schema context), §6.22 (RAG pipeline)
 
-### Added
-- RAG pipeline with industry templates: `rag_data/_templates/{industry}/` for printing, manufacturing, fabrication, field_service (chemical excluded — Plan B only)
-- `seed_rag_from_template(tenant_id, industry_type)` called by auth.py register endpoint
-- `_build_system_prompt()` injects tenant RAG context before every AI query
+### Note on combined release
+The commit message reads `feat: v6.0 schema context + v6.1 RAG pipeline —
+industry-aware AI`. Two version numbers, one tag, one commit. v6.0 covers
+the schema context layer; v6.1 covers the RAG pipeline. They were finished
+and tagged together. The SRS describes them in separate sections (§17.2
+and §6.22 respectively); this CHANGELOG entry covers the single release.
+(Verified 2026-05-08: only `v6.1-rag-pipeline` exists as a tag — no
+standalone `v6.0` tag was ever pushed. Findings #8 in
+`SRS_RECONCILIATION_FINDINGS.md`.)
+
+### Added (v6.0 — Schema Context layer)
+- `app/knowledge_graph/schema_context.py` — complete DB schema described
+  for AI consumption (entities, FK relationships with exact column names,
+  common multi-hop query patterns).
+- `app/knowledge_graph/context_builder.py` — assembles tenant context
+  before every AI query.
+- `tenant_id` mandate enforced in all AI-generated queries.
+
+### Added (v6.1 — RAG pipeline)
+- RAG pipeline with industry templates: `rag_data/_templates/{industry}/`
+  for printing, manufacturing, fabrication, field_service. Chemical
+  excluded — Plan B only.
+- `seed_rag_from_template(tenant_id, industry_type)` called by `auth.py`
+  register endpoint.
+- `_build_system_prompt()` injects tenant RAG context before every AI
+  query.
+
+### Migration
+- None. Migration head unchanged.
 
 ### Notes
-- Flat-file MVP. pgvector migration deferred to v6.8 (renumbered from v6.3, v6.7).
-
----
-
-## [v6.0] — 2026-04-10
-
-### Added
-- `app/knowledge_graph/schema_context.py`: complete DB schema described for AI consumption
-- `app/knowledge_graph/context_builder.py`: assembles tenant context before every AI query
-- `tenant_id` mandate enforced in all AI-generated queries
-
-### Notes
+- Flat-file MVP. pgvector migration deferred to v6.8 (renumbered from
+  earlier roadmap slots v6.3 then v6.7).
 - Foundation for all intelligent features in v6.x.
 
 ---
@@ -651,14 +676,39 @@ Bug-fix release. Two issues found during v6.3.7 live testing closed.
 
 ---
 
-## [v5.12] — 2026-04-08
+## [v5.10-proactive-alerts / v5.12-role-language] — 2026-04-07
+**Commit:** `ccdc7b953ca88e4ec8d7581c82cb9b73bec4320c`
+**Branch:** v4-dev → merged into v5-whatsapp
+**Spec:** SRS Section 6.13 (proactive alerts), §6.17 (role limiting), §6.18 (3-language)
+
+### Note on dual tagging
+Two tags were placed on a single commit because two feature streams
+finished together at merge. v5.10 covers proactive alerts; v5.12 covers
+role limiting and 3-language support. The features are described in
+separate SRS sections, but they shipped together as one release —
+they are not independently revertable. (Verified 2026-05-08: both
+`v5.10-proactive-alerts` and `v5.12-role-language` resolve to the same
+commit SHA. Findings #7 in `SRS_RECONCILIATION_FINDINGS.md`.)
 
 ### Added
-- `phone_role` enforcement: owner / manager / operator
-- 3-language support: Hindi (Devanagari) / Hinglish (marker words) / English (default)
-- `detect_language()` in `whatsapp_responses.py`
-- `LANGUAGE_INSTRUCTION` in `_build_system_prompt()`
-- Role check in `detect_write_intent()` BEFORE AI is called — blocked actions never reach AI layer
+- (v5.10) Proactive alerts dispatched via the WhatsApp trigger endpoint:
+  morning briefing, conflict alert, job-ending-soon. Gated by the
+  `whatsapp_copilot` feature flag.
+- (v5.12) Phone-role enforcement (`owner` / `manager` / `viewer`)
+  inside `detect_write_intent()` — blocked actions never reach the
+  AI layer.
+- (v5.12) `detect_language()` in `whatsapp_responses.py`: Hindi
+  (Devanagari), Hinglish (marker words: aaj, kaam, nahi, theek),
+  English (default).
+- (v5.12) `LANGUAGE_INSTRUCTION` injected into `_build_system_prompt()`
+  per detected language.
+
+### Fixed
+- `whatsapp_alerts.py` v2.0: fix `_get_conflicts`, add full file docs
+  (verbatim commit message subject).
+
+### Migration
+- None. Migration head unchanged.
 
 ### Notes
 - Manager and owner have structurally different WhatsApp experiences from this point on.
