@@ -223,9 +223,13 @@ lands in employees/machines without an explicit HAAN reply. v6.3.16 added
 the Day-7 First-Insight Gate (migration 031): a one-shot owner message
 on the seventh day of delivered morning briefings, picking the strongest
 of attendance / skill bottleneck / machine spread / recurring customer
-or a routine-set fallback. v5.11 WhatsApp go-live is **blocked on Meta
-portfolio review**; the platform runs in mock mode end-to-end and is
-feature-complete behind that gate.
+or a routine-set fallback. The WhatsApp production cutover (originally
+planned as v5.11; shipped at v6.3.7 + v6.3.8 on 2026-05-03 — Meta Cloud
+API direct send + Interakt removal) is engineering-complete; what
+remains is **Meta Business portfolio approval** to flip
+`WHATSAPP_MOCK_MODE` off. The platform runs in mock mode end-to-end and
+is feature-complete behind that gate. See "Version-number gaps are
+normal" above for why v5.11 itself was never tagged.
 
 **In progress.** v6.3 KPI Baseline + Monthly Savings Summary (SRS §6.24,
 migration not yet written). v6.3.18 message formatter and v6.3.19
