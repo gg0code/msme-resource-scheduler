@@ -1,0 +1,41 @@
+# backend/config/push_defaults.yaml
+#
+# System fallback values for the v6.3.19 push config cascade.
+# Used by app/services/push_config.resolve_push_config() when the
+# corresponding tenants column is NULL.
+#
+# Reading map:
+#   Today the briefing_* columns from migration 027 (briefing_morning_time,
+#   briefing_evening_time, briefing_timezone, briefing_morning_enabled,
+#   briefing_evening_enabled) are NOT NULL with their own server_defaults,
+#   so the morning_push_time / evening_push_time / push_timezone /
+#   morning_enabled / evening_enabled entries below are documentation of
+#   design intent — they only become operative if a tenant row has NULL
+#   in the corresponding column (manual DB edit, future migration that
+#   nullifies them, etc.).
+#
+#   The morning_sections / evening_sections entries DO fall through
+#   actively because migration 033 added them as nullable with no
+#   server_default. Same for push_paused_until — a NULL in that column
+#   means "not paused", which is the same answer the resolver returns
+#   without consulting the YAML, so push_paused_until is intentionally
+#   absent from this file.
+#
+# Slice 2A scope decision: this file is flat — no industry keying, no
+# tenant overrides. A future slice 2A-rename or per-industry tier (if
+# the case ever materialises) would extend this shape; keep changes
+# additive.
+
+morning_push_time: "07:30"           # tenant local
+evening_push_time: "18:30"           # tenant local
+push_timezone: "Asia/Kolkata"        # IANA timezone string
+morning_enabled: true                # design intent — see header
+evening_enabled: true                # design intent — see header
+morning_sections:
+  - plan
+  - flag
+  - next_step
+evening_sections:
+  - completed
+  - hours_logged
+  - tomorrow_preview
