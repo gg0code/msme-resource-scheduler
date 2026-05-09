@@ -9,6 +9,8 @@ spec." Both must be reconciled in any release that closes the gap.
 matching row in the same commit. Treat this like a file-header version number —
 not optional, not deferred to a cleanup pass.
 
+**Last updated:** 2026-05-09 — v6.3.19 slice 2A part 1 landed: migration `033_add_push_columns_to_tenants` adds three nullable columns to `tenants` (`morning_sections JSONB`, `evening_sections JSONB`, `push_paused_until DATE`). Tenant ORM in `app/models/auth.py` and `app/knowledge_graph/schema_context.py` updated in the same commit. Migrations 027 columns (`briefing_morning_time`, `briefing_evening_time`, `briefing_timezone`, `briefing_morning_enabled`, `briefing_evening_enabled`) are deliberately reused — see CHANGELOG `[Unreleased]` "Naming bridge in resolve_push_config" for the slice 2A scope decision and the deferred `slice 2A-rename` follow-up. Migration head advances 032 → 033; xfail count unchanged at 5; alembic chain verified single-head.
+
 **Last updated:** 2026-05-09 — v6.3.19 morning-briefing flag/next_step selector landed as a lookup-table-only slice. New row added below for "Morning-briefing flag/next_step rendering" — status `in progress`. `backend/app/services/consolidated_briefing.py` ships `select_flag_and_next_step` (pure function over a pre-sorted `SignalResult` list) plus `_BLOCKER_CLASS_SIGNALS` (8 ids) and `_NEXT_STEP_TEMPLATES` (16 strings: hi_en + en for each id). 7 unit tests in `tests/services/test_consolidated_briefing.py` (11 cases incl. parametrised invalid-locale cases) — all green; xfail count unchanged at 5; migration head unchanged at 032. The dispatcher rewrite, cascade resolver, migrations 033/034, template registry wiring, and Meta v2 hybrid-template handoff are deferred to follow-up prompts in the v6.3.19 release window.
 
 **Last updated:** 2026-05-08 — v6.3.18 WhatsApp message styling pass shipped: centralised emoji vocabulary (`message_emoji.py`), entity formatters + 5 Meta-bound template constants (`message_formatters.py`), Meta HSM template registry (`whatsapp_meta_templates.py` + `.json`, 35 entries from `meta/templates_v2.json` plus new Hindi `zetaops_job_conflict_alert` draft), dispatcher-shape templates (`message_templates.py`) wired into `whatsapp_alerts.py` (`_build_morning_briefing`, `_build_delay_alert`, `_build_conflict_alert`, `send_machine_down_alert`) and the WhatsApp AI reply path (`routers/whatsapp.py:1089` via `render_ai_reply()`). New SRS Section 23 (Voice, Tone, and Formatting Standards), AC IDs 23-AC1–AC8 all verified by 75 new passing tests (51 in `test_message_formatters.py` + `test_message_templates.py`, 24 in `tests/services/test_message_dispatcher_templates.py`). Migration head stays 032; no schema. Old `whatsapp_formatter.py` reduced to a backwards-compat re-export shim. Meta-bound `_EN`/`_HI` constants stay as infrastructure for v6.4 when the morning briefing data shape catches up — see CHANGELOG `[v6.3.18]` "Deferred" subsection for details.
@@ -21,13 +23,14 @@ Prior update (2026-05-06 → 2026-05-07): v6.3.15 (revised) Owner-Confirmed Cand
 
 Prior update (2026-05-05): v6.3.13 + v6.3.14 CHANGELOG entries backfilled (the prerequisite versions for the v6.3.15 Candidate Promotion Job that shipped earlier the same day).
 
-**Current migration head:** `032` (per `alembic heads`). Chain through the v6.3.x
+**Current migration head:** `033` (per `alembic heads`). Chain through the v6.3.x
 window: `028` events audit table (v6.3.3); `029` `extraction_candidates`
 staging table (v6.3.13); `030` `confirmation_*` columns on
 `extraction_candidates` (v6.3.15 revised); `031` `first_briefing_sent_at`
 + `engagement_ladder_state` columns on `tenants` (v6.3.16); `032` `source`
-column on `skills` (v6.3.17). Next migration must use revision ID `033`
-and chain `down\_revision = "032"`.
+column on `skills` (v6.3.17); `033` `morning_sections` + `evening_sections`
++ `push_paused_until` columns on `tenants` (v6.3.19 slice 2A). Next
+migration must use revision ID `034` and chain `down\_revision = "033"`.
 
 \---
 
@@ -100,7 +103,7 @@ open.
 |Day-7 First-Insight Gate|? (deferred)|v6.3.16|shipped|v6.3.16|(no flag — fires only when `tenants.first_briefing_sent_at` is set AND ledger key absent)|031|6/6 unit + 3/3 PG smoke|existing `detect_day_7` marker left in place (v6.4.0 owns retiring it); `zetaops_day7_routine_set` Meta template not yet submitted (Cloud API session messages used everywhere); AC IDs (batched pass)|
 |WhatsApp owner-bypass entity writes|? (deferred)|v6.3.17|shipped|v6.3.17|(no flag — strict role gate inside `evaluate_and_write` defaults to deny)|032|all 40 unit + 4/4 PG smoke|customer-add (no `customers` table); DELETE / UPDATE / bulk-add intents; reply localisation (v6.3.18); AC IDs (batched pass)|
 |WhatsApp message styling pass (Voice/Tone/Formatting standards)|23|v6.3.18|shipped|v6.3.18|(always on — code-only)|—|8/8|runtime wiring of Meta-bound `MORNING_BRIEFING_EN/HI` + `DELAY_ALERT_EN` + `CONFLICT_ALERT_EN` into v6.3.4 push-briefing dispatcher (deferred to v6.4 when data shape matches; v5.10 dispatcher is wired through `message_templates.py` dispatcher-shape templates this release); `AI_REPLY_HEADER` integration in `routers/ai_chat.py` (out of scope per v6.3.18 §6 — WhatsApp router AI path IS wired); `CONFLICT_ALERT_HI` Python binding (when Meta approves the hi entry)|
-|Morning-briefing flag/next_step rendering|6.28|v6.3.19 (planned)|in progress|—|(no flag — code-only; pattern signals still gated by `PATTERN_BRIEFING_TENANT_IDS`)|—|0/n|consolidated dispatcher (`dispatch_morning`/`dispatch_evening`); per-tenant push config cascade + migrations 033/034; Meta v2 conditional template re-submission for `{flag_section}` / `{next_step_section}`; hybrid registry switch from placeholder to v2-shape; integration tests + snapshots; AC IDs (assigned when full release lands)|
+|Morning-briefing flag/next_step rendering|6.28|v6.3.19 (planned)|in progress|—|(no flag — code-only; pattern signals still gated by `PATTERN_BRIEFING_TENANT_IDS`)|033 (slice 2A pt 1)|0/n|`resolve_push_config()` cascade + `push_defaults.yaml` (slice 2A pt 2); field computers (`_compute_jobs_starting`/`_compute_continuing`/`_compute_crew_expected` — slice 2B); consolidated dispatcher (`dispatch_morning`/`dispatch_evening` — slice 2C); APScheduler tick refactor (slice 2D); Meta v2 conditional template re-submission for `{flag_section}`/`{next_step_section}`; hybrid registry switch from placeholder to v2-shape; integration tests + snapshots; AC IDs (assigned when full release lands)|
 |Material Estimator (WhatsApp surface)|6.25|v6.5 plan|not started|—|material\_estimator\_freemium=False|—|0/4|6.25-AC1, 6.25-AC2, 6.25-AC3, 6.25-AC4|
 |Compliance Deadline Tracker|6.26|v6.6 plan|not started|—|compliance\_tracker=False|TBD|0/n|all (6.26-AC1..ACn)|
 |GST E-Invoicing JSON|6.27|v6.7 plan|not started|—|einvoice\_generator=False|TBD|0/n|all (6.27-AC1..ACn)|

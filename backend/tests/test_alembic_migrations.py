@@ -64,11 +64,23 @@ class TestMigrationFileIntegrity:
             f"A merge migration may be needed."
         )
 
-    def test_head_is_032(self, script_dir):
-        """Current head must be revision 032 (v6.3.17 source column on skills)."""
+    def test_head_is_033(self, script_dir):
+        """Current head must be revision 033 (v6.3.19 slice 2A push columns)."""
         heads = script_dir.get_heads()
-        assert "032" in heads, (
-            f"Expected head to be '032', got: {heads}"
+        assert "033" in heads, (
+            f"Expected head to be '033', got: {heads}"
+        )
+
+    def test_033_in_chain(self, script_dir):
+        """Migration 033 (v6.3.19 slice 2A push columns on tenants) must be
+        in the chain and chain off 032."""
+        revisions = {r.revision: r for r in script_dir.walk_revisions()}
+        assert "033" in revisions, (
+            "Migration 033 (add_push_columns_to_tenants) not found"
+        )
+        assert revisions["033"].down_revision == "032", (
+            f"Migration 033 must chain off 032, got "
+            f"{revisions['033'].down_revision!r}"
         )
 
     def test_031_in_chain(self, script_dir):

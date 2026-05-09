@@ -31,7 +31,15 @@
 #      MUST filter by tenant_id. Cross-tenant data leaks are a security bug.
 #   6. UPDATE THIS FILE IN THE SAME COMMIT as any migration that adds a
 #      table, column, or changes a valid value. Never let schema drift.
-#      Current migration head: 027 (v6.3.1 WhatsApp entry gate + tenant config)
+#      Current migration head: 033 (v6.3.19 slice 2A push columns).
+#      Reconciliation status: this file's tenants block is current
+#      through migration 027 (v6.3.1 entry gate) plus the v6.3.19 push
+#      columns added below. Migrations 028 (events table), 029
+#      (extraction_candidates), 030 (confirmation_* cols), 031 (Day-7
+#      first_briefing_sent_at + engagement_ladder_state), and 032
+#      (skills.source) added tables / columns NOT yet documented in the
+#      AI-facing schema below — known gap, tracked in CHANGELOG
+#      [Unreleased] under "schema_context backfill".
 
 # ---------------------------------------------------------------------------
 # SCHEMA_CONTEXT — injected into every AI system prompt via context_builder.py
@@ -72,6 +80,16 @@ Fields:
                               numbers 1=Mon..7=Sun (default '1,2,3,4,5,6')
   created_via                (text, v6.3.1+) — how the tenant was created:
                               'desktop_signup' | 'whatsapp_signup'
+  morning_sections           (jsonb, v6.3.19+, nullable) — ordered list of
+                              section keys for the morning push body
+                              (e.g. ["plan", "flag", "next_step"]). NULL
+                              means "use system default from
+                              push_defaults.yaml".
+  evening_sections           (jsonb, v6.3.19+, nullable) — mirror of
+                              morning_sections for the evening cadence.
+  push_paused_until          (date, v6.3.19+, nullable) — when set and
+                              >= today (in tenant timezone), dispatcher
+                              skips both pushes. NULL means "not paused".
   created_at                 (datetime, UTC)
 
 --- TABLE: users ---

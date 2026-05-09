@@ -153,6 +153,28 @@ class Tenant(Base):
         JSONB, nullable=False, default=dict,
     )
 
+    # ---- v6.3.19 push config columns (migration 033) ----------------------
+    # These three slot in alongside the existing briefing_* config from
+    # migration 027. The briefing_morning_time / briefing_evening_time /
+    # briefing_timezone / briefing_morning_enabled / briefing_evening_enabled
+    # columns above continue to own the time / timezone / enabled axes;
+    # resolve_push_config() in app/services/push_config.py bridges them
+    # into a unified PushConfig dataclass without a parallel
+    # push_morning_time column. A future slice 2A-rename may unify the
+    # namespace if the cost of the inconsistency outweighs migration churn.
+
+    # Ordered list of section keys for the morning push body. NULL means
+    # use the system default in backend/config/push_defaults.yaml.
+    # Vocabulary owned by the dispatcher render layer (slice 2C).
+    morning_sections = Column(JSONB, nullable=True)
+
+    # Mirror of morning_sections for the evening cadence.
+    evening_sections = Column(JSONB, nullable=True)
+
+    # When set and >= today (in tenant timezone), dispatcher silently
+    # skips both pushes. NULL means "not paused".
+    push_paused_until = Column(Date, nullable=True)
+
     users          = relationship("User", back_populates="tenant", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="tenant", cascade="all, delete-orphan")
 
