@@ -2,15 +2,22 @@
 # Branch: v5-whatsapp
 #
 # FILE PURPOSE
-# v6.3.19 morning-briefing flag/next_step selector. Picks the top
-# blocker-class signal from a sorted SignalResult list and returns
-# (flag_text, next_step_text) for rendering through the v6.3.18
-# Meta-bound MORNING_BRIEFING templates.
+# v6.3.19 consolidated morning/evening push dispatcher and supporting
+# helpers. Three layers in one file:
 #
-# This file is the lookup-table-only slice of v6.3.19. The dispatcher
-# rewrite, cascade resolver, migrations 033/034, and template registry
-# wiring are deliberately deferred to follow-up prompts; nothing in
-# the codebase imports this module yet.
+#   1. Selector (slice 1) — select_flag_and_next_step picks the top
+#      blocker-class signal and returns (flag_text, next_step_text)
+#      for rendering through the v6.3.18 Meta-bound templates.
+#
+#   2. Field computers (slice 2B) — _compute_jobs_starting,
+#      _compute_continuing, _compute_crew_expected. Pure SQL reads,
+#      no clock access. Feed the morning briefing's data fields.
+#
+#   3. Dispatchers (slice 2C) — async dispatch_morning and
+#      dispatch_evening. Wire PushConfig + field computers + selector
+#      + Meta-bound templates + per-tenant idempotency through to
+#      the existing _send_whatsapp_message transport. Targeted by
+#      slice 2D's push_v2_tick (shadow mode initially).
 #
 # WHO CALLS THIS FILE
 # - tests/services/test_consolidated_briefing.py
@@ -370,3 +377,599 @@ def _compute_crew_expected(
     if contractor_count > 0 and contractor_count >= roster:
         return f"{base} ({contractor_count} contractors not yet tracked)"
     return base
+
+
+# ---------------------------------------------------------------------------
+# v6.3.19 slice 2C — async dispatch_morning / dispatch_evening
+# ---------------------------------------------------------------------------
+# Wires together the slice 1 selector, slice 2A PushConfig cascade, and
+# slice 2B field computers with the v6.3.18 Meta-bound templates and
+# the existing _send_whatsapp_message transport. Targeted by slice 2D's
+# push_v2_tick scheduler job (shadow mode initially — push_v2_enabled
+# defaults False so calls log shadow events without sending until the
+# cutover happens in v6.3.19.1).
+#
+# DESIGN DECISIONS DOCUMENTED HERE FOR FUTURE READERS
+#
+#   A1 — Locale defaults to 'hi_en' for ALL recipients in slice 2C.
+#        Per-recipient locale resolution is deferred until a future
+#        slice adds a User.language_preference field. The brief assumed
+#        that field already existed; an audit found it does not.
+#
+#   B1 — Recipients come from PhoneTenantMap (matching the v5.10
+#        dispatcher pattern), not from User. The is_top_tier filter on
+#        PhoneTenantMap (phone_role in TOP_TIER_ROLES) gates who
+#        receives the push. Audience-model unification with users
+#        belongs in its own future slice.
+#
+#   D4 — Slice 2C ships ONLY morning + evening dispatchers. The
+#        delay-alert and conflict-alert dispatchers are deferred to
+#        v6.3.19.1; the legacy 8:00 delay tick and 8:30 conflict tick
+#        in whatsapp_alerts.py remain authoritative and ungated by
+#        push_v2_enabled in this release.
+#
+#   E  — Idempotency is implemented as an events-table dedup query
+#        keyed on (tenant_id, event_type, payload['scheduled_for_date']).
+#        Migration 034 adds the supporting composite index.
+#
+# DELAY/CONFLICT IS DELIBERATELY ABSENT — see CHANGELOG [Unreleased]
+# "v6.3.19 scope reduction" note. Adding delay/conflict here would
+# break the D4 scope discipline.
+
+import logging  # noqa: E402
+from dataclasses import dataclass  # noqa: E402
+from datetime import datetime  # noqa: E402
+from typing import Any  # noqa: E402
+
+try:
+    # Python 3.9+ stdlib timezone database. The project pins 3.14, so
+    # this import always succeeds in production. Wrapped only so that
+    # static analysers without the typeshed entry don't choke.
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover — defensive fallback
+    ZoneInfo = None  # type: ignore[assignment]
+
+from app.models.event import Event  # noqa: E402
+from app.models.whatsapp import PhoneTenantMap  # noqa: E402
+from app.services import message_formatters  # noqa: E402
+from app.services.push_config import resolve_push_config  # noqa: E402
+from app.services.whatsapp_send import _send_whatsapp_message  # noqa: E402
+
+# Private cross-module imports from briefing_intelligence: composer's
+# _run_detectors and _select_signals expose the detector pipeline
+# without rendering. The public compose_briefing renders into a
+# multi-bullet string we don't want here. Aliased for clarity at call
+# sites and isolated to this module so consumers of consolidated_briefing
+# see a clean public surface.
+from app.services.briefing_intelligence.composer import (  # noqa: E402
+    _run_detectors as _bi_run_detectors,
+    _select_signals as _bi_select_signals,
+)
+
+
+_log = logging.getLogger(__name__)
+
+
+# Default locale for slice 2C — see header decision A1. Per-recipient
+# locale resolution defers until User.language_preference is added.
+_DEFAULT_LOCALE: str = "hi_en"
+
+
+# Hybrid flag-rendering placeholders. Used when the selector returns
+# (None, None) for flag/next_step (i.e. no blocker-class signal fired).
+# Tone follows SRS §23: calm, neutral, no exclamation. Will collapse to
+# empty when the v2 conditional-section template lands; until then the
+# template's hard {flag} / {next_step} placeholders need a non-empty
+# value so the f-string render does not break.
+_PLACEHOLDER_FLAG: dict[str, str] = {
+    "hi_en": "Aaj sab routine hai.",
+    "en": "All systems normal today.",
+}
+_PLACEHOLDER_NEXT_STEP: dict[str, str] = {
+    "hi_en": "Koi action nahi chahiye.",
+    "en": "No action needed.",
+}
+
+
+# Alert-preference keys recorded on PhoneTenantMap.alert_preferences.
+# Match the snake_case convention of the existing keys
+# (morning_briefing, job_delay, machine_down, conflict). Default True
+# when the key is missing — same as the v5.10 _get_active_phone_mappings
+# convention so a tenant who has never configured push prefs still
+# receives the briefing.
+_ALERT_KEY_PUSH_MORNING: str = "push_morning"
+_ALERT_KEY_PUSH_EVENING: str = "push_evening"
+
+
+# Event-type vocabulary for the events audit log. Dotted names match
+# the existing convention (briefing.sent, user.role_changed). The
+# 'sent' suffix is the idempotency anchor: _already_dispatched_today
+# searches only for the *_sent variants, so skip events do not
+# poison the dedup window.
+_EVENT_PUSH_MORNING_SENT: str = "push.morning_sent"
+_EVENT_PUSH_MORNING_SKIPPED_DISABLED: str = "push.morning_skipped_disabled"
+_EVENT_PUSH_MORNING_SKIPPED_PAUSED: str = "push.morning_skipped_paused"
+_EVENT_PUSH_MORNING_SKIPPED_IDEMPOTENT: str = "push.morning_skipped_idempotent"
+_EVENT_PUSH_MORNING_SKIPPED_NO_RECIPIENTS: str = "push.morning_skipped_no_recipients"
+_EVENT_PUSH_MORNING_SEND_FAILED: str = "push.morning_send_failed"
+
+_EVENT_PUSH_EVENING_SENT: str = "push.evening_sent"
+_EVENT_PUSH_EVENING_SKIPPED_DISABLED: str = "push.evening_skipped_disabled"
+_EVENT_PUSH_EVENING_SKIPPED_PAUSED: str = "push.evening_skipped_paused"
+_EVENT_PUSH_EVENING_SKIPPED_IDEMPOTENT: str = "push.evening_skipped_idempotent"
+_EVENT_PUSH_EVENING_SKIPPED_NO_RECIPIENTS: str = "push.evening_skipped_no_recipients"
+_EVENT_PUSH_EVENING_SEND_FAILED: str = "push.evening_send_failed"
+
+
+@dataclass(frozen=True)
+class DispatchResult:
+    """Outcome of one dispatch_morning / dispatch_evening call.
+
+    Fields:
+      success         True when the dispatcher ran to completion without
+                      an unhandled exception. Skips count as success.
+                      False only when at least one Meta send raised AND
+                      no other recipient succeeded.
+      tenant_id       The tenant the dispatcher targeted.
+      kind            'morning' or 'evening'.
+      sent_count      Number of recipients the Meta send succeeded for.
+                      0 on every skip path and on full-failure paths.
+      skip_reason     None when an actual send was attempted. Otherwise
+                      one of: 'paused' | 'disabled' | 'idempotent' |
+                      'no_recipients' | 'tenant_not_found'.
+      rendered_message The full template-rendered string. Useful for
+                      shadow-mode logging in slice 2D and for the debug
+                      endpoint. None on skip paths that don't render.
+      error           First Meta exception's str(). None on success
+                      and on skip paths.
+    """
+
+    success: bool
+    tenant_id: int
+    kind: str
+    sent_count: int = 0
+    skip_reason: str | None = None
+    rendered_message: str | None = None
+    error: str | None = None
+
+
+def _resolve_top_tier_recipients(
+    tenant_id: int,
+    alert_pref_key: str,
+    db: "Session",  # type: ignore[name-defined]  — Session imported above
+) -> list[PhoneTenantMap]:
+    """Top-tier active phones opted in to a specific push alert type.
+
+    Called by:    dispatch_morning, dispatch_evening (this file).
+    Calls into:   PhoneTenantMap ORM (read-only).
+    Side effects: none.
+
+    Filter (mirrors v5.10 _get_active_phone_mappings + adds the
+    top-tier role gate):
+      tenant_id == tenant_id
+      is_active is True
+      is_top_tier is True (phone_role in TOP_TIER_ROLES)
+      alert_preferences[alert_pref_key] is not False (default True
+        when the key is missing — same convention as the existing
+        whatsapp_alerts._get_active_phone_mappings helper).
+
+    Ordering: id ASC for deterministic test output and stable shadow-
+    log payload formatting.
+    """
+    rows = (
+        db.query(PhoneTenantMap)
+        .filter(
+            PhoneTenantMap.tenant_id == tenant_id,
+            PhoneTenantMap.is_active == True,  # noqa: E712
+        )
+        .order_by(PhoneTenantMap.id.asc())
+        .all()
+    )
+    out: list[PhoneTenantMap] = []
+    for m in rows:
+        if not m.is_top_tier:
+            continue
+        prefs = m.alert_preferences or {}
+        if prefs.get(alert_pref_key, True) is False:
+            continue
+        out.append(m)
+    return out
+
+
+def _already_dispatched_today(
+    tenant_id: int,
+    event_type: str,
+    scheduled_for_date: "date",  # type: ignore[name-defined] — date imported above
+    db: "Session",  # type: ignore[name-defined]
+) -> bool:
+    """True if the (tenant, event_type, scheduled_for_date) trio has
+    already been logged to the events table via a *_sent event.
+
+    Called by:    dispatch_morning, dispatch_evening (this file).
+    Calls into:   Event ORM (read-only).
+    Side effects: none.
+
+    Migration 034 (v6.3.19 slice 2C) added the composite index
+    ix_events_tenant_type_dedup on events(tenant_id, event_type) to
+    keep this query fast as the events table grows. The
+    payload['scheduled_for_date'] filter runs in Python because
+    payload is JSONB on Postgres and JSON on SQLite (test conftest
+    patch); the dialect-agnostic Python filter is cleaner than
+    branching on engine type and the index already narrows the
+    candidate set to a small per-tenant per-event-type slice.
+    """
+    date_str = scheduled_for_date.isoformat()
+    candidates = (
+        db.query(Event)
+        .filter(
+            Event.tenant_id == tenant_id,
+            Event.event_type == event_type,
+        )
+        .all()
+    )
+    return any(
+        (e.payload or {}).get("scheduled_for_date") == date_str
+        for e in candidates
+    )
+
+
+def _log_event(
+    *,
+    tenant_id: int,
+    event_type: str,
+    payload: dict[str, Any],
+    db: "Session",  # type: ignore[name-defined]
+) -> Event:
+    """Insert one events row and flush. Caller commits.
+
+    Called by:    dispatch_morning, dispatch_evening (this file).
+    Calls into:   Event ORM, db.add + db.flush.
+    Side effects: writes one row. Caller is responsible for db.commit().
+
+    entity_type='briefing' across all push.* events — matches the
+    convention briefing.sent uses today.  source='system' identifies
+    the dispatcher tick as the originator (not a web or whatsapp
+    user action).
+    """
+    e = Event(
+        tenant_id=tenant_id,
+        event_type=event_type,
+        entity_type="briefing",
+        source="system",
+        payload=payload,
+    )
+    db.add(e)
+    db.flush()
+    return e
+
+
+def _scheduled_date_for(
+    now: datetime,
+    push_timezone: str,
+) -> "date":  # type: ignore[name-defined]
+    """Convert `now` to the tenant timezone and take the calendar date.
+
+    Called by:    dispatch_morning, dispatch_evening (this file).
+    Calls into:   zoneinfo.ZoneInfo, datetime.astimezone.
+    Side effects: none.
+
+    The dispatcher uses this calendar date as the idempotency key and
+    as the date displayed in the rendered briefing. Falls back to
+    `now`'s date as-is when zoneinfo is unavailable (defensive — the
+    project pins Python 3.14 so this path is unreachable in
+    production).
+    """
+    if ZoneInfo is None:
+        return now.date()
+    try:
+        tz = ZoneInfo(push_timezone)
+    except Exception:  # noqa: BLE001 — ZoneInfo raises a hierarchy of types
+        return now.date()
+    return now.astimezone(tz).date()
+
+
+def _render_morning_message(
+    tenant_id: int,
+    now: datetime,
+    db: "Session",  # type: ignore[name-defined]
+    locale: str = _DEFAULT_LOCALE,
+) -> str:
+    """Render the MORNING_BRIEFING template for one tenant.
+
+    Called by:    dispatch_morning, dispatch_evening (this file).
+    Calls into:   _compute_jobs_starting / _compute_continuing /
+                  _compute_crew_expected (slice 2B), select_flag_and_next_step
+                  (slice 1), _bi_run_detectors / _bi_select_signals
+                  (private cross-module access — composer detector
+                  pipeline without rendering).
+    Side effects: read-only DB.
+
+    Evening reuses the same template in slice 2C — there is no
+    separate evening template constant in v6.3.18 yet. The brief
+    explicitly notes the evening template is on the v6.4 backlog;
+    until it lands, the structural skip / log / send path is the
+    only difference between morning and evening dispatch.
+
+    Hybrid flag rendering: when select_flag_and_next_step returns
+    (None, None) — no blocker-class signal fired or pattern_briefing
+    is not enabled for the tenant — the placeholder values from
+    _PLACEHOLDER_FLAG / _PLACEHOLDER_NEXT_STEP are substituted so
+    the template's hard {flag} / {next_step} placeholders render
+    cleanly. The Meta v2 conditional-section template will collapse
+    these to empty when approved (see CHANGELOG [Unreleased] hybrid
+    note).
+    """
+    today = now.date()
+
+    jobs_starting = _compute_jobs_starting(tenant_id, today, db)
+    continuing = _compute_continuing(tenant_id, today, db) or "0"
+    crew_expected = _compute_crew_expected(tenant_id, today, db)
+
+    signals = _bi_run_detectors(tenant_id, today, db)
+    selected = _bi_select_signals(signals)
+    flag, next_step = select_flag_and_next_step(selected, locale=locale)
+
+    if flag is None:
+        flag = _PLACEHOLDER_FLAG[locale]
+    if next_step is None:
+        next_step = _PLACEHOLDER_NEXT_STEP[locale]
+
+    template = (
+        message_formatters.MORNING_BRIEFING_HI
+        if locale == "hi_en"
+        else message_formatters.MORNING_BRIEFING_EN
+    )
+    return template.format(
+        date=today.strftime("%d %b"),
+        jobs_starting=jobs_starting,
+        continuing=continuing,
+        crew_expected=crew_expected,
+        flag=flag,
+        next_step=next_step,
+    )
+
+
+async def _dispatch_one(
+    tenant_id: int,
+    now: datetime,
+    db: "Session",  # type: ignore[name-defined]
+    *,
+    kind: str,  # 'morning' | 'evening'
+) -> DispatchResult:
+    """Shared dispatch path for morning and evening.
+
+    Called by:    dispatch_morning, dispatch_evening (this file).
+    Calls into:   resolve_push_config (slice 2A), _scheduled_date_for,
+                  _resolve_top_tier_recipients, _already_dispatched_today,
+                  _log_event, _render_morning_message,
+                  _send_whatsapp_message.
+    Side effects: writes events rows + commits, calls Meta send (mock-
+                  aware via WHATSAPP_MOCK_MODE inside _send_whatsapp_message).
+
+    The kind parameter selects:
+      - which PushConfig.<kind>_enabled flag gates the send,
+      - which alert_preferences key recipients must opt in to,
+      - which event_type prefix is logged,
+      - which template (currently both share MORNING_BRIEFING_*).
+    """
+    from app.models.auth import Tenant  # local import — avoid cycle
+
+    if kind == "morning":
+        alert_key = _ALERT_KEY_PUSH_MORNING
+        event_sent = _EVENT_PUSH_MORNING_SENT
+        event_skipped_disabled = _EVENT_PUSH_MORNING_SKIPPED_DISABLED
+        event_skipped_paused = _EVENT_PUSH_MORNING_SKIPPED_PAUSED
+        event_skipped_idempotent = _EVENT_PUSH_MORNING_SKIPPED_IDEMPOTENT
+        event_skipped_no_recipients = _EVENT_PUSH_MORNING_SKIPPED_NO_RECIPIENTS
+        event_send_failed = _EVENT_PUSH_MORNING_SEND_FAILED
+    else:
+        alert_key = _ALERT_KEY_PUSH_EVENING
+        event_sent = _EVENT_PUSH_EVENING_SENT
+        event_skipped_disabled = _EVENT_PUSH_EVENING_SKIPPED_DISABLED
+        event_skipped_paused = _EVENT_PUSH_EVENING_SKIPPED_PAUSED
+        event_skipped_idempotent = _EVENT_PUSH_EVENING_SKIPPED_IDEMPOTENT
+        event_skipped_no_recipients = _EVENT_PUSH_EVENING_SKIPPED_NO_RECIPIENTS
+        event_send_failed = _EVENT_PUSH_EVENING_SEND_FAILED
+
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        return DispatchResult(
+            success=False,
+            tenant_id=tenant_id,
+            kind=kind,
+            skip_reason="tenant_not_found",
+            error=f"Tenant {tenant_id} not found",
+        )
+
+    config = resolve_push_config(tenant)
+    scheduled_for = _scheduled_date_for(now, config.push_timezone)
+    scheduled_for_str = scheduled_for.isoformat()
+    now_str = now.isoformat()
+
+    # Disabled gate (per-direction).
+    direction_enabled = (
+        config.morning_enabled if kind == "morning" else config.evening_enabled
+    )
+    if not direction_enabled:
+        _log_event(
+            tenant_id=tenant_id,
+            event_type=event_skipped_disabled,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "now": now_str,
+            },
+            db=db,
+        )
+        db.commit()
+        return DispatchResult(
+            success=True,
+            tenant_id=tenant_id,
+            kind=kind,
+            skip_reason="disabled",
+        )
+
+    # Paused gate. Inclusive boundary: a tenant with push_paused_until
+    # exactly equal to today is still paused for today.
+    if config.push_paused_until and config.push_paused_until >= scheduled_for:
+        _log_event(
+            tenant_id=tenant_id,
+            event_type=event_skipped_paused,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "paused_until": config.push_paused_until.isoformat(),
+                "now": now_str,
+            },
+            db=db,
+        )
+        db.commit()
+        return DispatchResult(
+            success=True,
+            tenant_id=tenant_id,
+            kind=kind,
+            skip_reason="paused",
+        )
+
+    # Idempotency. If a *_sent event already exists for this calendar
+    # date, return without re-rendering or re-sending.
+    if _already_dispatched_today(tenant_id, event_sent, scheduled_for, db):
+        _log_event(
+            tenant_id=tenant_id,
+            event_type=event_skipped_idempotent,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "now": now_str,
+            },
+            db=db,
+        )
+        db.commit()
+        return DispatchResult(
+            success=True,
+            tenant_id=tenant_id,
+            kind=kind,
+            skip_reason="idempotent",
+        )
+
+    # Recipient resolution.
+    recipients = _resolve_top_tier_recipients(tenant_id, alert_key, db)
+    if not recipients:
+        _log_event(
+            tenant_id=tenant_id,
+            event_type=event_skipped_no_recipients,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "now": now_str,
+            },
+            db=db,
+        )
+        db.commit()
+        return DispatchResult(
+            success=True,
+            tenant_id=tenant_id,
+            kind=kind,
+            skip_reason="no_recipients",
+        )
+
+    # Render. Slice 2C uses _DEFAULT_LOCALE for all recipients (A1).
+    rendered = _render_morning_message(tenant_id, now, db, locale=_DEFAULT_LOCALE)
+
+    # Send + per-recipient failure logging. One failure does not stop
+    # the loop — other recipients still attempt.
+    sent_count = 0
+    last_error: str | None = None
+    for r in recipients:
+        try:
+            await _send_whatsapp_message(r.phone_number, rendered)
+            sent_count += 1
+        except Exception as exc:  # noqa: BLE001 — Meta SDK raises many types
+            last_error = str(exc) or exc.__class__.__name__
+            _log_event(
+                tenant_id=tenant_id,
+                event_type=event_send_failed,
+                payload={
+                    "scheduled_for_date": scheduled_for_str,
+                    "phone": r.phone_number,
+                    "error": last_error,
+                    "now": now_str,
+                },
+                db=db,
+            )
+            _log.warning(
+                "push.%s send_failed tenant=%s phone=****%s error=%s",
+                kind, tenant_id, r.phone_number[-4:], last_error,
+            )
+
+    # Idempotency anchor — only when at least one recipient received
+    # the message. Failed-only dispatches do NOT create a *_sent event,
+    # so the next tick can retry.
+    if sent_count > 0:
+        _log_event(
+            tenant_id=tenant_id,
+            event_type=event_sent,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "now": now_str,
+                "recipients": [r.phone_number for r in recipients],
+                "sent_count": sent_count,
+                "rendered_message": rendered,
+                "locale": _DEFAULT_LOCALE,
+            },
+            db=db,
+        )
+    db.commit()
+
+    return DispatchResult(
+        success=sent_count > 0 or last_error is None,
+        tenant_id=tenant_id,
+        kind=kind,
+        sent_count=sent_count,
+        rendered_message=rendered,
+        error=last_error,
+    )
+
+
+async def dispatch_morning(
+    tenant_id: int,
+    now: datetime,
+    db: "Session",  # type: ignore[name-defined]
+) -> DispatchResult:
+    """Send the morning briefing to one tenant's top-tier WhatsApp recipients.
+
+    Called by:    (planned slice 2D) push_v2_tick scheduler job, in
+                  shadow mode initially. Today: tests/services/
+                  test_consolidated_briefing.py.
+    Calls into:   _dispatch_one (this file). All template / send /
+                  event-log work happens there.
+    Side effects: writes events rows, commits, calls Meta send (mock-
+                  aware via WHATSAPP_MOCK_MODE).
+
+    Argument order — `(tenant_id, now, db)` — matches slice 2B field
+    helpers. Diverges from the v6.3.19 brief sketch
+    `(now, db, tenant_id)` in favour of consistency with merged code.
+
+    Locale: slice 2C dispatches all recipients in 'hi_en'. Per-recipient
+    locale resolution defers until User.language_preference exists.
+
+    See _dispatch_one for the full skip / send / log behaviour.
+    """
+    return await _dispatch_one(tenant_id, now, db, kind="morning")
+
+
+async def dispatch_evening(
+    tenant_id: int,
+    now: datetime,
+    db: "Session",  # type: ignore[name-defined]
+) -> DispatchResult:
+    """Send the evening recap to one tenant's top-tier WhatsApp recipients.
+
+    Called by:    (planned slice 2D) push_v2_tick scheduler job.
+    Calls into:   _dispatch_one (this file).
+    Side effects: writes events rows, commits, calls Meta send.
+
+    Slice 2C limitation: the evening render path currently uses the
+    MORNING_BRIEFING template because no separate evening template
+    constant exists in message_formatters.py yet. The skip / send /
+    log behaviour and idempotency keying are evening-specific
+    (briefing_evening_enabled, push.evening_*). A dedicated EVENING_*
+    template constant + render path is on the v6.4 backlog.
+    """
+    return await _dispatch_one(tenant_id, now, db, kind="evening")

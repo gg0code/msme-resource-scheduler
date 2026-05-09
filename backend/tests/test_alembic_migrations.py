@@ -64,11 +64,23 @@ class TestMigrationFileIntegrity:
             f"A merge migration may be needed."
         )
 
-    def test_head_is_033(self, script_dir):
-        """Current head must be revision 033 (v6.3.19 slice 2A push columns)."""
+    def test_head_is_034(self, script_dir):
+        """Current head must be revision 034 (v6.3.19 slice 2C events dedup index)."""
         heads = script_dir.get_heads()
-        assert "033" in heads, (
-            f"Expected head to be '033', got: {heads}"
+        assert "034" in heads, (
+            f"Expected head to be '034', got: {heads}"
+        )
+
+    def test_034_in_chain(self, script_dir):
+        """Migration 034 (v6.3.19 slice 2C events dedup composite index)
+        must be in the chain and chain off 033."""
+        revisions = {r.revision: r for r in script_dir.walk_revisions()}
+        assert "034" in revisions, (
+            "Migration 034 (add_events_dedup_index) not found"
+        )
+        assert revisions["034"].down_revision == "033", (
+            f"Migration 034 must chain off 033, got "
+            f"{revisions['034'].down_revision!r}"
         )
 
     def test_033_in_chain(self, script_dir):

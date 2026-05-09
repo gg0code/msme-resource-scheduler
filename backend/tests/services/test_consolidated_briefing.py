@@ -496,6 +496,434 @@ def test_crew_expected_filters_by_tenant(db):
     assert cb._compute_crew_expected(t2.id, today, db) == "3 of 3 permanent"
 
 
+# ---------------------------------------------------------------------------
+# v6.3.19 slice 2C — dispatch_morning / dispatch_evening
+# ---------------------------------------------------------------------------
+# These tests exercise the async dispatchers. They use the SQLite `db`
+# fixture from conftest.py and a per-test `mock_meta_sender` fixture
+# (defined in this file) that monkeypatches the imported
+# _send_whatsapp_message in the consolidated_briefing module's namespace
+# so calls are recorded instead of attempting a Meta API hit.
+
+from datetime import datetime  # noqa: E402
+
+from sqlalchemy import text as sa_text  # noqa: E402
+from sqlalchemy.schema import DefaultClause  # noqa: E402
+
+from app.core.security import hash_password  # noqa: E402
+from app.models.auth import RefreshToken, User  # noqa: E402
+from app.models.auth import Tenant as TenantModel  # noqa: E402
+from app.models.event import Event  # noqa: E402
+from app.models.whatsapp import PhoneTenantMap  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def patch_now_defaults_for_sqlite():
+    """SQLite has no `now()` function. Several columns use
+    server_default=text('now()') which fires at INSERT — patch them to
+    CURRENT_TIMESTAMP for the dispatcher unit tests. Mirrors the
+    autouse fixture in tests/test_signup_v6_4.py; kept local to this
+    file to avoid changing the global conftest behaviour.
+    """
+    patched = []
+    for table_attr in (
+        TenantModel.__table__,
+        User.__table__,
+        RefreshToken.__table__,
+        PhoneTenantMap.__table__,
+        Event.__table__,
+    ):
+        for col in table_attr.columns:
+            if col.server_default is None:
+                continue
+            arg = getattr(col.server_default, "arg", None)
+            text_value = str(arg) if arg is not None else ""
+            if "now()" in text_value.lower():
+                patched.append((col, col.server_default))
+                col.server_default = DefaultClause(sa_text("CURRENT_TIMESTAMP"))
+    yield
+    for col, original in patched:
+        col.server_default = original
+
+
+@pytest.fixture
+def mock_meta_sender(monkeypatch):
+    """Replace _send_whatsapp_message in consolidated_briefing with a recorder.
+
+    Yields a list that accumulates one dict per call:
+        {"phone": phone_e164, "message": rendered_string}
+
+    Tests assert against the recorded list. Patches the symbol in the
+    consolidated_briefing namespace specifically — patching the source
+    module would not affect already-imported references.
+    """
+    sent: list[dict] = []
+
+    async def fake_send(phone: str, message: str) -> None:
+        sent.append({"phone": phone, "message": message})
+
+    monkeypatch.setattr(
+        "app.services.consolidated_briefing._send_whatsapp_message",
+        fake_send,
+    )
+    return sent
+
+
+def _make_user_row(db, *, tenant_id: int, email: str, role: str = "proprietor") -> User:
+    """Insert a User row with a hashed dummy password.
+
+    Called by:    dispatcher tests that need a User to anchor a
+                  PhoneTenantMap row (FK constraint).
+    Calls into:   User ORM, hash_password.
+    Side effects: writes one row.
+    """
+    u = User(
+        tenant_id=tenant_id,
+        email=email,
+        hashed_password=hash_password("test-password"),
+        role=role,
+    )
+    db.add(u)
+    db.flush()
+    return u
+
+
+def _make_phone_map(
+    db, *, tenant_id: int, user_id: int, phone: str,
+    phone_role: str = "owner", is_active: bool = True,
+    alert_preferences: dict | None = None,
+) -> PhoneTenantMap:
+    """Insert a PhoneTenantMap row with sensible defaults.
+
+    Called by:    dispatcher tests that need recipients.
+    Calls into:   PhoneTenantMap ORM.
+    Side effects: writes one row.
+
+    The alert_preferences default is a dict with both push_morning and
+    push_evening set to True so a tenant in the test DB receives both
+    pushes by default. Override per-test for opt-out scenarios.
+    """
+    if alert_preferences is None:
+        alert_preferences = {"push_morning": True, "push_evening": True}
+    m = PhoneTenantMap(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        phone_number=phone,
+        is_active=is_active,
+        phone_role=phone_role,
+        alert_preferences=alert_preferences,
+    )
+    db.add(m)
+    db.flush()
+    return m
+
+
+def _seed_tenant_with_owner(db, tenant_name: str = "Acme",
+                             phone: str = "+919999000001") -> tuple:
+    """Build a tenant with one top-tier owner phone wired up.
+
+    Called by:    most dispatcher tests as the baseline fixture.
+    Calls into:   _make_tenant_row, _make_user_row, _make_phone_map.
+    Side effects: writes 3 rows (Tenant, User, PhoneTenantMap).
+
+    Returns the tuple (tenant, user, phone_map) for tests that need
+    direct access to any of them.
+
+    Defaults briefing_*_enabled to True so the dispatcher does not
+    short-circuit on the disabled gate. Tests that exercise the
+    disabled path override these explicitly.
+    """
+    t = _make_tenant_row(db, name=tenant_name)
+    t.briefing_morning_enabled = True
+    t.briefing_evening_enabled = True
+    db.flush()
+    u = _make_user_row(db, tenant_id=t.id, email=f"owner@{t.slug}.test")
+    p = _make_phone_map(db, tenant_id=t.id, user_id=u.id, phone=phone)
+    return t, u, p
+
+
+def _now_at(hour: int = 7, minute: int = 30) -> datetime:
+    """Build a fixed, naive datetime for tests that don't care about tz.
+
+    Called by:    dispatcher tests that drive the `now` kwarg.
+    Calls into:   nothing.
+    Side effects: none.
+    """
+    return datetime(2026, 5, 9, hour, minute, 0)
+
+
+# ---------------------------------------------------------------------------
+# dispatch_morning
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_sends_to_top_tier_recipient(db, mock_meta_sender):
+    """Happy path: top-tier owner phone receives the rendered message."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+
+    result = await cb.dispatch_morning(t.id, _now_at(), db)
+
+    assert result.success is True
+    assert result.skip_reason is None
+    assert result.sent_count == 1
+    assert len(mock_meta_sender) == 1
+    assert mock_meta_sender[0]["phone"] == "+919999000001"
+    # Hinglish template was used (default locale 'hi_en').
+    assert "सुबह की briefing" in mock_meta_sender[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_skips_paused_tenant(db, mock_meta_sender):
+    """Failure mode: paused tenants must not receive."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+    # Pause through next week.
+    t.push_paused_until = date(2026, 5, 16)
+    db.flush()
+
+    result = await cb.dispatch_morning(t.id, _now_at(), db)
+
+    assert result.success is True
+    assert result.skip_reason == "paused"
+    assert result.sent_count == 0
+    assert mock_meta_sender == []
+    # Skip logged.
+    assert (
+        db.query(Event)
+        .filter(Event.event_type == "push.morning_skipped_paused")
+        .count() == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_skips_when_morning_enabled_false(db, mock_meta_sender):
+    """Tenant with briefing_morning_enabled=False is excluded from morning."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+    t.briefing_morning_enabled = False
+    db.flush()
+
+    result = await cb.dispatch_morning(t.id, _now_at(), db)
+
+    assert result.success is True
+    assert result.skip_reason == "disabled"
+    assert mock_meta_sender == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_skips_when_no_top_tier_phone(db, mock_meta_sender):
+    """Tenant whose only phone is a non-top-tier role: skip with reason."""
+    t = _make_tenant_row(db)
+    t.briefing_morning_enabled = True
+    db.flush()
+    u = _make_user_row(db, tenant_id=t.id, email="manager@test.test")
+    _make_phone_map(
+        db, tenant_id=t.id, user_id=u.id,
+        phone="+919999000002", phone_role="viewer",
+    )
+
+    result = await cb.dispatch_morning(t.id, _now_at(), db)
+
+    assert result.success is True
+    assert result.skip_reason == "no_recipients"
+    assert mock_meta_sender == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_uses_passed_now_not_wall_clock(db, mock_meta_sender):
+    """The dispatcher's idempotency key uses the passed `now`, not the
+    wall clock. Calling twice with two different `now` values for the
+    same calendar date should still dedup."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+
+    # First call at 07:30, sends.
+    r1 = await cb.dispatch_morning(t.id, _now_at(7, 30), db)
+    assert r1.sent_count == 1
+
+    # Second call same date at 07:31, idempotent skip.
+    r2 = await cb.dispatch_morning(t.id, _now_at(7, 31), db)
+    assert r2.skip_reason == "idempotent"
+    assert r2.sent_count == 0
+    # Still only one Meta send total.
+    assert len(mock_meta_sender) == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_logs_event_on_success(db, mock_meta_sender):
+    """A successful send writes one push.morning_sent event with the
+    rendered_message and recipients in the payload."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+
+    await cb.dispatch_morning(t.id, _now_at(), db)
+
+    sent_events = (
+        db.query(Event)
+        .filter(Event.event_type == "push.morning_sent")
+        .all()
+    )
+    assert len(sent_events) == 1
+    payload = sent_events[0].payload
+    assert payload["scheduled_for_date"] == "2026-05-09"
+    assert payload["sent_count"] == 1
+    assert payload["recipients"] == ["+919999000001"]
+    assert "rendered_message" in payload
+    assert payload["locale"] == "hi_en"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_meta_failure_does_not_raise(db, monkeypatch):
+    """A Meta send exception is caught, logged, and the dispatcher
+    returns DispatchResult with success=False — does not propagate."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+
+    async def boom(phone: str, message: str) -> None:
+        raise RuntimeError("Meta HTTP 500 — fake")
+
+    monkeypatch.setattr(
+        "app.services.consolidated_briefing._send_whatsapp_message",
+        boom,
+    )
+
+    result = await cb.dispatch_morning(t.id, _now_at(), db)
+
+    assert result.success is False
+    assert result.sent_count == 0
+    assert "Meta HTTP 500" in (result.error or "")
+    # send_failed event recorded.
+    assert (
+        db.query(Event)
+        .filter(Event.event_type == "push.morning_send_failed")
+        .count() == 1
+    )
+    # No *_sent event — idempotency anchor does NOT fire on full failure.
+    assert (
+        db.query(Event)
+        .filter(Event.event_type == "push.morning_sent")
+        .count() == 0
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_defaults_to_hi_en_locale(db, mock_meta_sender):
+    """Per slice 2C decision A1, all recipients receive the hi_en
+    (Hinglish) variant. Per-recipient locale resolution is deferred
+    until User.language_preference exists."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+
+    await cb.dispatch_morning(t.id, _now_at(), db)
+
+    msg = mock_meta_sender[0]["message"]
+    # Devanagari header from MORNING_BRIEFING_HI.
+    assert "सुबह की briefing" in msg
+    # English header NOT used.
+    assert "Morning briefing" not in msg
+
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_renders_placeholder_when_no_blocker(db, mock_meta_sender):
+    """Hybrid pattern: when no blocker-class signal fires, the rendered
+    message uses the benign placeholder ('Aaj sab routine hai') for
+    flag and ('Koi action nahi chahiye') for next_step."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+
+    await cb.dispatch_morning(t.id, _now_at(), db)
+
+    msg = mock_meta_sender[0]["message"]
+    assert "Aaj sab routine hai" in msg
+    assert "Koi action nahi chahiye" in msg
+
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_no_jobs_renders_zero_continuing(db, mock_meta_sender):
+    """Idle case: tenant with no jobs renders the template with
+    jobs_starting=0 and continuing fallback '0' string."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+
+    await cb.dispatch_morning(t.id, _now_at(), db)
+
+    msg = mock_meta_sender[0]["message"]
+    # MORNING_BRIEFING_HI has " - आज शुरू होने वाले काम: {jobs_starting}".
+    assert "0" in msg
+
+
+# ---------------------------------------------------------------------------
+# dispatch_evening
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_evening_skips_when_evening_enabled_false(db, mock_meta_sender):
+    """Evening dispatcher honours briefing_evening_enabled (independent
+    of morning_enabled)."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+    # Morning ON, evening OFF.
+    t.briefing_morning_enabled = True
+    t.briefing_evening_enabled = False
+    db.flush()
+
+    result = await cb.dispatch_evening(t.id, _now_at(18, 30), db)
+
+    assert result.success is True
+    assert result.skip_reason == "disabled"
+    assert mock_meta_sender == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_evening_idempotent_per_kind(db, mock_meta_sender):
+    """Morning and evening dedup independently — sending morning does
+    NOT block evening on the same calendar day."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+
+    # Morning at 07:30.
+    r_m = await cb.dispatch_morning(t.id, _now_at(7, 30), db)
+    assert r_m.sent_count == 1
+
+    # Evening at 18:30 on the same day must still send (different
+    # event_type prefix).
+    r_e = await cb.dispatch_evening(t.id, _now_at(18, 30), db)
+    assert r_e.sent_count == 1
+
+    # Two distinct sends recorded.
+    assert len(mock_meta_sender) == 2
+
+
+@pytest.mark.asyncio
+async def test_dispatch_evening_logs_evening_specific_event(db, mock_meta_sender):
+    """dispatch_evening writes push.evening_sent (not push.morning_sent)."""
+    t, _u, _p = _seed_tenant_with_owner(db)
+
+    await cb.dispatch_evening(t.id, _now_at(18, 30), db)
+
+    morning_events = (
+        db.query(Event)
+        .filter(Event.event_type == "push.morning_sent")
+        .count()
+    )
+    evening_events = (
+        db.query(Event)
+        .filter(Event.event_type == "push.evening_sent")
+        .count()
+    )
+    assert morning_events == 0
+    assert evening_events == 1
+
+
+# ---------------------------------------------------------------------------
+# Cross-tenant isolation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_morning_filters_by_tenant(db, mock_meta_sender):
+    """Recipients in other tenants must not receive a different
+    tenant's morning push."""
+    t1, _u1, _p1 = _seed_tenant_with_owner(db, tenant_name="Tenant 1",
+                                            phone="+919999000001")
+    t2, _u2, _p2 = _seed_tenant_with_owner(db, tenant_name="Tenant 2",
+                                            phone="+919999000002")
+
+    await cb.dispatch_morning(t1.id, _now_at(), db)
+
+    assert len(mock_meta_sender) == 1
+    assert mock_meta_sender[0]["phone"] == "+919999000001"
+
+
 def test_module_assertion_catches_missing_template():
     """The module-level guard fires when blocker-class set and template
     keys diverge. Asserts the equality expression directly rather than
