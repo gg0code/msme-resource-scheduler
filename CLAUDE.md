@@ -5,7 +5,7 @@ This file is for AI sessions (and humans new to the repo). It captures the
 docs, or migrations. It is intentionally short. For depth, follow the
 pointers.
 
-If you have time for only one thing, read [Section 1.2 of the SRS](./ZetaOps_SRS_v6_6.docx) ("Current State")
+If you have time for only one thing, read [Section 1.2 of the SRS](./docs/ZetaOps_SRS_v6_6.md) ("Current State")
 and [`DELIVERY_LEDGER.md`](./DELIVERY_LEDGER.md). Together they answer "where
 is this product right now?" in under 5 minutes.
 
@@ -22,7 +22,7 @@ ERP-connected).
 
 Stack: FastAPI + Python 3.14 + PostgreSQL 15/16 + SQLAlchemy 2.0 + Alembic;
 React 18 + TypeScript + Vite + TanStack Query; Groq tool-calling for AI;
-Meta WhatsApp Business API via Interakt (mock in dev). See SRS §10.
+
 
 ---
 
@@ -34,7 +34,7 @@ entirely on the question.
 
 | File                   | Question it answers                  | Authoritative for |
 |------------------------|--------------------------------------|-------------------|
-| `ZetaOps_SRS_v6_6.docx`| What should the product be?          | spec / target state |
+| `docs/ZetaOps_SRS_v6_6.md` | What should the product be?       | spec / target state |
 | `DELIVERY_LEDGER.md`   | What is actually built right now?    | **shipped state** |
 | `CHANGELOG.md`         | What changed in version X?           | per-release narrative |
 
@@ -225,7 +225,7 @@ on the seventh day of delivered morning briefings, picking the strongest
 of attendance / skill bottleneck / machine spread / recurring customer
 or a routine-set fallback. The WhatsApp production cutover (originally
 planned as v5.11; shipped at v6.3.7 + v6.3.8 on 2026-05-03 — Meta Cloud
-API direct send + Interakt removal) is engineering-complete; what
+API direct send l) is engineering-complete; what
 remains is **Meta Business portfolio approval** to flip
 `WHATSAPP_MOCK_MODE` off. The platform runs in mock mode end-to-end and
 is feature-complete behind that gate. See "Version-number gaps are

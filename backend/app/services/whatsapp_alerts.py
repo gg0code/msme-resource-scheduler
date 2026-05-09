@@ -552,12 +552,15 @@ async def send_machine_down_alert(
         )
         return
 
-    alert_text = (
-        f"ALERT: Machine down\n\n"
-        f"'{machine_name}' abhi maintenance mode mein hai.\n"
-        f"Is machine par scheduled jobs affect ho sakte hain.\n\n"
-        f"Schedule check karne ke liye poochein: "
-        f"'machine {machine_id} ki wajah se kaunse jobs affect hue'"
+    from app.services.message_templates import (
+        MACHINE_DOWN_ALERT,
+        DEFAULT_LOCALE,
+        pick,
+    )
+
+    alert_text = pick(MACHINE_DOWN_ALERT, DEFAULT_LOCALE).format(
+        machine_name=machine_name,
+        machine_id=machine_id,
     )
 
     for phone_mapping in active_phones:
@@ -888,6 +891,11 @@ async def _build_morning_briefing(
     Uses direct DB queries for reliability — no dependency on ai_service
     tool names which may not exist or may change.
 
+    v6.3.18: renders via message_templates.MORNING_BRIEFING (Hinglish-first
+    locale dict) instead of the previous inline f-string. Visual
+    hierarchy + emoji + length cap are now centralised; the wire content
+    is the same active/total/delayed/team counts.
+
     Args:
         tenant_id:     The tenant to build briefing for.
         industry_type: Reserved for future terminology customisation.
@@ -902,7 +910,13 @@ async def _build_morning_briefing(
     from app.database import SessionLocal
     from app.models.job import Job
     from app.models.employee import Employee
-    from app.services.whatsapp_formatter import format_for_whatsapp
+    from app.services.message_formatters import format_for_whatsapp
+    from app.services.message_templates import (
+        MORNING_BRIEFING,
+        MORNING_BRIEFING_DELAYED_LINE,
+        DEFAULT_LOCALE,
+        pick,
+    )
 
     db = SessionLocal()
 
@@ -947,17 +961,20 @@ async def _build_morning_briefing(
 
         today_str = datetime.now().strftime("%d %B %Y")
 
-        briefing = (
-            f"Good morning! ZetaOps daily briefing — {today_str}\n\n"
-            f"Jobs: {active_jobs} active, {total_jobs} total\n"
+        delayed_line = (
+            pick(MORNING_BRIEFING_DELAYED_LINE, DEFAULT_LOCALE).format(
+                delayed_count=delayed_jobs,
+            )
+            if delayed_jobs > 0
+            else ""
         )
 
-        if delayed_jobs > 0:
-            briefing += f"DELAYED: {delayed_jobs} jobs need attention\n"
-
-        briefing += (
-            f"Team: {total_employees} employees\n\n"
-            f"Details ke liye poochein: 'aaj ka schedule dikhao'"
+        briefing = pick(MORNING_BRIEFING, DEFAULT_LOCALE).format(
+            date=today_str,
+            active_jobs=active_jobs,
+            total_jobs=total_jobs,
+            delayed_line=delayed_line,
+            total_employees=total_employees,
         )
 
         return format_for_whatsapp(briefing)
@@ -1120,8 +1137,15 @@ def _build_delay_alert(delayed_jobs: list[dict], industry_type: str) -> str:
     """
     Build a WhatsApp alert message listing delayed jobs.
 
+    v6.3.18: renders via message_templates.DELAY_ALERT (single English
+    string per Q3 — Meta has approved en_US only for zetaops_job_ending_soon).
+    Job list is shaped via message_formatters.format_jobs_list which
+    enforces the 5-item cap + "+N more" tail.
+
     Args:
         delayed_jobs:  List of delayed job dicts from _get_delayed_jobs().
+                       Each dict has 'job_id', 'job_name', 'end_date',
+                       'status' keys.
         industry_type: Reserved for future terminology customisation.
 
     Returns:
@@ -1130,19 +1154,28 @@ def _build_delay_alert(delayed_jobs: list[dict], industry_type: str) -> str:
     Side effects:
         None — pure function.
     """
-    from app.services.whatsapp_formatter import format_for_whatsapp
+    from types import SimpleNamespace
+
+    from app.services.message_formatters import format_for_whatsapp, format_jobs_list
+    from app.services.message_templates import DELAY_ALERT
 
     job_count = len(delayed_jobs)
-    alert = f"ALERT: {job_count} delayed job{'s' if job_count > 1 else ''}\n\n"
 
-    # List first 3 delayed jobs - avoid very long messages on mobile
-    for job in delayed_jobs[:3]:
-        alert += f"- {job['job_name']} (due: {job['end_date']})\n"
+    # Adapt the dict-shaped rows to the duck-typed JobLike protocol that
+    # format_jobs_list reads via getattr. Keeps the formatter contract
+    # clean (one structural shape) while preserving the dict shape on
+    # _get_delayed_jobs (which other tests may rely on).
+    job_objs = [
+        SimpleNamespace(name=row["job_name"], end_date=row["end_date"])
+        for row in delayed_jobs
+    ]
+    jobs_block = format_jobs_list(job_objs, max_items=3)
 
-    if job_count > 3:
-        alert += f"...aur {job_count - 3} aur jobs\n"
-
-    alert += "\nDetails ke liye poochein: 'delayed jobs dikhao'"
+    alert = DELAY_ALERT.format(
+        count=job_count,
+        plural_s="s" if job_count != 1 else "",
+        jobs_block=jobs_block,
+    )
 
     return format_for_whatsapp(alert)
 
@@ -1151,8 +1184,16 @@ def _build_conflict_alert(conflicts: list, industry_type: str) -> str:
     """
     Build a WhatsApp alert message for scheduling conflicts.
 
+    v6.3.18: renders via message_templates.CONFLICT_ALERT (single English
+    string per Q3 — the Hindi sibling exists in the JSON registry as
+    `status: "draft_pending_meta_submission"` and is not yet wired up).
+    Job list shaped via format_jobs_list with 3-item cap.
+
     Args:
         conflicts:     List of conflict dicts from _get_conflicts().
+                       Each dict has 'job_id', 'job_name', 'status' keys
+                       (no end_date — conflict listings don't carry due
+                       dates).
         industry_type: Reserved for future terminology customisation.
 
     Returns:
@@ -1161,23 +1202,24 @@ def _build_conflict_alert(conflicts: list, industry_type: str) -> str:
     Side effects:
         None — pure function.
     """
-    from app.services.whatsapp_formatter import format_for_whatsapp
+    from types import SimpleNamespace
+
+    from app.services.message_formatters import format_for_whatsapp, format_jobs_list
+    from app.services.message_templates import CONFLICT_ALERT
 
     conflict_count = len(conflicts)
 
-    alert = (
-        f"ALERT: {conflict_count} scheduling conflict"
-        f"{'s' if conflict_count > 1 else ''} detected\n\n"
+    job_objs = [
+        SimpleNamespace(name=row["job_name"], end_date=None)
+        for row in conflicts
+    ]
+    jobs_block = format_jobs_list(job_objs, max_items=3)
+
+    alert = CONFLICT_ALERT.format(
+        count=conflict_count,
+        plural_s="s" if conflict_count != 1 else "",
+        jobs_block=jobs_block,
     )
-
-    # List up to 3 conflicting jobs by name
-    for conflict in conflicts[:3]:
-        alert += f"- {conflict['job_name']}\n"
-
-    if conflict_count > 3:
-        alert += f"...aur {conflict_count - 3} aur\n"
-
-    alert += "\nDetails ke liye poochein: 'schedule conflicts dikhao'"
 
     return format_for_whatsapp(alert)
 

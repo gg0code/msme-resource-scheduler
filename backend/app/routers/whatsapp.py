@@ -1088,6 +1088,15 @@ async def _process_inbound_message(
     # Step 9: Format for WhatsApp
     formatted_response = format_for_whatsapp(raw_ai_response)
 
+    # Step 9b (v6.3.18): wrap with AI_REPLY_HEADER warm-greeting prefix.
+    # render_ai_reply pulls the first token off display_name when present
+    # and squashes the resulting double-space when it isn't.
+    from app.services.message_templates import render_ai_reply
+    first_name = ""
+    if identity.display_name:
+        first_name = identity.display_name.split()[0]
+    formatted_response = render_ai_reply(formatted_response, first_name=first_name)
+
     # Step 10: Add AI response to session
     await add_message_to_session(
         phone_number=phone_number,

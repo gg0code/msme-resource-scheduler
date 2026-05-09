@@ -1,0 +1,962 @@
+[
+    {
+        "name": "zetaops_welcome_consent",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Namaste {{1}}, welcome to ZetaOps Copilot.\n\nReply YES to activate your shop's AI assistant. From tomorrow, you will receive a 7:30 AM briefing of the day's plan, attendance, and any blockers.\n\nReply STOP anytime to opt out.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Sharma ji"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_welcome_consent",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "नमस्ते {{1}}, ZetaOps Copilot में आपका स्वागत है।\n\nअपने शॉप का AI assistant चालू करने के लिए YES भेजें। कल से, हर सुबह 7:30 बजे आपको दिन का प्लान, हाज़िरी और रुकावटों की जानकारी मिलेगी।\n\nकभी भी बंद करने के लिए STOP भेजें।",
+                "example": {
+                    "body_text": [
+                        [
+                            "शर्मा जी"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_workspace_ready",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Connected. {{1}} is now active on ZetaOps Copilot.\n\nYour first morning briefing will arrive at {{2}} tomorrow.\n\nYou can reply with questions anytime. Examples: kitna save hua is month, 5000 brochures ke liye kitna paper chahiye.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Sharma Printing Press",
+                            "7:30 AM"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_morning_briefing",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "Morning briefing — {{1}}",
+                "example": {
+                    "header_text": [
+                        "Tuesday, 30 April"
+                    ]
+                }
+            },
+            {
+                "type": "BODY",
+                "text": "Today's plan\n- Jobs starting: {{1}}\n- Continuing from yesterday: {{2}}\n- Crew expected: {{3}}\n\nFlag: {{4}}\n\nSuggested next step: {{5}}\n\nReply OK to apply or HELP for options.",
+                "example": {
+                    "body_text": [
+                        [
+                            "3",
+                            "1 (Patel brochures)",
+                            "10 of 11",
+                            "Rakesh on leave — Bhatia cards may slip 2 hrs",
+                            "Confirm Bhatia paper before 9 AM, or move Ramesh to cover"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "Reply HELP for options"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_morning_briefing",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "सुबह की briefing — {{1}}",
+                "example": {
+                    "header_text": [
+                        "मंगलवार, 30 अप्रैल"
+                    ]
+                }
+            },
+            {
+                "type": "BODY",
+                "text": "आज का प्लान\n- आज शुरू होने वाले काम: {{1}}\n- कल से जारी: {{2}}\n- अपेक्षित crew: {{3}}\n\nध्यान दें: {{4}}\n\nसुझाव: {{5}}\n\nApply करने के लिए OK या HELP भेजें।",
+                "example": {
+                    "body_text": [
+                        [
+                            "3",
+                            "1 (पटेल brochures)",
+                            "10 में से 11",
+                            "राकेश छुट्टी पर — भाटिया cards 2 घंटे लेट हो सकता है",
+                            "9 बजे से पहले भाटिया का paper confirm करें, या रमेश को मोदी job से शिफ्ट करें"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "और जानकारी के लिए HELP भेजें"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_evening_briefing",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "Evening summary — {{1}}",
+                "example": {
+                    "header_text": [
+                        "Tuesday, 30 April"
+                    ]
+                }
+            },
+            {
+                "type": "BODY",
+                "text": "Today's actuals\n- Jobs completed: {{1}}\n- Hours logged: {{2}}\n- Attendance: {{3}}\n\nBlockers raised today: {{4}}\n\nFor tomorrow: {{5}}\n\nReply DETAIL to see the full report.",
+                "example": {
+                    "body_text": [
+                        [
+                            "2 (Bhatia cards, Reliance flyers)",
+                            "76 hrs across 9 workers",
+                            "10/11 present",
+                            "Machine 2 belt repair needed",
+                            "Start Modi pamphlets at 8 AM, paper already loaded"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_checkin",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Good morning {{1}}. Quick check-in for {{2}}.\n\n1. Aaj kaun kaun aaya (who is in today)\n2. Machines theek hain (any downtime)\n3. Aaj ke main kaam (today's main jobs)\n\nReply naturally. One message is fine.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Suresh ji",
+                            "Tuesday"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_checkin",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "सुप्रभात {{1}}। {{2}} के लिए quick check-in।\n\n1. आज कौन कौन आया\n2. Machines ठीक हैं या कोई problem है\n3. आज के main काम क्या हैं\n\nसामान्य भाषा में जवाब दें। एक message काफी है।",
+                "example": {
+                    "body_text": [
+                        [
+                            "सुरेश जी",
+                            "मंगलवार"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_machine_breakdown_alert",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "Machine breakdown alert"
+            },
+            {
+                "type": "BODY",
+                "text": "Hi, {{1}} is down. Reported by {{2}} at {{3}}.\n\nIssue: {{4}}\nImpact: {{5}}\n\nOptions:\n1. Repair locally — {{6}}\n2. Move job to backup machine — {{7}}\n3. Inform customer, push delivery\n\nReply 1, 2, or 3 to choose.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Machine 1 (offset)",
+                            "Suresh",
+                            "11:42 AM",
+                            "Belt failure",
+                            "Reliance flyers paused — ₹45K order due tomorrow",
+                            "4 hrs, on time delivery",
+                            "Modi job pauses 2 hrs"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_job_conflict_alert",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "Schedule conflict — action needed"
+            },
+            {
+                "type": "BODY",
+                "text": "Two jobs need the same resource at the same time.\n\nJob A: {{1}}\nJob B: {{2}}\nResource: {{3}}\nWindow: {{4}}\n\nSuggested resolution: {{5}}\n\nReply YES to apply or REVIEW to see other options.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Bhatia wedding cards",
+                            "Reliance flyers",
+                            "Machine 2 (offset)",
+                            "Tomorrow 10 AM – 1 PM",
+                            "Move Reliance to Machine 3, no impact on delivery"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_job_conflict_alert",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "Schedule में conflict — action चाहिए"
+            },
+            {
+                "type": "BODY",
+                "text": "दो Job एक ही समय पर एक ही Resource माँग रहे हैं।\n\nJob A: {{1}}\nJob B: {{2}}\nResource: {{3}}\nWindow: {{4}}\n\nसुझाव: {{5}}\n\nApply करने के लिए YES या REVIEW भेजें।",
+                "example": {
+                    "body_text": [
+                        [
+                            "Bhatia wedding cards",
+                            "Reliance flyers",
+                            "Machine 2 (offset)",
+                            "कल 10 AM — 1 PM",
+                            "Reliance को Machine 3 पर शिफ्ट करें, delivery पर असर नहीं"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL",
+        "status": "draft_pending_meta_submission"
+    },
+    {
+        "name": "zetaops_job_ending_soon",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Hi, {{1}} for {{2}} is on track to finish in {{3}}.\n\nProgress: {{4}}\nNext job in queue: {{5}}\n\nReply READY when packing is complete to mark this job done.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Wedding Card Run",
+                            "Royal Events",
+                            "about 45 minutes",
+                            "820 of 850 cards printed",
+                            "Modi pamphlets — paper already loaded"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_attendance_flag",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Attendance flag for {{1}}.\n\n{{2}} is absent today. Affected job: {{3}}\n\nSuggested cover: {{4}}\n\nReply OK to apply the suggested cover, or NAME to assign someone else.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Tuesday",
+                            "Rakesh (offset operator)",
+                            "Bhatia wedding cards — may slip 2 hrs",
+                            "Move Ramesh from Modi job"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_order_confirmation_request",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "New order — confirmation needed"
+            },
+            {
+                "type": "BODY",
+                "text": "Hi, {{1}} — {{2}}.\n\nRaw material check: {{3}}\nEarliest start: {{4}}\nEstimated profit: {{5}}\n\nReply CONFIRM to draft PO and block calendar, or HOLD to keep pending.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Bamul Dairy",
+                            "50,000 corrugated boxes",
+                            "Order 3,500 kg kraft sheet, lead time 4 days",
+                            "5 May (after Patel job wraps 4 May)",
+                            "₹1.85L at 22% margin"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_compliance_reminder_t30",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "Compliance reminder — 30 days"
+            },
+            {
+                "type": "BODY",
+                "text": "Hi, {{1}} is due in 30 days, on {{2}}.\n\nWhat to prepare: {{3}}\n\nUpload the document by replying with a photo or PDF. Reply REMIND to be reminded again in 7 days.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Trade licence renewal",
+                            "30 May 2026",
+                            "Last licence copy, latest electricity bill"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_compliance_reminder_t7",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "Compliance reminder — 7 days"
+            },
+            {
+                "type": "BODY",
+                "text": "Hi, {{1}} is due in 7 days, on {{2}}.\n\nStatus: {{3}}\n\nUpload the document by replying with a photo or PDF. Reply DONE if already filed offline.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Trade licence renewal",
+                            "7 May 2026",
+                            "Not yet filed"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_compliance_reminder_t1",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "Compliance reminder — due tomorrow"
+            },
+            {
+                "type": "BODY",
+                "text": "Hi, {{1}} is due tomorrow, {{2}}.\n\nStatus: {{3}}\n\nUpload the filed document by replying with a photo or PDF. Reply DONE if filed offline.",
+                "example": {
+                    "body_text": [
+                        [
+                            "GSTR-1 filing",
+                            "11 May 2026",
+                            "Not yet filed"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_invite_team_member",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Namaste {{1}}, {{2}} has added you to {{3}} on ZetaOps Copilot as {{4}}.\n\nReply YES to activate your account. You will then receive {{5}}.\n\nReply STOP anytime to opt out.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Suresh ji",
+                            "Sharma ji",
+                            "Sharma Printing Press",
+                            "Factory Manager",
+                            "a 7:00 AM check-in every working day"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_performance_summary_monthly",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "Monthly performance summary — {{1}}",
+                "example": {
+                    "header_text": [
+                        "April 2026"
+                    ]
+                }
+            },
+            {
+                "type": "BODY",
+                "text": "Performance summary for {{1}}.\n\nCost saved vs baseline: ₹{{2}}\nHours saved: {{3}}\nSchedule conflicts prevented: {{4}}\nJobs completed on time: {{5}}\n\nReply DETAIL for the full breakdown.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Sharma Printing Press",
+                            "50,000",
+                            "40",
+                            "4",
+                            "92%"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_performance_summary_monthly",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "महीने का performance summary — {{1}}",
+                "example": {
+                    "header_text": [
+                        "अप्रैल 2026"
+                    ]
+                }
+            },
+            {
+                "type": "BODY",
+                "text": "Hi, {{1}} के लिए performance summary।\n\nBaseline से कम लागत: ₹{{2}}\nबचे घंटे: {{3}}\nरोके गए schedule conflicts: {{4}}\nसमय पर पूरे हुए जॉब्स: {{5}}\n\nपूरी detail के लिए DETAIL भेजें।",
+                "example": {
+                    "body_text": [
+                        [
+                            "शर्मा प्रिंटिंग प्रेस",
+                            "50,000",
+                            "40",
+                            "4",
+                            "92%"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_gst_einvoice_ready",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "GST e-invoice ready"
+            },
+            {
+                "type": "BODY",
+                "text": "E-invoice JSON for {{1}} is ready.\n\nCustomer GSTIN: {{2}}\nInvoice value: ₹{{3}}\nFile sent to: {{4}}\n\nReply RESEND to receive the JSON file again on WhatsApp, or CHANGE if customer GSTIN was wrong.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Job #66 — Royal Events",
+                            "29ABCDE1234F1Z5",
+                            "1,42,500",
+                            "owner@sharmapress.com"
+                        ]
+                    ]
+                }
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_invite_team_member",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "नमस्ते {{1}}, {{2}} ने आपको {{3}} में {{4}} के रूप में जोड़ा है (ZetaOps Copilot पर)।\n\nअपना account चालू करने के लिए YES भेजें। फिर आपको {{5}} मिलेगा।\n\nकभी भी बंद करने के लिए STOP भेजें।",
+                "example": {
+                    "body_text": [
+                        [
+                            "सुरेश जी",
+                            "शर्मा जी",
+                            "शर्मा प्रिंटिंग प्रेस",
+                            "Factory Manager",
+                            "हर working day सुबह 7:00 बजे एक check-in"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_activated",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Welcome {{1}}. You are now connected to {{2}}.\n\nTomorrow at {{3}}, I will message you 3 quick questions:\n1. Who is in today\n2. Any machine or equipment issues\n3. Today's main jobs or tasks\n\nYou can reply in English, Hindi, or Hinglish. Typing names is fine. Voice notes also work.\n\nYour reply will become {{4}}'s morning briefing at {{5}}.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Suresh ji",
+                            "Sharma Printing Press",
+                            "7:00 AM",
+                            "Sharma ji",
+                            "7:30 AM"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_activated",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "स्वागत है {{1}}। आप अब {{2}} से जुड़ गए हैं।\n\nकल सुबह {{3}} बजे मैं आपको 3 छोटे सवाल भेजूँगा:\n1. आज कौन कौन आया\n2. कोई machine या equipment problem है क्या\n3. आज के main काम क्या हैं\n\nआप English, हिंदी, या Hinglish — किसी में भी जवाब दे सकते हैं। नाम type करना ठीक है। Voice note भी चलेगा।\n\nआपका जवाब {{4}} की सुबह {{5}} बजे की briefing बनेगा।",
+                "example": {
+                    "body_text": [
+                        [
+                            "सुरेश जी",
+                            "शर्मा प्रिंटिंग प्रेस",
+                            "7:00",
+                            "शर्मा जी",
+                            "7:30"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_joined_owner_notice",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Update: {{1}} has accepted your invite and is now active as {{2}}.\n\nFrom tomorrow, your morning briefing at {{3}} will include their daily check-in: attendance, equipment status, and today's jobs.\n\nReply HELP if you'd like to add another team member.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Suresh",
+                            "Factory Manager",
+                            "7:30 AM"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_joined_owner_notice",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Update: {{1}} ने आपका invite accept कर लिया है। अब वो {{2}} के रूप में active हैं।\n\nकल से आपकी सुबह {{3}} बजे की briefing में उनकी daily check-in शामिल होगी — हाज़िरी, equipment की स्थिति, और आज के काम।\n\nऔर team member जोड़ने के लिए HELP भेजें।",
+                "example": {
+                    "body_text": [
+                        [
+                            "सुरेश",
+                            "Factory Manager",
+                            "7:30"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_invite_pending_owner_nudge",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Quick note: {{1}} hasn't replied YES to the invite yet. Sent {{2}}.\n\nIf you want them onboard for tomorrow's briefing, a quick call or message from your side usually helps.\n\nReply RESEND to send the invite again, or REMOVE to cancel.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Suresh",
+                            "yesterday at 4:12 PM"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_invite_pending_owner_nudge",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "एक छोटी सी बात: {{1}} ने अभी तक invite का YES जवाब नहीं दिया है। {{2}} भेजा था।\n\nअगर कल की briefing में उन्हें शामिल करना है, तो आपकी तरफ से एक call या message आमतौर पर मदद करता है।\n\nInvite दुबारा भेजने के लिए RESEND, या cancel करने के लिए REMOVE भेजें।",
+                "example": {
+                    "body_text": [
+                        [
+                            "सुरेश",
+                            "कल शाम 4:12 बजे"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_input_acknowledged",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Thanks {{1}}. Today's check-in is recorded:\n- {{2}}\n- {{3}}\n- {{4}}\n\nYour input went into {{5}}'s briefing this morning. Same 3 questions tomorrow at {{6}}.\n\nReply CHANGE if any of today's info was wrong.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Suresh ji",
+                            "6 of 8 workers in",
+                            "Machine 2 belt issue noted",
+                            "3 active jobs",
+                            "Sharma ji",
+                            "7:00 AM"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_input_acknowledged",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Shukriya {{1}}। आज का check-in record हो गया:\n- {{2}}\n- {{3}}\n- {{4}}\n\nआपकी जानकारी {{5}} की आज सुबह की briefing में गई। कल भी यही 3 सवाल — सुबह {{6}} बजे।\n\nअगर आज की कोई जानकारी गलत थी, तो CHANGE भेजें।",
+                "example": {
+                    "body_text": [
+                        [
+                            "सुरेश जी",
+                            "8 में से 6 worker आए",
+                            "Machine 2 का belt issue note हो गया",
+                            "3 active काम",
+                            "शर्मा जी",
+                            "7:00"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_reply_nudge",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Just a reminder {{1}}. The 3 quick questions are still open:\n1. Who is in today\n2. Any machine issues\n3. Today's main jobs\n\nEven a one-line reply works. {{2}} is waiting on this for the morning view.\n\nReply LATER if you'll send it after {{3}}, or SKIP to skip today.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Suresh ji",
+                            "Sharma ji",
+                            "9 AM"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_reply_nudge",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "एक छोटा सा reminder {{1}}। 3 सवाल अभी भी open हैं:\n1. आज कौन कौन आया\n2. Machine में कोई problem है\n3. आज के main काम\n\nएक-line का जवाब भी काफ़ी है। {{2}} सुबह की view के लिए इसका इंतज़ार कर रहे हैं।\n\nअगर {{3}} के बाद भेजेंगे तो LATER, और आज skip करना है तो SKIP भेजें।",
+                "example": {
+                    "body_text": [
+                        [
+                            "सुरेश जी",
+                            "शर्मा जी",
+                            "9 बजे"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_day3_rhythm",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "{{1}}, 3 days in. Quick note from my side:\n\n{{2}}\n\nYour check-ins are reaching {{3}} on time every morning. Keep going — by next week the system will start spotting patterns you might miss in the daily rush.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Suresh ji",
+                            "Average reply time: 4 minutes. All 3 days complete. Attendance noted for 22 worker-events.",
+                            "Sharma ji"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_day3_rhythm",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "{{1}}, 3 दिन हो गए। एक छोटी सी बात:\n\n{{2}}\n\nआपकी check-in हर सुबह time पर {{3}} तक पहुँच रही है। ऐसे ही चलाते रहिए — अगले हफ़्ते से system ऐसे patterns दिखाने लगेगा जो रोज़ की भागदौड़ में miss हो जाते हैं।",
+                "example": {
+                    "body_text": [
+                        [
+                            "सुरेश जी",
+                            "औसत reply time: 4 मिनट। तीनों दिन complete। 22 worker-events note हुए।",
+                            "शर्मा जी"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_day7_mirror",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "1 week complete {{1}}. Here's what your check-ins made possible:\n\n- {{2}}\n- {{3}}\n- {{4}}\n\n{{5}} also got a deeper insight this morning based on the full week. If they ask you about it today, you'll know the context.\n\nReply SUMMARY to see your week in one view.",
+                "example": {
+                    "body_text": [
+                        [
+                            "Suresh ji",
+                            "62 of 70 worker-days marked on time",
+                            "2 machine issues caught early",
+                            "5 jobs flagged before they slipped",
+                            "Sharma ji"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_manager_day7_mirror",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "एक हफ़्ता पूरा हुआ {{1}}। आपकी check-ins से ये सब हो पाया:\n\n- {{2}}\n- {{3}}\n- {{4}}\n\n{{5}} को आज सुबह पूरे हफ़्ते का एक deeper insight भी मिला है। अगर वो आज इस बारे में पूछें, तो आपको context पता होगा।\n\nअपने हफ़्ते का summary देखने के लिए SUMMARY भेजें।",
+                "example": {
+                    "body_text": [
+                        [
+                            "सुरेश जी",
+                            "70 में से 62 worker-days time पर mark हुए",
+                            "2 machine issues पहले ही पकड़े गए",
+                            "5 जॉब slip होने से पहले flag हुए",
+                            "शर्मा जी"
+                        ]
+                    ]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL"
+    }
+]

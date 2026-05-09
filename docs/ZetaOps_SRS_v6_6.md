@@ -6,7 +6,7 @@ Multi-Industry AI-Powered Resource Scheduling Platform
 
 Software Requirements Specification (SRS)
 
-Version 6.6  |  Updated 2026-05-07; shipped through v6.3.17 (WhatsApp owner-bypass entity writes). Migration head 032. See CHANGELOG.md and DELIVERY_LEDGER.md for the per-version narrative across v6.3.1 through v6.3.17.
+Version 6.7  |  Updated 2026-05-08; shipped through v6.3.18 (WhatsApp message styling pass — new SRS Section 23). Migration head 032 (unchanged from v6.3.17). See CHANGELOG.md and DELIVERY_LEDGER.md for the per-version narrative across v6.3.1 through v6.3.18.
 
 | **Version** | **Notes** |
 | --- | --- |
@@ -19,6 +19,7 @@ Version 6.6  |  Updated 2026-05-07; shipped through v6.3.17 (WhatsApp owner-bypa
 | **6.4** | Updated April 28, 2026 following v6.3.0-whatsapp-industry release. v6.4 strategy revised: WhatsApp is promoted to Primary Entry Gate -- a formally configurable signup-time routing decision (entry_mode field on Tenant). Top-tier role expands from single Owner to a role group covering Owner, Factory Manager, Co-Owner -- all with equal operational authority; commercial actions remain Owner-only. Configurable morning and evening daily push briefings dispatched on WhatsApp to top-tier users. New Section 6.28 (WhatsApp as Primary Entry Gate) covers signup changes, role expansion, and briefing dispatch. Material Estimator surface (previous v6.4) renumbered to v6.5; Compliance Tracker to v6.6; GST E-Invoicing to v6.7; RAG pgvector to v6.8; Supervisor Agent to v6.9. Migration 027 added (entry_mode, size_segment, briefing config, role enum extension). Re-baselined v6.4 acceptance criteria. Section 1.2 Current State updated. Section 16 Implementation Roadmap renumbered. |
 | **6.5** | Updated April 29, 2026 during v6.3.4 in progress. Documentation-only release. (1) Adds Section 6.28.4 (UI Consolidation) reflecting the v6.3.5 iteration scope: drop the standalone /whatsapp page (functionality folded into a single Invite modal opened from Settings -- Team and Roles); redesign Team and Roles as a phone-shaped table where Phone and WhatsApp connection status are first-class columns and synthesised invite-XXX@invite.zetaops.com placeholders no longer leak into API responses (TeamMemberOut.email becomes Optional[str]); add a new InviteMemberModal with channel picker (WhatsApp / Desktop) that conditionally swaps the phone field for an email field; add a minimal post-signup landing page at /welcome for whatsapp_first proprietors per Section 6.28 spec, replacing the transitional /connect-whatsapp placeholder. (2) Documents migration 028 (events audit table introduced in v6.3.3) in Section 9.2 migrations table, and advances the migration head pointer in Section 1.2 and Section 5 from 023 to 028. (3) Corrects the stale "Current head: 020" callout in Section 9.2 to read 028. No new schema introduced by v6.5 itself, no new feature flag (whatsapp_entry_gate from v6.4 already covers the UI consolidation). Updates Section 16 Phase 8.5 to include v6.3.5 deliverables. |
 | 6.6 | Updated May 7, 2026 covering v6.3.6 -- v6.3.17. (1) Section 1.2 header banner advanced to reflect shipped state through v6.3.17 (WhatsApp owner-bypass entity writes); single summary bullet added to the SHIPPED list pointing readers to CHANGELOG.md and DELIVERY_LEDGER.md for per-version detail. (2) Migration head pointer in Reference Documents advanced from 028 to 032 reflecting the chain that landed in this window: 029 extraction_candidates staging table (v6.3.13), 030 confirmation_state columns on extraction_candidates (v6.3.15 revised owner-confirmed promotion), 031 first_briefing_sent_at + engagement_ladder_state on tenants (v6.3.16 Day-7 First-Insight Gate), 032 source column on skills (v6.3.17 WhatsApp owner-bypass entity writes). (3) New audit-event namespaces introduced in this window: extraction.* (candidate promotion + owner-confirmation cycle), engagement.day7_owner_* (Day-7 gate sent / suppressed / failed), entity.owner_added (owner-bypass writes). (4) New entity-source value whatsapp_owner distinguishes owner-asserted writes from manager-typed (whatsapp) and bot-promoted (whatsapp_inferred) rows. Skill table now carries the same source column as Employee/Machine. No new functional requirement section added by this Document v6.6 -- per-version specs continue to live in CHANGELOG.md. |
+| **6.7** | Updated May 8, 2026 covering v6.3.18 (WhatsApp message styling pass). (1) New top-level Section 23 (Voice, Tone, and Formatting Standards) introduced — codifies tone principles, visual hierarchy, length caps, emoji vocabulary policy, Hindi-English code-mixing rule, and the Meta-binding bridge between code-side template constants and Meta HSM templates. AC IDs 23-AC1 through 23-AC8 enumerated. (2) Section 1.2 SHIPPED list extended with v6.3.18 entry pointing at the new infrastructure (`message_emoji.py`, `message_formatters.py`, `whatsapp_meta_templates.py` + `.json`). (3) Migration head pointer unchanged at 032 — v6.3.18 ships no schema. (4) Note on Section numbering: the v6.3.18 release brief originally proposed "Section 11"; the existing Section 11 (Optimisation Algorithm Specification) is load-bearing technical content, so the new section was placed at the next available number (23) without renumbering existing content. AC IDs updated accordingly across SRS / DELIVERY_LEDGER / tests. |
 
 # 1. Executive Summary
 
@@ -97,7 +98,8 @@ V6 era — AI-first intelligent platform (33 tagged releases):
 - **v6.3.14** (May 5) — entity extractor service.
 - **v6.3.15** (revised) (May 6) — owner-confirmed candidate promotion.
 - **v6.3.16** (May 6) — Day-7 First-Insight Gate.
-- **v6.3.17** (May 7) — WhatsApp owner-bypass entity writes. Current `HEAD` of `v5-whatsapp`.
+- **v6.3.17** (May 7) — WhatsApp owner-bypass entity writes.
+- **v6.3.18** (May 8) — WhatsApp message styling pass. Centralises emoji vocabulary (`message_emoji.py`), entity formatters + named template constants (`message_formatters.py`), and the Meta HSM template registry (`whatsapp_meta_templates.py` + `.json`, 35 entries from `templates_v2.json` + new Hindi `zetaops_job_conflict_alert` draft). No schema change; migration head stays 032. New SRS Section 23 (Voice, Tone, and Formatting Standards) codifies the policy with AC IDs 23-AC1 through 23-AC8. Code-only ships against the mock; Meta submission gated on Meta Business portfolio approval per Section 1.2 "Blocked". Current `HEAD` of `v5-whatsapp`.
 
 ### Blocked (single external dependency — Meta Business portfolio review)
 
@@ -743,7 +745,7 @@ Backfill script scripts/backfill_v6_4.py is idempotent. Existing tenants get ent
 
 **Assumptions.**
 
-WhatsApp Business API account is provisioned (production via Interakt) or v5.0 mock simulator is available -- v6.4 ships against whichever is active. Mock-vs-production distinction is orthogonal to entry-gate routing. Webhook receiver is reachable; outbound messages can be sent within seconds of trigger. Background scheduler (APScheduler) is operational. v6.3.0-whatsapp-industry isolation is correct and stable. Phone number is acceptable as primary identity for whatsapp_first tenants. Team-size buckets reasonably segment customers. Indian customers prefer Hindi or Hinglish messaging by default (v5.12 multilingual support). Existing tenants will not opt in to WhatsApp en masse during release window. Tenant local timezone is known or derivable (default Asia/Kolkata).
+WhatsApp Business API account is provisioned or v5.0 mock simulator is available -- v6.4 ships against whichever is active. Mock-vs-production distinction is orthogonal to entry-gate routing. Webhook receiver is reachable; outbound messages can be sent within seconds of trigger. Background scheduler (APScheduler) is operational. v6.3.0-whatsapp-industry isolation is correct and stable. Phone number is acceptable as primary identity for whatsapp_first tenants. Team-size buckets reasonably segment customers. Indian customers prefer Hindi or Hinglish messaging by default (v5.12 multilingual support). Existing tenants will not opt in to WhatsApp en masse during release window. Tenant local timezone is known or derivable (default Asia/Kolkata).
 
 **Out of scope (deferred).**
 
@@ -751,7 +753,7 @@ Desktop UI redesign (KPI pills, alert bell, sidebar consolidation) -- deferred t
 
 **Risks.**
 
-WhatsApp Business API approval delay (Meta/Interakt review): ship against mock if production blocked. Routing logic is independent of mock-vs-production. Migration on large tenant tables: use Alembic safe-add patterns to avoid locking. Phone-as-identity recovery: whatsapp_first user without password who loses WhatsApp access requires support intervention; v6.4 documents this in Settings, magic-link recovery deferred. Briefing fan-out at scale: 1000 tenants times 3 top-tier users at 7:30am = 3000 sends in seconds; mitigated by tenant_id hash stagger across the briefing window. Briefing fatigue: if briefings are noisy, users will mute or unsubscribe; mitigated by high-signal content and sparse idle messages. Role confusion: introducing factory_manager and co_owner alongside owner may confuse users expecting a single boss; mitigated by sensible defaults (most small shops will only use owner) and clear Settings copy.
+WhatsApp Business API approval delay (Meta/ review): ship against mock if production blocked. Routing logic is independent of mock-vs-production. Migration on large tenant tables: use Alembic safe-add patterns to avoid locking. Phone-as-identity recovery: whatsapp_first user without password who loses WhatsApp access requires support intervention; v6.4 documents this in Settings, magic-link recovery deferred. Briefing fan-out at scale: 1000 tenants times 3 top-tier users at 7:30am = 3000 sends in seconds; mitigated by tenant_id hash stagger across the briefing window. Briefing fatigue: if briefings are noisy, users will mute or unsubscribe; mitigated by high-signal content and sparse idle messages. Role confusion: introducing factory_manager and co_owner alongside owner may confuse users expecting a single boss; mitigated by sensible defaults (most small shops will only use owner) and clear Settings copy.
 
 ## 6.28.4 UI Consolidation (v6.3.5 -- documented in SRS v6.5)
 
@@ -777,7 +779,7 @@ A new InviteMemberModal component at frontend/src/components/InviteMemberModal.t
 
 Backend support: InviteRequest schema in app/schemas/team.py is extended with optional channel, consent_given (default False), and name fields. Back-compat is preserved -- the existing email_or_phone freeform field remains; a Pydantic model_validator derives an internal channel value from the field's format (E.164 phone implies channel='whatsapp', containing '@' implies 'desktop'). When channel is whatsapp, consent_given must be true; the validator returns 422 with "WhatsApp invites require explicit consent" otherwise. v6.3.3 callers continue to work for desktop invites; WhatsApp invites without consent are intentionally broken (the new business rule). Long-term cleanup: deprecate email_or_phone in v6.5+ in favour of explicit email and phone_e164 fields.
 
-Welcome dispatch: a new helper at app/services/team_invite_whatsapp.py named send_invite_welcome composes and dispatches the consent-handshake message via the existing _send_alert path. In mock mode (WHATSAPP_MOCK_MODE=True) the message logs as [MOCK ALERT] to stdout; in production it is sent via Interakt. The handshake is the same one the proprietor went through at signup (Section 6.28 Feature 1) -- the invitee replies YES on WhatsApp; the YES handler in app/routers/whatsapp_router.py looks up the PhoneTenantMap row by phone_e164 and flips consent_given=True. v6.3.5 confirms or extends the existing YES handler to recognise invited members in addition to proprietor-linked numbers. An events row of type member.invited_whatsapp is written via the migration 028 events table (Section 9.2) for audit consistency with v6.3.3 role-change events; the row captures invitee_phone_e164, invitee_role, channel, consent_given, welcome_message_id (when Interakt returns one), and invited_by_user_id.
+Welcome dispatch: a new helper at app/services/team_invite_whatsapp.py named send_invite_welcome composes and dispatches the consent-handshake message via the existing _send_alert path. In mock mode (WHATSAPP_MOCK_MODE=True) the message logs as [MOCK ALERT] to stdout; in production it is WHATSAPP_MOCK_MODE=False. The handshake is the same one the proprietor went through at signup (Section 6.28 Feature 1) -- the invitee replies YES on WhatsApp; the YES handler in app/routers/whatsapp_router.py looks up the PhoneTenantMap row by phone_e164 and flips consent_given=True. v6.3.5 confirms or extends the existing YES handler to recognise invited members in addition to proprietor-linked numbers. An events row of type member.invited_whatsapp is written via the migration 028 events table (Section 9.2) for audit consistency with v6.3.3 role-change events; the row captures invitee_phone_e164, invitee_role, channel, consent_given, welcome_message_id, and invited_by_user_id.
 
 **Change 4 -- Minimal post-signup landing page at /welcome.**
 
@@ -965,7 +967,7 @@ Renaming next_step value from 'connect_whatsapp' to 'post_signup_landing' (clean
 | CSV / Excel | openpyxl (backend), papaparse (frontend), SheetJS (frontend) |
 | Onboarding | localStorage per user, TanStack Query cache for auto-detection |
 | QR Codes | qrcode.react — client-side only |
-| **WhatsApp Channel** | Meta WhatsApp Business API (via Interakt in production, mock bridge in dev) + Upstash Redis (session state) + OpenAI Whisper (voice note transcription, v5.11) |
+| **WhatsApp Channel** | Meta WhatsApp Business API ( mock bridge in dev) + Upstash Redis (session state) + OpenAI Whisper (voice note transcription, v5.11) |
 
 ## 10.2 Architecture Rules (Critical)
 
@@ -1053,7 +1055,7 @@ The scheduling problem is modelled as a variant of the Resource-Constrained Proj
 | 12 | Hindi language interface | **📋 Planned** | AI Copilot handles Hinglish today. Full UI translation planned. | v5.0 |
 | **13** | Proactive alerts testing | DONE v5.10 | Morning briefing, conflict alert, job delay alert all live in mock mode. | v5.10 |
 | **14** | Meta Business portfolio link | Blocked | Zero Zeta Business Portfolio appeal submitted Apr 8. In review. | Blocked -- Meta review |
-| **15** | Interakt integration and production config | Blocked | Pending Meta approval. New SIM obtained, not on consumer WhatsApp. | Blocked -- Meta review |
+| **15** | whatsapp  integration and production config | Blocked | Pending Meta approval. New SIM obtained, not on consumer WhatsApp. | Blocked -- Meta review |
 | 16 | WhatsApp role limiting (owner/manager/viewer) | DONE v5.12 | phone_role enforcement in place. Blocked actions never reach AI. | v5.12 |
 | 17 | 3-language support (Hindi / Hinglish / English) | DONE v5.12 | detect_language() in whatsapp_responses.py. LANGUAGE_INSTRUCTION in system prompt. | v5.12 |
 | 18 | Day 1 Simple Table (seed worker + machine data) | DONE v5.16 | First screen after registration. source and worker_type fields in DB. | v5.16 |
@@ -1197,7 +1199,7 @@ The chosen solution is a Schema Context Document: a static Python dict at app/kn
 
 ## 17.3 WhatsApp Copilot Pipeline Architecture
 
-The WhatsApp Copilot uses the identical tool-calling AI pipeline as the web Copilot. The only difference is the transport layer. Message arrives via Meta webhook, routes through whatsapp_bridge.py (async/sync bridge via run_in_executor), enters the same Groq tool-calling loop, and response is sent back via Interakt API (mock in dev, real in production).
+The WhatsApp Copilot uses the identical tool-calling AI pipeline as the web Copilot. The only difference is the transport layer. Message arrives via Meta webhook, routes through whatsapp_bridge.py (async/sync bridge via run_in_executor), enters the same Groq tool-calling loop, and response is sent back via whatsapp API (mock in dev, real in production).
 
 - **Session state: **Upstash Redis stores conversation history per phone number. All WhatsApp services use sync SQLAlchemy Session — never AsyncSession. Router self-prefixes at /api/v1/whatsapp, registered in main.py with no prefix.
 
@@ -1207,7 +1209,7 @@ The WhatsApp Copilot uses the identical tool-calling AI pipeline as the web Copi
 
 - **Voice notes: **Whisper transcription step converts incoming voice message to text before the message enters the standard AI pipeline. No changes to pipeline required beyond the transcription shim.
 
-- **Dev vs production: **WHATSAPP_MOCK_MODE=True in dev. All outbound messages logged to console, no Meta API calls made. WHATSAPP_MOCK_MODE=False in production with real Interakt key and Redis URL from .env via Settings.
+- **Dev vs production: **WHATSAPP_MOCK_MODE=True in dev. All outbound messages logged to console, no Meta API calls made. WHATSAPP_MOCK_MODE=False in production  and Redis URL from .env via Settings.
 
 ## 17.4 Path to Factory GPT (v6.0)
 
@@ -1283,7 +1285,7 @@ Factory GPT is a one-line code change once the WhatsApp channel is live on real 
 | **Confirmation Flow** | WhatsApp Copilot safety mechanism (v5.6). Write-operations (scheduling, assignment) trigger a confirmation prompt to the user before DB commit. Read-only queries bypass confirmation and execute immediately. |
 | **GroqDirectBridge** | The current WhatsApp AI bridge. Single LLM call per message via Groq tool-calling. Used in v5.x. Swapped for SupervisorAgentBridge in v6.0 Factory GPT. |
 | **SupervisorAgentBridge** | v6.0 Factory GPT AI bridge. Adds a supervisor LLM layer maintaining continuous graph state, proactive anomaly detection, and routing of complex queries to specialist sub-agents. One-line swap from GroqDirectBridge. |
-| **Interakt** | Third-party WhatsApp Business API provider originally planned as the production transport (under the unused v5.11 plan). **Removed at v6.3.8** (2026-05-03) in favour of direct Meta Cloud API; v6.3.7 had introduced direct Meta Cloud API send the day before, and v6.3.8 stripped the Interakt dependency entirely. The glossary keeps this entry for historical reference only — Interakt is no longer in the dependency chain. See §1.2 Blocked for the WhatsApp production-cutover state. |
+ **Removed at v6.3.8** (2026-05-03) in favour of direct Meta Cloud API; v6.3.7 had introduced direct Meta Cloud API send the day before, and v6.3.8 stripped the Interakt dependency entirely. The glossary keeps this entry for historical reference only — Interakt is no longer in the dependency chain. See §1.2 Blocked for the WhatsApp production-cutover state. |
 | source field | VARCHAR 20 column on Employee and Machine (migration 023). Values: manual (Day 1 Simple Table), whatsapp (captured via conversation), erp_sync (v7.0 ERP connector). Structural decision that keeps v7.0 a sprint not a rewrite. Never remove. |
 | worker_type | VARCHAR 20 column on Employee (migration 023). Values: permanent (salaried staff), contractor (daily-rate labour pool). Enables contractor labour layer in v7.2. |
 | Plan A | MSME customer tier. WhatsApp-first, no ERP. 4 active verticals: printing, manufacturing, fabrication, field_service. |
@@ -1338,5 +1340,48 @@ python -m py_compile app/ -- zero errors.
 pytest tests/ -m "not integration" -v -- zero failures.
 alembic heads -- exactly one head (032).
 
-ZetaOps Copilot  |  SRS v6.6  |  Updated through v6.3.17 (HEAD `e74d264`)  |  2026-05-07  |  End of Document
+# 23. Voice, Tone, and Formatting Standards (Document v6.7)
+
+This section is the policy reference for every user-facing string ZetaOps Copilot sends over WhatsApp. The sibling implementation lives at `app/services/message_emoji.py`, `app/services/message_formatters.py`, `app/services/whatsapp_meta_templates.py`, and `app/services/whatsapp_meta_templates.json`. The four artefacts are introduced together by v6.3.18.
+
+The named template constants live in two layers. The Meta-bound layer in `message_formatters.py` (`MORNING_BRIEFING_EN/HI`, `DELAY_ALERT_EN`, `CONFLICT_ALERT_EN`, `AI_REPLY_HEADER`) maps 1:1 to Meta HSM templates and ships in v6.3.18 with full alignment audit + snapshot-test coverage; this layer becomes operationally active when v6.4 lights up the engagement ladder and the morning data shape catches up (`jobs_starting` vs `continuing` distinction, `crew_expected` as a fraction, `flag`, `next_step`). The dispatcher-shape layer in `message_templates.py` (`MORNING_BRIEFING`, `DELAY_ALERT`, `CONFLICT_ALERT`, `MACHINE_DOWN_ALERT`, `AI_REPLY_HEADER` + `render_ai_reply()`) mirrors what the v5.10 cron dispatcher computes today (active / total / delayed / team counts) with visual hierarchy + emoji + length cap applied, and IS wired into `whatsapp_alerts.py` (`_build_morning_briefing`, `_build_delay_alert`, `_build_conflict_alert`, `send_machine_down_alert`) and the WhatsApp AI reply path (`routers/whatsapp.py:1089`). The split preserves the v6.3.18 brief rule "do not change *what* is sent, only *how* it is formatted" while still giving the v5.10 path the centralised vocabulary.
+
+## 23.1 Tone principles
+
+WhatsApp output addresses the factory owner the way a trusted shop-floor lieutenant would: warmer than the v5 baseline, concrete in numbers ("3 jobs scheduled, 2 operators on shift"), action-oriented in its closer. The first-name salutation is used when known (`AI_REPLY_HEADER` — "Namaste {first_name}!"); when not known the formatter elides the name field gracefully. Vague hedges ("a few jobs", "some crew") are forbidden — every quantity that the data layer can compute is rendered as a number.
+
+## 23.2 Visual hierarchy
+
+Every named template follows the same shape: a HEADER line, a blank line, the body items, a blank line, and a single ACTION PROMPT line. WhatsApp renders blank lines verbatim and they are part of the wire payload — not optional whitespace. The Meta HSM template equivalents preserve the same structure across HEADER + BODY components.
+
+## 23.3 Length caps
+
+Soft target: 800 characters per rendered message. Hard ceiling: 1000 characters. List formatters (`format_jobs_list` and equivalents) enforce these caps via truncation with a "+N more" tail; the legacy markdown post-processor `format_for_whatsapp` enforces a separate 1500-character cap with the v5.0 "reply MORE" affordance — the two caps coexist because they apply to different message kinds.
+
+## 23.4 Emoji vocabulary
+
+Every emoji that appears in any template constant or any dispatcher-rendered string MUST be defined as a named constant in `app/services/message_emoji.py`. The module groups constants by semantic role: STATUS (`STATUS_DONE` / `STATUS_IN_PROGRESS` / `STATUS_BLOCKED` / `STATUS_IDLE`), SEVERITY (`SEVERITY_INFO` / `SEVERITY_WARNING` / `SEVERITY_ALERT`), DOMAIN (`DOMAIN_JOB` / `DOMAIN_MACHINE` / `DOMAIN_CREW` / `DOMAIN_MATERIAL` / `DOMAIN_MONEY`), and PROMPT (`PROMPT_CONFIRM` / `PROMPT_ACTION_NEEDED` / `PROMPT_GREETING`). Inline emoji literals in dispatcher modules are a v6.3.18 review-gate violation; AC 23-AC1 enforces this with a grep over the four target paths.
+
+## 23.5 Hindi-English code-mixing
+
+Locale routing is the v5.12 `detect_language()` helper's job (now folded into `message_formatters.py` with a re-export shim at the legacy `whatsapp_formatter.py` path). Formatters do not translate. Hindi-script kwargs are passed through verbatim with no unicode mangling — the `MORNING_BRIEFING_HI` template uses Devanagari sentences with English nouns for technical terms (briefing, crew, job, Apply, OK, HELP), matching the convention already established by `zetaops_welcome_consent` (hi).
+
+## 23.6 Meta template binding (the bridge)
+
+The Python template constants are bound 1:1 to Meta HSM templates so that when Meta Business portfolio approval lands, registration is mechanical rather than a code rewrite. Each Python constant carries a docstring naming the Meta template, language, and placeholder map. `whatsapp_meta_templates.py` exposes a typed `META_TEMPLATES: dict[(name, language), MetaTemplate]` registry. The `python_constant` field on each entry is the binding source of truth. Adding a new binding requires a one-line update to `PYTHON_CONSTANT_BINDINGS` and lands automatically through the alignment audit.
+
+The `templates_v2.json` Meta export (35 entries) is preserved verbatim at `app/services/whatsapp_meta_templates.json`, with one deliberate divergence: the new Hindi `zetaops_job_conflict_alert` entry carries an additive `status: "draft_pending_meta_submission"` field so ops knows it has not yet been submitted upstream (no `hi` variant existed in the source export).
+
+## 23.7 Acceptance Criteria
+
+- **23-AC1** — Every WhatsApp message in the dispatcher layer goes through a template constant or a centralised response helper. Grep for emoji codepoints in `app/services/whatsapp_alerts.py`, `app/services/briefing_intelligence/`, `app/routers/whatsapp.py`, `app/routers/whatsapp_router.py` returns no results. Verified by `tests/test_message_templates.py::test_23_ac1_no_inline_emoji_in_dispatcher_modules`.
+- **23-AC2** — `format_relative_date(dt, *, now)` uses Asia/Kolkata calendar-day deltas, not 24-hour deltas. Verified by `tests/test_message_formatters.py::TestFormatRelativeDate::test_23_ac2_*` (8 cases).
+- **23-AC3** — Every named full-message template ends with exactly one action prompt line ("Reply OK to apply or HELP for options.", "Apply करने के लिए OK या HELP भेजें।", "Reply READY when packing is complete to mark this job done.", "Reply YES to apply or REVIEW to see other options."). `AI_REPLY_HEADER` is exempt because it is a header constant, not a full message. Verified by `tests/test_message_templates.py::test_23_ac3_*`.
+- **23-AC4** — Snapshot test exists for each named template and language combination: `MORNING_BRIEFING_EN`, `MORNING_BRIEFING_HI`, `DELAY_ALERT_EN`, `CONFLICT_ALERT_EN`, `AI_REPLY_HEADER`. Verified by `tests/test_message_templates.py::test_23_ac4_*` (5 snapshots).
+- **23-AC5** — Rendered output for the standard fixtures stays at or under 1000 characters (hard) and 800 characters (soft target). Verified by `tests/test_message_templates.py::test_23_ac5_*` (8 parametrised cases).
+- **23-AC6** — Every emoji codepoint that appears in any named template is a member of `message_emoji.ALL_EMOJI`. Catches the case where someone pastes a new emoji into a template instead of adding it to the vocabulary module first. Verified by `tests/test_message_templates.py::test_23_ac6_emoji_used_in_templates_defined_in_message_emoji`.
+- **23-AC7** — For every Meta template entry with a `python_constant` binding, the count of distinct named kwargs in the Python format string equals the count of `{{n}}` placeholders across HEADER + BODY in the Meta template. This is the structural guarantee that submission-time placeholder order will not drift from code-side rendering order. Verified by `tests/test_message_templates.py::test_23_ac7_code_template_matches_meta_placeholder_count` (4 parametrised cases — `zetaops_morning_briefing` en_US/hi, `zetaops_job_conflict_alert` en_US, `zetaops_job_ending_soon` en_US).
+- **23-AC8** — The Hindi sibling for `zetaops_job_conflict_alert` exists in `whatsapp_meta_templates.json` with `status: "draft_pending_meta_submission"`, and its placeholder count matches the en_US sibling. Verified by `tests/test_message_templates.py::test_23_ac8_*` (2 cases — registry view + JSON-on-disk view).
+
+ZetaOps Copilot  |  SRS v6.7  |  Updated through v6.3.18 (HEAD pending tag)  |  2026-05-08  |  End of Document
 
