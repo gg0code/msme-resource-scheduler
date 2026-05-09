@@ -164,6 +164,338 @@ def test_select_invalid_locale_raises(bad_locale):
         cb.select_flag_and_next_step(signals, locale=bad_locale)
 
 
+# ---------------------------------------------------------------------------
+# v6.3.19 slice 2B — field computation helpers
+# ---------------------------------------------------------------------------
+# These tests exercise the three pure-SQL helpers added in slice 2B:
+# _compute_jobs_starting, _compute_continuing, _compute_crew_expected.
+# They use the in-memory SQLite `db` fixture from conftest.py and
+# build minimal Tenant / Job / Employee / EmployeeLeave rows on demand.
+
+from datetime import date, timedelta  # noqa: E402
+
+from app.models.auth import Tenant  # noqa: E402
+from app.models.employee import Employee  # noqa: E402
+from app.models.job import Job  # noqa: E402
+from app.models.unavailability import EmployeeLeave  # noqa: E402
+
+
+def _make_tenant_row(db, name: str = "Acme") -> Tenant:
+    """Insert a minimal Tenant row and return it.
+
+    Called by:    field-helper tests in this file.
+    Calls into:   Tenant ORM, db.add / db.flush.
+    Side effects: writes one row to the in-memory test DB.
+    """
+    t = Tenant(name=name, slug=name.lower().replace(" ", "-"))
+    db.add(t)
+    db.flush()
+    return t
+
+
+def _make_job(
+    db, *, tenant_id: int, name: str, start: date, end: date,
+    status: str = "in_progress", is_locked: bool = False,
+) -> Job:
+    """Insert a Job row with sensible defaults.
+
+    Called by:    _compute_jobs_starting / _compute_continuing tests.
+    Calls into:   Job ORM, db.add / db.flush.
+    Side effects: writes one row.
+    """
+    j = Job(
+        tenant_id=tenant_id,
+        name=name,
+        start_date=start,
+        end_date=end,
+        status=status,
+        is_locked=is_locked,
+    )
+    db.add(j)
+    db.flush()
+    return j
+
+
+def _make_employee(
+    db, *, tenant_id: int, name: str,
+    worker_type: str = "permanent", status: str = "active",
+) -> Employee:
+    """Insert an Employee row with sensible defaults.
+
+    Called by:    _compute_crew_expected tests.
+    Calls into:   Employee ORM, db.add / db.flush.
+    Side effects: writes one row.
+    """
+    e = Employee(
+        tenant_id=tenant_id,
+        full_name=name,
+        worker_type=worker_type,
+        status=status,
+    )
+    db.add(e)
+    db.flush()
+    return e
+
+
+def _make_leave(
+    db, *, tenant_id: int, employee_id: int, start: date, end: date,
+) -> EmployeeLeave:
+    """Insert an EmployeeLeave row.
+
+    Called by:    _compute_crew_expected tests.
+    Calls into:   EmployeeLeave ORM, db.add / db.flush.
+    Side effects: writes one row.
+    """
+    leave = EmployeeLeave(
+        tenant_id=tenant_id,
+        employee_id=employee_id,
+        start_date=start,
+        end_date=end,
+    )
+    db.add(leave)
+    db.flush()
+    return leave
+
+
+# ---------------------------------------------------------------------------
+# _compute_jobs_starting
+# ---------------------------------------------------------------------------
+
+def test_jobs_starting_counts_only_today(db):
+    """Three jobs with start_date=today, all non-terminal → returns 3.
+    Jobs with other start_dates are ignored."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    for i in range(3):
+        _make_job(db, tenant_id=t.id, name=f"Job {i}", start=today, end=today + timedelta(days=2))
+    # Distractors: one yesterday, one tomorrow.
+    _make_job(db, tenant_id=t.id, name="Yesterday", start=today - timedelta(days=1), end=today)
+    _make_job(db, tenant_id=t.id, name="Tomorrow", start=today + timedelta(days=1), end=today + timedelta(days=3))
+
+    assert cb._compute_jobs_starting(t.id, today, db) == 3
+
+
+def test_jobs_starting_excludes_terminal_statuses(db):
+    """completed and cancelled jobs starting today are not counted."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    _make_job(db, tenant_id=t.id, name="Live A", start=today, end=today, status="in_progress")
+    _make_job(db, tenant_id=t.id, name="Live B", start=today, end=today, status="scheduled")
+    _make_job(db, tenant_id=t.id, name="Done", start=today, end=today, status="completed")
+    _make_job(db, tenant_id=t.id, name="Done CAPS", start=today, end=today, status="Completed")
+    _make_job(db, tenant_id=t.id, name="Cancelled", start=today, end=today, status="cancelled")
+
+    assert cb._compute_jobs_starting(t.id, today, db) == 2
+
+
+def test_jobs_starting_filters_by_tenant(db):
+    """Jobs in other tenants must not contribute to the count."""
+    today = date(2026, 5, 9)
+    t1 = _make_tenant_row(db, name="Tenant 1")
+    t2 = _make_tenant_row(db, name="Tenant 2")
+    _make_job(db, tenant_id=t1.id, name="T1 Job", start=today, end=today)
+    _make_job(db, tenant_id=t2.id, name="T2 Job A", start=today, end=today)
+    _make_job(db, tenant_id=t2.id, name="T2 Job B", start=today, end=today)
+
+    assert cb._compute_jobs_starting(t1.id, today, db) == 1
+    assert cb._compute_jobs_starting(t2.id, today, db) == 2
+
+
+def test_jobs_starting_returns_zero_for_empty_tenant(db):
+    """Tenant with no jobs returns 0 cleanly."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    assert cb._compute_jobs_starting(t.id, today, db) == 0
+
+
+# ---------------------------------------------------------------------------
+# _compute_continuing
+# ---------------------------------------------------------------------------
+
+def test_continuing_returns_empty_when_no_in_progress(db):
+    """Zero in-progress jobs → empty string (caller decides rendering)."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    # Yesterday-only job has ended, today-only is starting (not continuing).
+    _make_job(db, tenant_id=t.id, name="Done yesterday",
+              start=today - timedelta(days=2), end=today - timedelta(days=1))
+    _make_job(db, tenant_id=t.id, name="Starting today",
+              start=today, end=today + timedelta(days=2))
+
+    assert cb._compute_continuing(t.id, today, db) == ""
+
+
+def test_continuing_singular_format(db):
+    """Exactly one in_progress continuing job → '1 ({name})'."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    _make_job(db, tenant_id=t.id, name="Patel brochures",
+              start=today - timedelta(days=2), end=today + timedelta(days=1),
+              status="in_progress")
+
+    assert cb._compute_continuing(t.id, today, db) == "1 (Patel brochures)"
+
+
+def test_continuing_two_or_three_format(db):
+    """Two or three in_progress → '{N} (n1, n2[, n3])'."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    # Two jobs, locked first to deterministically lead the names list.
+    _make_job(db, tenant_id=t.id, name="Patel brochures",
+              start=today - timedelta(days=3), end=today + timedelta(days=1),
+              status="in_progress", is_locked=True)
+    _make_job(db, tenant_id=t.id, name="Modi pamphlets",
+              start=today - timedelta(days=2), end=today + timedelta(days=2),
+              status="in_progress", is_locked=False)
+
+    assert cb._compute_continuing(t.id, today, db) == "2 (Patel brochures, Modi pamphlets)"
+
+
+def test_continuing_four_plus_format(db):
+    """Four+ in_progress → '{N} (first three names and {N-3} more)'."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    # Five jobs all locked so ordering is start_date ASC then id ASC.
+    for i, name in enumerate(["Alpha", "Bravo", "Charlie", "Delta", "Echo"]):
+        _make_job(db, tenant_id=t.id, name=name,
+                  start=today - timedelta(days=5 - i),  # Alpha oldest, Echo newest
+                  end=today + timedelta(days=2),
+                  status="in_progress", is_locked=True)
+
+    assert cb._compute_continuing(t.id, today, db) == "5 (Alpha, Bravo, Charlie and 2 more)"
+
+
+def test_continuing_locked_leads_unlocked(db):
+    """is_locked DESC ordering: a locked job leads even when its
+    start_date is later than an unlocked one."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    # Unlocked, older — would lead under start_date ASC alone.
+    _make_job(db, tenant_id=t.id, name="Old unlocked",
+              start=today - timedelta(days=10), end=today + timedelta(days=2),
+              status="in_progress", is_locked=False)
+    # Locked, newer — should still lead because is_locked DESC wins first.
+    _make_job(db, tenant_id=t.id, name="Recent locked",
+              start=today - timedelta(days=2), end=today + timedelta(days=2),
+              status="in_progress", is_locked=True)
+
+    assert cb._compute_continuing(t.id, today, db) == "2 (Recent locked, Old unlocked)"
+
+
+def test_continuing_handles_titlecase_status(db):
+    """'In Progress' (titlecase) and 'in_progress' both qualify."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    _make_job(db, tenant_id=t.id, name="Snake case",
+              start=today - timedelta(days=2), end=today + timedelta(days=2),
+              status="in_progress")
+    _make_job(db, tenant_id=t.id, name="Title Case",
+              start=today - timedelta(days=2), end=today + timedelta(days=2),
+              status="In Progress")
+
+    assert cb._compute_continuing(t.id, today, db) == "2 (Snake case, Title Case)"
+
+
+# ---------------------------------------------------------------------------
+# _compute_crew_expected
+# ---------------------------------------------------------------------------
+
+def test_crew_expected_subtracts_on_leave(db):
+    """11 permanent active, 1 on leave today → '10 of 11 permanent'."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    employees = [_make_employee(db, tenant_id=t.id, name=f"Emp {i}") for i in range(11)]
+    _make_leave(db, tenant_id=t.id, employee_id=employees[0].id,
+                start=today - timedelta(days=1), end=today + timedelta(days=2))
+
+    assert cb._compute_crew_expected(t.id, today, db) == "10 of 11 permanent"
+
+
+def test_crew_expected_full_attendance(db):
+    """No leave rows → expected == roster."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    for i in range(11):
+        _make_employee(db, tenant_id=t.id, name=f"Emp {i}")
+
+    assert cb._compute_crew_expected(t.id, today, db) == "11 of 11 permanent"
+
+
+def test_crew_expected_excludes_inactive(db):
+    """status != 'active' employees are not counted in roster."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    for i in range(8):
+        _make_employee(db, tenant_id=t.id, name=f"Active {i}", status="active")
+    for i in range(2):
+        _make_employee(db, tenant_id=t.id, name=f"Inactive {i}", status="inactive")
+
+    assert cb._compute_crew_expected(t.id, today, db) == "8 of 8 permanent"
+
+
+def test_crew_expected_minority_contractors_silent(db):
+    """contractor_count < roster → no gap-disclosure line."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    for i in range(11):
+        _make_employee(db, tenant_id=t.id, name=f"Perm {i}", worker_type="permanent")
+    for i in range(3):
+        _make_employee(db, tenant_id=t.id, name=f"Cont {i}", worker_type="contractor")
+
+    assert cb._compute_crew_expected(t.id, today, db) == "11 of 11 permanent"
+
+
+def test_crew_expected_majority_contractors_surface_gap(db):
+    """contractor_count >= roster → gap-disclosure line appended."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    for i in range(2):
+        _make_employee(db, tenant_id=t.id, name=f"Perm {i}", worker_type="permanent")
+    for i in range(5):
+        _make_employee(db, tenant_id=t.id, name=f"Cont {i}", worker_type="contractor")
+
+    assert cb._compute_crew_expected(t.id, today, db) == (
+        "2 of 2 permanent (5 contractors not yet tracked)"
+    )
+
+
+def test_crew_expected_threshold_equality_surfaces_gap(db):
+    """contractor_count == roster (the equality boundary) surfaces."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+    for i in range(5):
+        _make_employee(db, tenant_id=t.id, name=f"Perm {i}", worker_type="permanent")
+    for i in range(5):
+        _make_employee(db, tenant_id=t.id, name=f"Cont {i}", worker_type="contractor")
+
+    assert cb._compute_crew_expected(t.id, today, db) == (
+        "5 of 5 permanent (5 contractors not yet tracked)"
+    )
+
+
+def test_crew_expected_zero_employees_clean(db):
+    """Tenant with no employees returns '0 of 0 permanent' without
+    raising — caller decides whether to render anything."""
+    today = date(2026, 5, 9)
+    t = _make_tenant_row(db)
+
+    assert cb._compute_crew_expected(t.id, today, db) == "0 of 0 permanent"
+
+
+def test_crew_expected_filters_by_tenant(db):
+    """Employees in other tenants must not contribute."""
+    today = date(2026, 5, 9)
+    t1 = _make_tenant_row(db, name="Tenant 1")
+    t2 = _make_tenant_row(db, name="Tenant 2")
+    for i in range(11):
+        _make_employee(db, tenant_id=t1.id, name=f"T1 Emp {i}")
+    for i in range(3):
+        _make_employee(db, tenant_id=t2.id, name=f"T2 Emp {i}")
+
+    assert cb._compute_crew_expected(t1.id, today, db) == "11 of 11 permanent"
+    assert cb._compute_crew_expected(t2.id, today, db) == "3 of 3 permanent"
+
+
 def test_module_assertion_catches_missing_template():
     """The module-level guard fires when blocker-class set and template
     keys diverge. Asserts the equality expression directly rather than
