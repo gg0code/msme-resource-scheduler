@@ -512,8 +512,9 @@ class DispatchResult:
                       no other recipient succeeded.
       tenant_id       The tenant the dispatcher targeted.
       kind            'morning' or 'evening'.
-      sent_count      Number of recipients the Meta send succeeded for.
-                      0 on every skip path and on full-failure paths.
+      sent_count      Number of recipients the Meta send succeeded for
+                      (real mode) or would-have-succeeded for (shadow
+                      mode). 0 on every skip path and full-failure paths.
       skip_reason     None when an actual send was attempted. Otherwise
                       one of: 'paused' | 'disabled' | 'idempotent' |
                       'no_recipients' | 'tenant_not_found'.
@@ -522,6 +523,15 @@ class DispatchResult:
                       endpoint. None on skip paths that don't render.
       error           First Meta exception's str(). None on success
                       and on skip paths.
+      recipients      Tuple of phone_e164 strings the dispatcher
+                      resolved as targets. Populated on every send-loop
+                      path (shadow + real). Empty tuple on skip paths
+                      that returned before recipient resolution.
+      event_id        Primary key of the anchor events row written by
+                      this dispatch. In real mode: the *_sent row id
+                      (or None if all sends failed before that row).
+                      In shadow mode: the push.shadow_log row id for
+                      the 'sent' or skip stage.
     """
 
     success: bool
@@ -531,6 +541,8 @@ class DispatchResult:
     skip_reason: str | None = None
     rendered_message: str | None = None
     error: str | None = None
+    recipients: tuple[str, ...] = ()
+    event_id: int | None = None
 
 
 def _resolve_top_tier_recipients(
@@ -735,6 +747,7 @@ async def _dispatch_one(
     db: "Session",  # type: ignore[name-defined]
     *,
     kind: str,  # 'morning' | 'evening'
+    shadow: bool = False,
 ) -> DispatchResult:
     """Shared dispatch path for morning and evening.
 
@@ -744,13 +757,33 @@ async def _dispatch_one(
                   _log_event, _render_morning_message,
                   _send_whatsapp_message.
     Side effects: writes events rows + commits, calls Meta send (mock-
-                  aware via WHATSAPP_MOCK_MODE inside _send_whatsapp_message).
+                  aware via WHATSAPP_MOCK_MODE inside _send_whatsapp_message)
+                  unless shadow=True.
 
     The kind parameter selects:
       - which PushConfig.<kind>_enabled flag gates the send,
       - which alert_preferences key recipients must opt in to,
       - which event_type prefix is logged,
       - which template (currently both share MORNING_BRIEFING_*).
+
+    SHADOW MODE (slice 2D-shadow, v6.3.19):
+    When shadow=True, the dispatcher:
+      - Skips the actual `_send_whatsapp_message` call. Recipients
+        still resolve, the message still renders, but no Meta API
+        traffic is generated.
+      - Consolidates ALL log writes under a single `push.shadow_log`
+        event_type instead of `push.{kind}_*` per-stage events. The
+        payload carries `kind`, `stage` ('skipped_disabled' /
+        'skipped_paused' / 'skipped_idempotent' /
+        'skipped_no_recipients' / 'sent' / 'send_failed'), and
+        `would_send=False`.
+      - Skips the idempotency dedup check entirely (push.shadow_log
+        events do not anchor the next-tick decision; we want every
+        tick to log so shadow verification can compare against the
+        legacy tick's output minute-for-minute).
+      - DispatchResult.sent_count counts "would-have-sent" recipients
+        so callers can compare shadow-mode totals against the legacy
+        briefing.sent payload during the 24-hour parity test.
     """
     from app.models.auth import Tenant  # local import — avoid cycle
 
@@ -786,19 +819,55 @@ async def _dispatch_one(
     scheduled_for_str = scheduled_for.isoformat()
     now_str = now.isoformat()
 
+    # `emit` consolidates the choice of event_type. In real mode it
+    # writes the per-stage event (push.{kind}_skipped_disabled etc.).
+    # In shadow mode every stage funnels into a single
+    # push.shadow_log row carrying `kind`, `stage`, and would_send=False
+    # so a single events filter (event_type = 'push.shadow_log')
+    # surfaces every shadow tick decision.
+    _stage_to_real_event = {
+        "skipped_disabled": event_skipped_disabled,
+        "skipped_paused": event_skipped_paused,
+        "skipped_idempotent": event_skipped_idempotent,
+        "skipped_no_recipients": event_skipped_no_recipients,
+        "sent": event_sent,
+        "send_failed": event_send_failed,
+    }
+
+    last_event_id: int | None = None
+
+    def emit(stage: str, payload: dict[str, Any]) -> None:
+        nonlocal last_event_id
+        if shadow:
+            shadow_payload: dict[str, Any] = {
+                **payload,
+                "kind": kind,
+                "stage": stage,
+                "would_send": False,
+            }
+            row = _log_event(
+                tenant_id=tenant_id,
+                event_type="push.shadow_log",
+                payload=shadow_payload,
+                db=db,
+            )
+        else:
+            row = _log_event(
+                tenant_id=tenant_id,
+                event_type=_stage_to_real_event[stage],
+                payload=payload,
+                db=db,
+            )
+        last_event_id = row.id
+
     # Disabled gate (per-direction).
     direction_enabled = (
         config.morning_enabled if kind == "morning" else config.evening_enabled
     )
     if not direction_enabled:
-        _log_event(
-            tenant_id=tenant_id,
-            event_type=event_skipped_disabled,
-            payload={
-                "scheduled_for_date": scheduled_for_str,
-                "now": now_str,
-            },
-            db=db,
+        emit(
+            "skipped_disabled",
+            {"scheduled_for_date": scheduled_for_str, "now": now_str},
         )
         db.commit()
         return DispatchResult(
@@ -806,20 +875,19 @@ async def _dispatch_one(
             tenant_id=tenant_id,
             kind=kind,
             skip_reason="disabled",
+            event_id=last_event_id,
         )
 
     # Paused gate. Inclusive boundary: a tenant with push_paused_until
     # exactly equal to today is still paused for today.
     if config.push_paused_until and config.push_paused_until >= scheduled_for:
-        _log_event(
-            tenant_id=tenant_id,
-            event_type=event_skipped_paused,
-            payload={
+        emit(
+            "skipped_paused",
+            {
                 "scheduled_for_date": scheduled_for_str,
                 "paused_until": config.push_paused_until.isoformat(),
                 "now": now_str,
             },
-            db=db,
         )
         db.commit()
         return DispatchResult(
@@ -827,19 +895,18 @@ async def _dispatch_one(
             tenant_id=tenant_id,
             kind=kind,
             skip_reason="paused",
+            event_id=last_event_id,
         )
 
-    # Idempotency. If a *_sent event already exists for this calendar
-    # date, return without re-rendering or re-sending.
-    if _already_dispatched_today(tenant_id, event_sent, scheduled_for, db):
-        _log_event(
-            tenant_id=tenant_id,
-            event_type=event_skipped_idempotent,
-            payload={
-                "scheduled_for_date": scheduled_for_str,
-                "now": now_str,
-            },
-            db=db,
+    # Idempotency. Skipped entirely in shadow mode — see docstring
+    # SHADOW MODE section. In real mode, the *_sent event from a
+    # prior dispatch is the dedup anchor.
+    if not shadow and _already_dispatched_today(
+        tenant_id, event_sent, scheduled_for, db,
+    ):
+        emit(
+            "skipped_idempotent",
+            {"scheduled_for_date": scheduled_for_str, "now": now_str},
         )
         db.commit()
         return DispatchResult(
@@ -847,19 +914,15 @@ async def _dispatch_one(
             tenant_id=tenant_id,
             kind=kind,
             skip_reason="idempotent",
+            event_id=last_event_id,
         )
 
     # Recipient resolution.
     recipients = _resolve_top_tier_recipients(tenant_id, alert_key, db)
     if not recipients:
-        _log_event(
-            tenant_id=tenant_id,
-            event_type=event_skipped_no_recipients,
-            payload={
-                "scheduled_for_date": scheduled_for_str,
-                "now": now_str,
-            },
-            db=db,
+        emit(
+            "skipped_no_recipients",
+            {"scheduled_for_date": scheduled_for_str, "now": now_str},
         )
         db.commit()
         return DispatchResult(
@@ -867,6 +930,7 @@ async def _dispatch_one(
             tenant_id=tenant_id,
             kind=kind,
             skip_reason="no_recipients",
+            event_id=last_event_id,
         )
 
     # Render. Slice 2C uses _DEFAULT_LOCALE for all recipients (A1).
@@ -877,21 +941,24 @@ async def _dispatch_one(
     sent_count = 0
     last_error: str | None = None
     for r in recipients:
+        if shadow:
+            # Shadow path — count as would-have-sent without
+            # invoking the transport.
+            sent_count += 1
+            continue
         try:
             await _send_whatsapp_message(r.phone_number, rendered)
             sent_count += 1
         except Exception as exc:  # noqa: BLE001 — Meta SDK raises many types
             last_error = str(exc) or exc.__class__.__name__
-            _log_event(
-                tenant_id=tenant_id,
-                event_type=event_send_failed,
-                payload={
+            emit(
+                "send_failed",
+                {
                     "scheduled_for_date": scheduled_for_str,
                     "phone": r.phone_number,
                     "error": last_error,
                     "now": now_str,
                 },
-                db=db,
             )
             _log.warning(
                 "push.%s send_failed tenant=%s phone=****%s error=%s",
@@ -900,12 +967,14 @@ async def _dispatch_one(
 
     # Idempotency anchor — only when at least one recipient received
     # the message. Failed-only dispatches do NOT create a *_sent event,
-    # so the next tick can retry.
-    if sent_count > 0:
-        _log_event(
-            tenant_id=tenant_id,
-            event_type=event_sent,
-            payload={
+    # so the next tick can retry. In shadow mode every dispatch path
+    # that reaches send-loop logs a shadow 'sent' stage even when
+    # would-send-count is zero (preserves the "every tick logs once"
+    # contract).
+    if sent_count > 0 or shadow:
+        emit(
+            "sent",
+            {
                 "scheduled_for_date": scheduled_for_str,
                 "now": now_str,
                 "recipients": [r.phone_number for r in recipients],
@@ -913,7 +982,6 @@ async def _dispatch_one(
                 "rendered_message": rendered,
                 "locale": _DEFAULT_LOCALE,
             },
-            db=db,
         )
     db.commit()
 
@@ -924,6 +992,8 @@ async def _dispatch_one(
         sent_count=sent_count,
         rendered_message=rendered,
         error=last_error,
+        recipients=tuple(r.phone_number for r in recipients),
+        event_id=last_event_id,
     )
 
 
@@ -931,16 +1001,17 @@ async def dispatch_morning(
     tenant_id: int,
     now: datetime,
     db: "Session",  # type: ignore[name-defined]
+    *,
+    shadow: bool = False,
 ) -> DispatchResult:
     """Send the morning briefing to one tenant's top-tier WhatsApp recipients.
 
-    Called by:    (planned slice 2D) push_v2_tick scheduler job, in
-                  shadow mode initially. Today: tests/services/
-                  test_consolidated_briefing.py.
+    Called by:    push_v2_tick (this file, slice 2D-shadow), the debug
+                  dispatch endpoint, and tests.
     Calls into:   _dispatch_one (this file). All template / send /
                   event-log work happens there.
     Side effects: writes events rows, commits, calls Meta send (mock-
-                  aware via WHATSAPP_MOCK_MODE).
+                  aware via WHATSAPP_MOCK_MODE) unless shadow=True.
 
     Argument order — `(tenant_id, now, db)` — matches slice 2B field
     helpers. Diverges from the v6.3.19 brief sketch
@@ -949,19 +1020,25 @@ async def dispatch_morning(
     Locale: slice 2C dispatches all recipients in 'hi_en'. Per-recipient
     locale resolution defers until User.language_preference exists.
 
-    See _dispatch_one for the full skip / send / log behaviour.
+    `shadow=True` (slice 2D-shadow): renders the message and resolves
+    recipients but does NOT send. Logs a single push.shadow_log event
+    capturing what would have been sent. See _dispatch_one's
+    SHADOW MODE docstring section for the full contract.
     """
-    return await _dispatch_one(tenant_id, now, db, kind="morning")
+    return await _dispatch_one(tenant_id, now, db, kind="morning", shadow=shadow)
 
 
 async def dispatch_evening(
     tenant_id: int,
     now: datetime,
     db: "Session",  # type: ignore[name-defined]
+    *,
+    shadow: bool = False,
 ) -> DispatchResult:
     """Send the evening recap to one tenant's top-tier WhatsApp recipients.
 
-    Called by:    (planned slice 2D) push_v2_tick scheduler job.
+    Called by:    push_v2_tick (this file, slice 2D-shadow), the debug
+                  dispatch endpoint, and tests.
     Calls into:   _dispatch_one (this file).
     Side effects: writes events rows, commits, calls Meta send.
 
@@ -971,5 +1048,212 @@ async def dispatch_evening(
     log behaviour and idempotency keying are evening-specific
     (briefing_evening_enabled, push.evening_*). A dedicated EVENING_*
     template constant + render path is on the v6.4 backlog.
+
+    `shadow=True` semantics identical to dispatch_morning — see
+    _dispatch_one's SHADOW MODE docstring section.
     """
-    return await _dispatch_one(tenant_id, now, db, kind="evening")
+    return await _dispatch_one(tenant_id, now, db, kind="evening", shadow=shadow)
+
+
+# ---------------------------------------------------------------------------
+# v6.3.19 slice 2D-shadow — push_v2_tick + hash stagger
+# ---------------------------------------------------------------------------
+# The new APScheduler tick. Runs every minute (cron, not interval, to
+# avoid drift). Iterates tenants with morning_enabled OR evening_enabled,
+# resolves PushConfig per tenant, picks the ones whose configured
+# push_time hour:minute (in their timezone) matches `now`, and calls
+# the appropriate dispatch_* with the per-tenant hash stagger.
+#
+# When settings.PUSH_V2_ENABLED is False (default), the dispatchers
+# are called with shadow=True — message is rendered, recipients are
+# resolved, but no Meta send happens. A push.shadow_log event records
+# what would have been sent. The legacy 5-min briefing tick
+# (whatsapp_alerts.run_briefing_dispatch_tick) continues to send
+# authoritatively in this mode.
+#
+# Per slice 2D scope reduction (D4): only the 5-min briefing tick is
+# gated by PUSH_V2_ENABLED. The 8:00 delay tick and 8:30 conflict
+# tick remain authoritative regardless until v6.3.19.1 wires up
+# delay/conflict dispatchers.
+
+import asyncio  # noqa: E402
+
+from app.config import settings as _settings  # noqa: E402
+
+
+def _offset_seconds_for(tenant_id: int) -> int:
+    """Per-tenant stagger offset within the 60-second tick window.
+
+    Called by:    _dispatch_with_offset, push_v2_tick (this file).
+                  Tests in slice 2D-tests assert the spread.
+    Calls into:   nothing — pure arithmetic.
+    Side effects: none.
+
+    Returns `tenant_id % 60` so a tenant's offset is deterministic
+    and stable for owners (predictable arrival time minute-to-minute).
+    Tenant 1  -> offset 1.   Tenant 12 -> offset 12.
+    Tenant 60 -> offset 0.   Tenant 120 -> offset 0.
+    """
+    return tenant_id % 60
+
+
+def _tenants_due_for(
+    now: datetime,
+    kind: str,
+    db: "Session",  # type: ignore[name-defined]
+) -> list[int]:
+    """Tenant IDs whose configured push_time matches `now` (in their tz).
+
+    Called by:    push_v2_tick (this file).
+    Calls into:   Tenant ORM, resolve_push_config (slice 2A),
+                  zoneinfo.ZoneInfo.
+    Side effects: read-only DB.
+
+    Filters at the DB level by direction-enabled to keep the
+    candidate set small. For v6.3.19 scale this iterates every
+    enabled tenant in Python; a per-tenant push_time index is on the
+    backlog if 3000+ tenants becomes a hotpath concern.
+    """
+    from app.models.auth import Tenant  # local import — avoid cycle
+
+    q = db.query(Tenant)
+    if kind == "morning":
+        q = q.filter(Tenant.briefing_morning_enabled == True)  # noqa: E712
+    else:
+        q = q.filter(Tenant.briefing_evening_enabled == True)  # noqa: E712
+
+    out: list[int] = []
+    for t in q.all():
+        config = resolve_push_config(t)
+        push_time = (
+            config.morning_push_time if kind == "morning"
+            else config.evening_push_time
+        )
+        if ZoneInfo is None:
+            local_now = now
+        else:
+            try:
+                tz = ZoneInfo(config.push_timezone)
+            except Exception:  # noqa: BLE001 — defensive
+                continue
+            local_now = now.astimezone(tz)
+        if (
+            local_now.hour == push_time.hour
+            and local_now.minute == push_time.minute
+        ):
+            out.append(t.id)
+    return out
+
+
+async def _dispatch_with_offset(
+    tenant_id: int,
+    now: datetime,
+    db: "Session",  # type: ignore[name-defined]
+    *,
+    kind: str,
+    shadow: bool,
+    apply_stagger: bool,
+) -> DispatchResult:
+    """Sleep for the per-tenant offset then dispatch. Wraps any
+    dispatcher exception in a push.tick_failed log so a single
+    bad tenant cannot stop the whole tick.
+
+    Called by:    push_v2_tick (this file).
+    Calls into:   asyncio.sleep, dispatch_morning / dispatch_evening,
+                  _log_event.
+    Side effects: ~0–60 second deferral, writes events rows on failure.
+    """
+    if apply_stagger:
+        offset = _offset_seconds_for(tenant_id)
+        if offset > 0:
+            await asyncio.sleep(offset)
+
+    try:
+        if kind == "morning":
+            return await dispatch_morning(tenant_id, now, db, shadow=shadow)
+        return await dispatch_evening(tenant_id, now, db, shadow=shadow)
+    except Exception as exc:  # noqa: BLE001 — protect the tick loop
+        # One bad tenant must not abort the tick. Log and return a
+        # failure result so push_v2_tick's gather() does not raise.
+        try:
+            _log_event(
+                tenant_id=tenant_id,
+                event_type="push.tick_failed",
+                payload={
+                    "kind": kind,
+                    "shadow": shadow,
+                    "now": now.isoformat(),
+                    "error": str(exc) or exc.__class__.__name__,
+                },
+                db=db,
+            )
+            db.commit()
+        except Exception:  # noqa: BLE001 — log fallback
+            db.rollback()
+            _log.exception(
+                "push.tick_failed log itself failed for tenant=%s", tenant_id,
+            )
+        _log.exception(
+            "push_v2_tick: tenant=%s kind=%s raised %s",
+            tenant_id, kind, exc,
+        )
+        return DispatchResult(
+            success=False,
+            tenant_id=tenant_id,
+            kind=kind,
+            error=str(exc) or exc.__class__.__name__,
+        )
+
+
+async def push_v2_tick(
+    now: datetime,
+    db: "Session",  # type: ignore[name-defined]
+    *,
+    apply_stagger: bool = True,
+) -> list[DispatchResult]:
+    """One per-minute scheduler tick for the v6.3.19 push v2 cadence.
+
+    Called by:    APScheduler 'push_v2_tick_job' (registered in
+                  whatsapp_alerts.start_scheduler), the debug endpoint,
+                  and slice 2D-tests integration tests.
+    Calls into:   _tenants_due_for, _dispatch_with_offset.
+    Side effects: writes events rows, conditional Meta sends. Bounded
+                  asyncio.sleep up to 59 seconds per tenant when
+                  apply_stagger=True (default in production); tests
+                  pass apply_stagger=False to bypass the wait.
+
+    SHADOW vs REAL MODE
+    The dispatcher mode is controlled by settings.PUSH_V2_ENABLED.
+    False (default) -> shadow mode: every dispatch logs push.shadow_log
+        and does not send via Meta.
+    True            -> real mode: dispatchers send and log
+        push.{kind}_sent. The legacy run_briefing_dispatch_tick
+        early-returns in this mode to avoid double-send.
+
+    Per-tenant exceptions are captured and logged as push.tick_failed
+    rows; the tick continues to the next tenant. asyncio.gather is
+    invoked with return_exceptions=False — but each task swallows its
+    own dispatch exception via _dispatch_with_offset, so gather sees
+    only completed DispatchResults.
+    """
+    shadow = not _settings.PUSH_V2_ENABLED
+
+    due_morning = _tenants_due_for(now, "morning", db)
+    due_evening = _tenants_due_for(now, "evening", db)
+
+    tasks: list = []
+    for tenant_id in due_morning:
+        tasks.append(_dispatch_with_offset(
+            tenant_id, now, db,
+            kind="morning", shadow=shadow, apply_stagger=apply_stagger,
+        ))
+    for tenant_id in due_evening:
+        tasks.append(_dispatch_with_offset(
+            tenant_id, now, db,
+            kind="evening", shadow=shadow, apply_stagger=apply_stagger,
+        ))
+
+    if not tasks:
+        return []
+
+    return await asyncio.gather(*tasks, return_exceptions=False)

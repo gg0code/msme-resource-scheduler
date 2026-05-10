@@ -113,6 +113,36 @@ class Settings(BaseSettings):
     PROMOTION_CONFIRMATION_HOUR_IST:      int = 19
     PROMOTION_CONFIRMATION_MINUTE_IST:    int = 0
 
+    # v6.3.19 slice 2D-shadow — push v2 cutover gate.
+    #
+    # PUSH_V2_ENABLED=False (the ship-it default) means the new
+    # consolidated_briefing.push_v2_tick runs in shadow mode: it
+    # iterates every due tenant, renders the morning/evening message,
+    # writes a `push.shadow_log` Event row capturing what would have
+    # been sent, and DOES NOT call _send_whatsapp_message. The legacy
+    # 5-min briefing tick (run_briefing_dispatch_tick) continues to
+    # send authoritatively in this mode.
+    #
+    # PUSH_V2_ENABLED=True flips the cutover: the new tick sends, the
+    # legacy 5-min briefing tick early-returns. This flag is NEVER
+    # flipped in code; ops sets PUSH_V2_ENABLED=true in the .env after
+    # shadow-log verification is clean. v6.3.19.1 ships the flip.
+    #
+    # Per slice 2D scope reduction (D4): only the 5-min briefing tick
+    # is gated by this flag in v6.3.19. The 8:00 delay tick and 8:30
+    # conflict tick remain authoritative regardless of PUSH_V2_ENABLED
+    # until v6.3.19.1 wires up dispatch_delay_alert / dispatch_conflict_alert.
+    PUSH_V2_ENABLED: bool = False
+
+    # v6.3.19 slice 2D-shadow — debug dispatch endpoint gate.
+    #
+    # When True, exposes POST /api/v1/whatsapp/debug/dispatch for
+    # operator-driven shadow / force-send dispatch testing. Top-tier
+    # auth required at the endpoint level. Default True so dev and
+    # staging environments can smoke-test; production deployments must
+    # set DEBUG_DISPATCH_ENABLED=false in .env.
+    DEBUG_DISPATCH_ENABLED: bool = True
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

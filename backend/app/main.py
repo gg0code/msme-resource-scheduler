@@ -130,6 +130,12 @@ app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["onboar
 # -- WhatsApp (no prefix - webhook paths are self-contained) ------------------
 app.include_router(whatsapp_router.router)
 
+# v6.3.19 slice 2D-shadow — operator-debug dispatch endpoint at
+# /api/v1/whatsapp/debug/dispatch. Top-tier auth + DEBUG_DISPATCH_ENABLED
+# gate are enforced inside the route; registering unconditionally is safe.
+from app.routers import whatsapp_debug
+app.include_router(whatsapp_debug.router)
+
 # -- scheduling.py (v2 scheduler API) NOT registered yet ---------------------
 # Uncomment when v2 scheduling goes live:
 # from app.routers import scheduling

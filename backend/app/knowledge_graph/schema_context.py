@@ -31,15 +31,41 @@
 #      MUST filter by tenant_id. Cross-tenant data leaks are a security bug.
 #   6. UPDATE THIS FILE IN THE SAME COMMIT as any migration that adds a
 #      table, column, or changes a valid value. Never let schema drift.
-#      Current migration head: 033 (v6.3.19 slice 2A push columns).
+#      Current migration head: 034 (v6.3.19 slice 2C events dedup index).
 #      Reconciliation status: this file's tenants block is current
 #      through migration 027 (v6.3.1 entry gate) plus the v6.3.19 push
 #      columns added below. Migrations 028 (events table), 029
 #      (extraction_candidates), 030 (confirmation_* cols), 031 (Day-7
-#      first_briefing_sent_at + engagement_ladder_state), and 032
-#      (skills.source) added tables / columns NOT yet documented in the
-#      AI-facing schema below — known gap, tracked in CHANGELOG
-#      [Unreleased] under "schema_context backfill".
+#      first_briefing_sent_at + engagement_ladder_state), 032
+#      (skills.source), and 034 (events composite index) added tables /
+#      columns / indexes NOT yet documented in the AI-facing schema
+#      below — known gap, tracked in CHANGELOG [Unreleased] under
+#      "schema_context backfill".
+#
+#      v6.3.19 slice 2D-shadow note: the events table (added in
+#      migration 028 — also not in the AI-facing schema below) carries
+#      the new push.* event_type vocabulary as of this release:
+#         push.morning_sent / push.evening_sent
+#             — anchor row written when the consolidated dispatcher
+#               sends successfully. Idempotency dedup queries this row.
+#         push.morning_skipped_disabled / push.evening_skipped_disabled
+#         push.morning_skipped_paused   / push.evening_skipped_paused
+#         push.morning_skipped_idempotent / push.evening_skipped_idempotent
+#         push.morning_skipped_no_recipients / push.evening_skipped_no_recipients
+#             — skip-path telemetry. payload carries scheduled_for_date,
+#               now (ISO), paused_until when relevant.
+#         push.morning_send_failed / push.evening_send_failed
+#             — per-recipient Meta exception capture. One row per
+#               failed phone; the dispatcher continues to next recipient.
+#         push.shadow_log
+#             — slice 2D-shadow consolidated event. While
+#               PUSH_V2_ENABLED=False, the new push_v2_tick logs every
+#               dispatch (skip + send) under this single event_type;
+#               payload.kind is 'morning'|'evening', payload.stage is
+#               the would-have-been event suffix, payload.would_send=False.
+#         push.tick_failed
+#             — push_v2_tick wrapping a per-tenant exception. Ensures
+#               one bad tenant cannot abort the tick for others.
 
 # ---------------------------------------------------------------------------
 # SCHEMA_CONTEXT — injected into every AI system prompt via context_builder.py

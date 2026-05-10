@@ -243,6 +243,36 @@ def start_scheduler() -> None:
         BRIEFING_DISPATCH_INTERVAL_MINUTES,
     )
 
+    # Register push_v2_tick - every minute on the 0-second cron mark
+    # (v6.3.19 slice 2D-shadow). Uses cron not interval to avoid drift
+    # over long uptimes. Per slice 2D scope reduction (D4) this tick
+    # only handles morning + evening; the 8:00 delay tick and 8:30
+    # conflict tick remain authoritative regardless of PUSH_V2_ENABLED
+    # until v6.3.19.1 ships dispatch_delay_alert / dispatch_conflict_alert.
+    #
+    # When PUSH_V2_ENABLED=False (the v6.3.19 ship default) this tick
+    # runs in shadow mode — every dispatch logs push.shadow_log without
+    # sending. The legacy run_briefing_dispatch_tick continues to send
+    # authoritatively. When PUSH_V2_ENABLED=True (v6.3.19.1+ cutover),
+    # roles flip: this tick sends, the legacy 5-min tick early-returns.
+    scheduler.add_job(
+        func=run_push_v2_tick,
+        trigger=CronTrigger(
+            second=0,
+            timezone=SCHEDULER_TIMEZONE,
+        ),
+        id="push_v2_tick_job",
+        name="v6.3.19 push_v2 tick (shadow mode while PUSH_V2_ENABLED=False)",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+    )
+    logger.info(
+        "Scheduled: push_v2_tick every minute on the 0-second mark "
+        "(shadow_mode=%s)",
+        not settings.PUSH_V2_ENABLED,
+    )
+
     # Register candidate-evaluation job - 02:00 IST nightly (v6.3.15
     # revised). Late-imported to avoid pulling app.services.promotion
     # (which imports app.models) at module load — start_scheduler() is
@@ -756,7 +786,22 @@ async def run_briefing_dispatch_tick() -> None:
     versions; centralising the try/except here ensures any unexpected
     crash inside the dispatcher surfaces as a logged error rather than
     a silently swallowed schedule run.
+
+    v6.3.19 slice 2D-shadow gate: when settings.PUSH_V2_ENABLED is
+    True, this legacy tick early-returns. The new
+    consolidated_briefing.push_v2_tick takes over morning/evening
+    sending. While PUSH_V2_ENABLED stays False (the v6.3.19 ship-it
+    default), this tick continues to send authoritatively and the
+    new tick logs push.shadow_log only.
     """
+    # v6.3.19 slice 2D-shadow gate. See docstring.
+    if settings.PUSH_V2_ENABLED:
+        logger.info(
+            "briefing_dispatch_job tick: skipped — PUSH_V2_ENABLED=true; "
+            "consolidated_briefing.push_v2_tick is authoritative.",
+        )
+        return
+
     # Late import keeps the module's import graph free of v6.3.4 deps
     # so v5-only callers can still load whatsapp_alerts without a
     # zoneinfo / briefing-package penalty.
@@ -772,6 +817,56 @@ async def run_briefing_dispatch_tick() -> None:
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("briefing_dispatch_job crashed: %s", exc)
+
+
+async def run_push_v2_tick() -> None:
+    """v6.3.19 slice 2D-shadow APScheduler entry point.
+
+    Fires every minute on the cron 0-second mark. Delegates to
+    app.services.consolidated_briefing.push_v2_tick which:
+      - Queries enabled tenants whose push_time matches `now` in
+        their timezone.
+      - Per tenant, sleeps tenant_id % 60 seconds (hash stagger),
+        then calls dispatch_morning / dispatch_evening with
+        shadow=not settings.PUSH_V2_ENABLED.
+      - In shadow mode (the v6.3.19 ship default) writes
+        push.shadow_log events rather than sending.
+      - In real mode (post-v6.3.19.1 cutover) sends and writes
+        push.{kind}_sent events. The legacy
+        run_briefing_dispatch_tick early-returns in this mode so
+        the two ticks never both send.
+
+    Called by:    APScheduler 'push_v2_tick_job' cron trigger.
+    Calls into:   app.services.consolidated_briefing.push_v2_tick,
+                  SessionLocal.
+    Side effects: DB reads + writes (Event rows). asyncio.sleep up
+                  to 59 seconds per tenant under the hash stagger.
+                  Conditional Meta sends only when PUSH_V2_ENABLED.
+    """
+    from datetime import datetime, timezone
+
+    # Late imports keep this module's import graph clean if a v5-only
+    # caller imports whatsapp_alerts on a code path that does not
+    # need slice 2C+ infrastructure.
+    from app.database import SessionLocal
+    from app.services.consolidated_briefing import push_v2_tick
+
+    now = datetime.now(timezone.utc)
+    db = SessionLocal()
+    try:
+        results = await push_v2_tick(now, db)
+        sent = sum(1 for r in results if r.skip_reason is None and r.success)
+        skipped = sum(1 for r in results if r.skip_reason is not None)
+        failed = sum(1 for r in results if not r.success)
+        logger.info(
+            "push_v2_tick: results=%d sent=%d skipped=%d failed=%d shadow=%s",
+            len(results), sent, skipped, failed,
+            not settings.PUSH_V2_ENABLED,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("push_v2_tick_job crashed: %s", exc)
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
