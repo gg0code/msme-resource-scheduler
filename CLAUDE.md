@@ -54,7 +54,9 @@ This is the single most common source of confusion.
 
 - **Product Version** — `vMAJOR.MINOR.PATCH`. Used in git tags, CHANGELOG,
   customer-facing communication. MAJOR = era (V5 WhatsApp-first, V6 AI-first,
-  V7 ERP-connected). Current: **v6.3.17** shipped, **v6.4** is next.
+  V7 ERP-connected). Current: **v6.3.19** shipped (shadow mode),
+  **v6.3.19.1** is next (cutover flip + detector test anchoring fix +
+  delay/conflict dispatchers).
 - **Document Version** — applies to the SRS only. Format `Document vX.Y`.
   Independent of product version. Current SRS is **v6.6**, describing
   product v5.0 through v6.3.17 (shipped) and v6.3.18 through v7.2 (planned).
@@ -114,8 +116,8 @@ or a v7.0-blocking rewrite.
 2. **`source` and `worker_type` columns (migration 023) are permanent.**
    Removing them forces a full schema rewrite at v7.0 ERP connector. The
    v5.16 decision is structural, not cosmetic. Never remove. SRS §21.
-3. **Migration head must be a single value.** Currently `032`. Next
-   migration is `033` with `down_revision = "032"`. Verify with
+3. **Migration head must be a single value.** Currently `034`. Next
+   migration is `035` with `down_revision = "034"`. Verify with
    `alembic heads` — exactly one head, ever.
 4. **Industry labels via `useLabels()` hook only.** No hardcoded "Jobs",
    "Employees", "Machines" strings in `frontend/src/pages/` or
@@ -159,7 +161,11 @@ CI. Run them manually before any release tag.
 
 Test suite baseline as of v6.3.0-whatsapp-industry: **332 passing**.
 Earlier baseline at v6.2.2-test-recovery: 199 passing. The jump came from
-v6.3 work, not new test infrastructure.
+v6.3 work, not new test infrastructure. **Current as of v6.3.19:**
+**1015 passing** unit-tier (`-m "not integration"`), **22 passing**
+integration-tier (`tests/integration/test_2d_dispatcher.py` + `test_push_v2_flip.py`),
+**13 xfailed** (date-drift detector tests; v6.3.19.1 fix planned —
+CHANGELOG note 92).
 
 ---
 
@@ -204,37 +210,55 @@ Use with `WHATSAPP_MOCK_MODE=True`. SRS §22.
 
 ---
 
-## Current state in one paragraph (as of 2026-05-06)
+## Current state in one paragraph (as of 2026-05-10)
 
-**Shipped through v6.3.16.** v6.3.0-whatsapp-industry fixed BUG-6 (industry
-attribution on `PhoneTenantMap`). v6.3.3 added the events audit table
-(migration 028). v6.3.4 landed the daily push briefing dispatcher.
-v6.3.5 consolidated the WhatsApp UI (single Invite modal, redesigned Team
-& Roles, `/welcome` landing, removed standalone `/whatsapp` page) per SRS
-§6.28.4. v6.3.7–v6.3.10 covered v6.4 entry-gate columns (migration 027),
-role rename, and inbound intent routing. v6.3.11 introduced pattern-aware
-briefings via `briefing_intelligence/` with thirteen evaluators across
-six categories. v6.3.12 shipped the Day-1 onboarding sequence. v6.3.13
-added the `extraction_candidates` staging table (migration 029). v6.3.14
-shipped the entity extractor service feeding that table. v6.3.15 (revised)
-moved candidate promotion to owner-confirmed (migration 030 added the
-four `confirmation_*` columns) — silent insertion was retracted; nothing
-lands in employees/machines without an explicit HAAN reply. v6.3.16 added
-the Day-7 First-Insight Gate (migration 031): a one-shot owner message
-on the seventh day of delivered morning briefings, picking the strongest
-of attendance / skill bottleneck / machine spread / recurring customer
-or a routine-set fallback. The WhatsApp production cutover (originally
-planned as v5.11; shipped at v6.3.7 + v6.3.8 on 2026-05-03 — Meta Cloud
-API direct send l) is engineering-complete; what
-remains is **Meta Business portfolio approval** to flip
-`WHATSAPP_MOCK_MODE` off. The platform runs in mock mode end-to-end and
-is feature-complete behind that gate. See "Version-number gaps are
-normal" above for why v5.11 itself was never tagged.
+**Shipped through v6.3.19 (shadow mode).** v6.3.0-whatsapp-industry
+fixed BUG-6 (industry attribution on `PhoneTenantMap`). v6.3.3 added
+the events audit table (migration 028). v6.3.4 landed the daily push
+briefing dispatcher. v6.3.5 consolidated the WhatsApp UI per SRS §6.28.4.
+v6.3.7–v6.3.10 covered v6.4 entry-gate columns (migration 027), role
+rename, and inbound intent routing. v6.3.11 introduced pattern-aware
+briefings via `briefing_intelligence/` (13 evaluators across 6 categories).
+v6.3.12 shipped the Day-1 onboarding sequence. v6.3.13 added the
+`extraction_candidates` staging table (migration 029). v6.3.14 shipped
+the entity extractor. v6.3.15 (revised) moved candidate promotion to
+owner-confirmed (migration 030). v6.3.16 added the Day-7 First-Insight
+Gate (migration 031). v6.3.17 added the WhatsApp owner-bypass entity
+write path (migration 032). v6.3.18 shipped the WhatsApp message
+styling pass (centralised emoji vocabulary, entity formatters,
+Meta-bound HSM template constants, dispatcher-shape templates wired
+into `whatsapp_alerts.py`; new SRS Section 23 Voice/Tone/Formatting).
+**v6.3.19 ships the consolidated push dispatcher in shadow mode**
+(migrations 033 + 034): per-tenant push config via cascade resolver
+(`push_config.py` + `push_defaults.yaml`), async `dispatch_morning`
++ `dispatch_evening` wiring `PushConfig` + slice-2B field computers
++ slice-1 flag/next_step selector + v6.3.18 Meta-bound templates,
+new APScheduler `push_v2_tick_job` running every minute on the 0-second
+mark with `tenant_id % 60` hash stagger. Per slice 2D scope reduction
+(D4), v6.3.19 ships morning + evening only; legacy 8:00 + 8:30 ticks
+survive ungated until v6.3.19.1. Ships behind `settings.PUSH_V2_ENABLED`
+default False — new tick logs `push.shadow_log` rows; legacy 5-min tick
+remains authoritative until ops runs `python scripts/push_v2_flip.py
+--enable` post-verification per the 5-box gate in
+`docs/v6_3_19_smoke_tests.md`. Operator `POST /api/v1/whatsapp/debug/dispatch`
+endpoint exposes shadow + force-send testing. The WhatsApp production
+cutover (originally planned as v5.11; shipped at v6.3.7 + v6.3.8 on
+2026-05-03) is engineering-complete; **Meta Business portfolio approval**
+remains to flip `WHATSAPP_MOCK_MODE` off. The platform runs in mock mode
+end-to-end and is feature-complete behind that gate.
 
 **In progress.** v6.3 KPI Baseline + Monthly Savings Summary (SRS §6.24,
-migration not yet written). v6.3.18 message formatter and v6.3.19
-per-tenant push config (prerequisites for the v6.4.0 full engagement
-ladder).
+migration not yet written).
+
+**Next up — v6.3.19.1.** Cutover flip (`PUSH_V2_ENABLED=true` post
+shadow verification) plus `dispatch_delay_alert` / `dispatch_conflict_alert`
+to gate the 8:00 + 8:30 ticks. Plus the detector test date-anchoring
+infrastructure fix — rewriting the 13 xfailed detector tests
+(CHANGELOG note 92) to use consistent `TODAY` / `NOW` anchoring across
+fixture setup and detector invocation, verified with `freezegun`
+parametrisation across a 90-day span. **Hard deadline:** the 13 must
+not grow further; if a 14th test fails for the same reason, treat it
+as a release blocker and bring v6.3.19.1 forward.
 
 **Not started.** v6.4.0 full engagement ladder (Day-1 ack, Day-3 rhythm,
 Day-7 manager mirror, conditional nudges; will reuse and extend

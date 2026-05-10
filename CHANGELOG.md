@@ -40,6 +40,34 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ## [Unreleased]
 
 ### Added
+-
+
+### Changed
+-
+
+### Fixed
+-
+
+### Migration
+-
+
+### Notes
+-
+
+---
+
+## [v6.3.19] — 2026-05-10
+**Branch:** v5-whatsapp
+
+Consolidated push dispatcher in shadow mode. v6.3.19 retires the v5.10 era of four hardcoded WhatsApp ticks (5-min briefing dispatcher + 8:00 delayed-jobs check + 8:30 conflict check + 7:03 AI-down ping) in favour of two **per-tenant-configurable** ticks — one morning, one evening — sharing one async dispatcher (`app/services/consolidated_briefing.py`) that wires through the v6.3.18 Meta-bound templates and the v6.3.11 pattern-aware briefing intelligence. New infrastructure ships behind `settings.PUSH_V2_ENABLED` defaulting **False**: the new tick runs every minute computing due tenants, rendering messages, but does NOT send — every dispatch logs a single `push.shadow_log` event capturing what would have been sent. The legacy 5-minute briefing tick continues to send authoritatively in this mode. Cutover to real-send is deferred to v6.3.19.1 once the 5-box gate criteria in `docs/v6_3_19_smoke_tests.md` are all green; ops flips via `python scripts/push_v2_flip.py --enable`.
+
+**Per slice 2D scope reduction (D4),** v6.3.19 ships morning + evening only. The legacy 8:00 delay tick and 8:30 conflict tick remain authoritative regardless of `PUSH_V2_ENABLED` until v6.3.19.1 ships `dispatch_delay_alert` / `dispatch_conflict_alert`.
+
+**Slices landed in this release:** 1 (selector + lookup), 2A pt1 (migration 033 + Tenant ORM + schema_context), 2A pt2 (push_config + yaml), 2B (field computation helpers), 2C (async dispatch_morning + dispatch_evening + migration 034 events dedup index), 2D-shadow (push_v2_tick + flag + debug endpoint), 2D-tests (15-case failure-mode matrix), 2D-flip (admin CLI), 2E (release wrap).
+
+**SRS supplement:** new `docs/srs_section_6_28_v2.md` Markdown supplement specifies the consolidated cadence, hash stagger, shadow-mode pattern, and hybrid flag rendering. Canonical `docs/ZetaOps_SRS_v6_6.docx` requires manual paste — same pattern v6.3.18 used for `docs/srs_section_23_voice_tone.md`. Document version pointer advances v6.7 → v6.8 on first paste. AC IDs `6.28.v2-AC1` through `6.28.v2-AC10`.
+
+### Added (slice 1 — flag/next_step selector)
 - **`backend/app/services/consolidated_briefing.py`** (new, lookup-table-only slice of v6.3.19) — `select_flag_and_next_step(signals, locale) -> tuple[str | None, str | None]`. Pure function picks the top blocker-class signal from a pre-sorted `SignalResult` list and returns the (flag_text, next_step_text) pair the v6.3.18 Meta-bound `MORNING_BRIEFING_EN/HI` templates expect. Carries `_BLOCKER_CLASS_SIGNALS` (frozenset of 8 ids: `delayed_jobs_count`, `no_progress`, `idle_machine`, `low_utilization`, `status_change_alert`, `consecutive_absence`, `attendance_ratio_concern`, `new_employee_no_show`) and `_NEXT_STEP_TEMPLATES` (16 strings, 2 locales × 8 ids). Module-level assertion fails loud at import if the two diverge.
 - **`backend/tests/services/test_consolidated_briefing.py`** — 7 tests (11 cases incl. parametrised invalid-locale cases) covering blocker selection, informational-signal skip, empty-list handling, iteration-order preservation, hi_en/en locale routing, ValueError on bad locale, and the module-level assertion's catch-condition.
 - **Migration 033 (v6.3.19 slice 2A)** — three nullable columns on `tenants`: `morning_sections JSONB`, `evening_sections JSONB`, `push_paused_until DATE`. All NULL by default; `resolve_push_config()` (slice 2A part 2) interprets NULL as "use system default from `backend/config/push_defaults.yaml`". No backfill, no server_default. Reversible.
@@ -55,6 +83,12 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ### Notes (slice 2B scope decisions)
 - **Contractor scoping in `_compute_crew_expected`.** Contractors (`worker_type='contractor'`) are deliberately excluded from both numerator (expected) and denominator (roster) of the crew-expected calculation. Reason: per-day contractor check-in does not exist as a feature today (no confirmed-presence table), so the briefing cannot honestly count contractors as either expected or absent. Counting them as expected would inflate the number; counting them as absent would inflate the gap. Excluding them keeps the math honest. **Gap-disclosure rule:** when `contractor_count >= roster` AND `contractor_count > 0`, the output appends `" ({N} contractors not yet tracked)"` so contractor-majority tenants (common in fabrication and manufacturing) see the staffing-gap explicitly rather than reading "2 of 2 permanent" and feeling reassured. The future feature that closes the gap is per-day contractor check-in (no design yet — this CHANGELOG note is the placeholder until that work is scoped).
 - **`_compute_continuing` ordering: `is_locked DESC, start_date ASC, id ASC`.** Overrides the v6.3.19 brief's `priority DESC` because `Job.priority` is a free-text string (`"High"`/`"Medium"`/`"Low"`/etc.) and not all rows carry a sortable value. Locked jobs represent explicit owner commitments — they lead the line so the briefing matches the owner's mental model of what matters most. `start_date ASC` then surfaces older work first (more time-pressured); `id ASC` is the stable tiebreak.
+
+### Added (slice 2E — release wrap)
+- **`docs/srs_section_6_28_v2.md`** (new) — Markdown supplement specifying the consolidated push cadence, per-tenant push config, hash stagger, idempotency, recipient resolution, hybrid flag rendering, shadow-mode pattern, operator surface (debug endpoint + flip CLI), and acceptance criteria `6.28.v2-AC1` through `6.28.v2-AC10`. Cross-references SRS §23 (Voice/Tone/Formatting from v6.3.18). The canonical `docs/ZetaOps_SRS_v6_6.docx` (and successors) require manual paste from this supplement on the next refresh — same pattern v6.3.18 used for `docs/srs_section_23_voice_tone.md`.
+- **`CLAUDE.md` current-state paragraph** rewritten to reflect v6.3.19 shadow-mode shipping. Migration head pointer advanced 032 → 034 (architecture rule 3). Test-suite baseline note bumped from "332 passing at v6.3.0-whatsapp-industry" to current "1015 unit + 22 integration + 13 xfailed". Product version pointer advanced "v6.3.17 shipped, v6.4 next" → "v6.3.19 shipped (shadow mode), v6.3.19.1 next".
+- **`DELIVERY_LEDGER.md` row** for "Consolidated push cadence (morning + evening)" — status flipped from `in progress` to `shipped (shadow mode)` with explicit deferred-to-v6.3.19.1 list (cutover flip; delay/conflict dispatchers; detector test anchoring fix; Meta v2 conditional template re-submission; legacy 5-min tick code removal in v6.3.20; per-recipient locale; `briefing_*` → `push_*` namespace unification). Acceptance count `10/10` against the SRS supplement's AC1..AC10. Migration column `033 + 034`.
+- **CHANGELOG `[Unreleased]` → `[v6.3.19]`** moved with release-header narrative. Empty `[Unreleased]` block reset above for the next release window.
 
 ### Added (slice 2D-flip — admin CLI for the cutover gate)
 - **`backend/scripts/push_v2_flip.py`** (new) — admin CLI to flip the `PUSH_V2_ENABLED` gate. Three subcommands: `--enable` writes `PUSH_V2_ENABLED=true` to `backend/.env` (creating the file or replacing the existing line in place; never duplicating); `--disable` writes false; `--status` reports the current value plus a count of `push.shadow_log` events in the last 24h. Atomic write via `tempfile.mkstemp` + `os.replace` (crash-consistent on POSIX and Windows). `--env-file` argument lets ops point at a non-default path (used by the integration tests). The script does NOT itself flip production — it is invoked manually by ops AFTER the shadow-log verification gate criteria in `docs/v6_3_19_smoke_tests.md` are all green. **Concurrent-run safety:** atomic write prevents half-written .env, but two simultaneous flips race on last-writer-wins. Documented in the module docstring.
