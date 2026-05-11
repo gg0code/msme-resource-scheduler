@@ -154,7 +154,7 @@ Run these four. Any failure = don't merge. From SRS §22:
 npx tsc --noEmit                           # zero errors
 python -m py_compile app/                  # zero errors
 pytest tests/ -m "not integration" -v      # zero failures
-alembic heads                              # exactly one head (currently 032)
+alembic heads                              # exactly one head (currently 034)
 ```
 
 Integration tests (`-m integration`) hit real Postgres and are skipped in
@@ -184,8 +184,8 @@ harness).
   `context_builder.py` (prompt assembly).
 - `app/schemas/` — Pydantic models. `team.py` notable for the
   `email_or_phone` back-compat shape.
-- `alembic/versions/` — migration chain. Head `032` (source column
-  on skills, v6.3.17).
+- `alembic/versions/` — migration chain. Head `034` (events dedup
+  index on `events(tenant_id, event_type)`, v6.3.19 slice 2C).
 - `rag_data/_templates/{industry}/` — RAG knowledge by vertical (4
   verticals — chemical excluded, Plan B only).
 - `scripts/` — backfills. Notable: `backfill_phone_industry_type.py`
@@ -289,8 +289,8 @@ These four things, in order:
 2. **What does the ledger say about this feature today?** If it's `?`, the
    ledger has the recipe ("How to fill in the `?` rows" section) — git
    tag → SRS section → test file → counts.
-3. **Will this need a migration?** If yes, head goes from `032` to `033`,
-   `down_revision = "032"`. Update SRS §9.2 in the same commit.
+3. **Will this need a migration?** If yes, head goes from `034` to `035`,
+   `down_revision = "034"`. Update SRS §9.2 in the same commit.
 4. **Does this touch a feature flag?** SRS §5.1 lists them with their
    defaults. Defaults are decisions, not accidents — flipping one is a
    PM-level call.

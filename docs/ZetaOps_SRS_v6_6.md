@@ -6,7 +6,7 @@ Multi-Industry AI-Powered Resource Scheduling Platform
 
 Software Requirements Specification (SRS)
 
-Version 6.7  |  Updated 2026-05-08; shipped through v6.3.18 (WhatsApp message styling pass — new SRS Section 23). Migration head 032 (unchanged from v6.3.17). See CHANGELOG.md and DELIVERY_LEDGER.md for the per-version narrative across v6.3.1 through v6.3.18.
+Version 6.7  |  Updated 2026-05-08; shipped through v6.3.18 (WhatsApp message styling pass — new SRS Section 23). Migration head 034 (advanced in v6.3.19 — slice 2A added 033, slice 2C added 034; see CHANGELOG). See CHANGELOG.md and DELIVERY_LEDGER.md for the per-version narrative across v6.3.1 through v6.3.19.1.
 
 | **Version** | **Notes** |
 | --- | --- |
@@ -47,7 +47,7 @@ Note on version-number gaps. This repo does not maintain contiguous version numb
 
 ## 1.2 Current State (as of 2026-05-07)
 
-At-a-glance state of all features, reconciled against the actual git tag history on `origin/v5-whatsapp` as of HEAD `e74d264` (2026-05-07). For per-release detail (commit hashes, tests, acceptance criteria pass counts, deferred items), the authoritative sources are `CHANGELOG.md` (release narrative) and `DELIVERY_LEDGER.md` (current shipped state). Where this section, the CHANGELOG, and the ledger disagree, the **git tag and its commit message are ground truth**; the ledger wins for "is it shipped"; this SRS wins for "what is the spec." Migration head as of HEAD is **032**.
+At-a-glance state of all features, reconciled against the actual git tag history on `origin/v5-whatsapp` as of HEAD `e74d264` (2026-05-07). For per-release detail (commit hashes, tests, acceptance criteria pass counts, deferred items), the authoritative sources are `CHANGELOG.md` (release narrative) and `DELIVERY_LEDGER.md` (current shipped state). Where this section, the CHANGELOG, and the ledger disagree, the **git tag and its commit message are ground truth**; the ledger wins for "is it shipped"; this SRS wins for "what is the spec." Migration head as of HEAD is **034**.
 
 ### Shipped (production-ready in mock mode; awaiting Meta go-live for real WhatsApp traffic)
 
@@ -139,7 +139,7 @@ V7 era — planned (mid-market, ERP-connected):
 - `CLAUDE.md` — working context for AI sessions and humans new to the repo.
 - Product version scheme: Section 1.1 of this document.
 - Detailed feature specs: Sections 6.17 – 6.28 of this document.
-- Migration chain truth: Section 9.2 of this document. Current head: **032**.
+- Migration chain truth: Section 9.2 of this document. Current head: **034**.
 
 # 2. Business Context & Problem Statement
 
@@ -921,7 +921,7 @@ Renaming next_step value from 'connect_whatsapp' to 'post_signup_landing' (clean
 | ComplianceDocument | compliance_item_id, tenant_id, filename, mime_type, uploaded_at, file_path, uploader_user_id | *Planned for v6.6 — not yet on disk; migration number assigned at ship time.* 5-year retention. 10 MB file limit. PDF, JPG, PNG, XML supported. |
 | ComplianceReminderLog | compliance_item_id, reminder_day, sent_at, channel | *Planned for v6.6 — not yet on disk; migration number assigned at ship time.* reminder_day in {30, 7, 1}. Idempotent send via log check. |
 
-## 9.2 Migration Chain (v5.9)
+## 9.2 Migration Chain (v6.3.19.1)
 
 | **Revision** | **Description** |
 | --- | --- |
@@ -945,9 +945,11 @@ Renaming next_step value from 'connect_whatsapp' to 'post_signup_landing' (clean
 | **029** | extraction_candidates staging table -- adds the staging table that holds entity candidates the entity-extractor service identifies from inbound WhatsApp messages before they're promoted into employees / machines / skills. File: `029_add_extraction_candidates_table.py`. Introduced v6.3.13. |
 | **030** | Confirmation-state columns on extraction_candidates -- adds the four `confirmation_*` columns that gate candidate promotion behind explicit owner HAAN reply (the v6.3.15 revision retracted silent insertion). File: `030_add_confirmation_state_columns.py`. Introduced v6.3.15 (revised). |
 | **031** | Day-7 engagement columns on tenants -- adds `first_briefing_sent_at` and `engagement_ladder_state` to tenants, supporting the Day-7 First-Insight Gate (a one-shot owner message on the seventh day of delivered morning briefings). File: `031_add_day7_engagement_columns.py`. Introduced v6.3.16. |
-| **032** | source column on skills -- extends the `source` field pattern (already on Employee + Machine since migration 023) to Skill, supporting WhatsApp owner-bypass entity writes with the new `whatsapp_owner` source value. File: `032_add_source_to_skills.py`. **Current head.** Introduced v6.3.17. Next migration must use revision ID 033 and chain `down_revision = "032"`. |
+| **032** | source column on skills -- extends the `source` field pattern (already on Employee + Machine since migration 023) to Skill, supporting WhatsApp owner-bypass entity writes with the new `whatsapp_owner` source value. File: `032_add_source_to_skills.py`. Introduced v6.3.17. |
+| **033** | Push config columns on tenants -- adds `morning_sections`, `evening_sections`, `push_paused_until` to tenants. Backs the per-tenant push cascade resolver (`app/services/push_config.py` + `app/services/push_defaults.yaml`) consumed by the consolidated `push_v2_tick` dispatcher. File: `033_add_push_columns_to_tenants.py`. Introduced v6.3.19 (slice 2A). |
+| **034** | Events dedup composite index -- adds `ix_events_tenant_type_dedup` on `events(tenant_id, event_type)`. Supports the dispatcher's per-tenant per-event-type idempotency lookup hot path (morning / evening / delay / conflict). File: `034_add_events_dedup_index.py`. **Current head.** Introduced v6.3.19 (slice 2C). Next migration must use revision ID `035` and chain `down_revision = "034"`. |
 
-> **NOTE** Always use 'alembic upgrade head' — not raw SQL files. The migration chain is managed by Alembic. Current head: 032.
+> **NOTE** Always use 'alembic upgrade head' — not raw SQL files. The migration chain is managed by Alembic. Current head: 034.
 
 # 10. System Architecture
 
@@ -956,7 +958,7 @@ Renaming next_step value from 'connect_whatsapp' to 'post_signup_landing' (clean
 | **Layer** | **Technology** |
 | --- | --- |
 | Backend | FastAPI + Python 3.14 + Uvicorn + Gunicorn |
-| ORM + Migrations | SQLAlchemy 2.0 + Alembic (migration head: 032) |
+| ORM + Migrations | SQLAlchemy 2.0 + Alembic (migration head: 034) |
 | Database | PostgreSQL 15/16 with row-level tenant_id isolation on all queries |
 | Auth | JWT via python-jose, bcrypt direct import |
 | Frontend | React 18 + TypeScript + Vite |
@@ -1338,7 +1340,7 @@ Verification gates (must pass before any commit is merged):
 npx tsc --noEmit -- zero errors.
 python -m py_compile app/ -- zero errors.
 pytest tests/ -m "not integration" -v -- zero failures.
-alembic heads -- exactly one head (032).
+alembic heads -- exactly one head (034).
 
 # 23. Voice, Tone, and Formatting Standards (Document v6.7)
 
