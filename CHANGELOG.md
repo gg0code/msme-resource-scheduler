@@ -39,17 +39,19 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 
 ## [Unreleased]
 
-### Added
--
-
-### Changed
--
+### Added (slice 3A — detector test date-anchoring fix)
+- **`freezegun==1.5.5`** added to `backend/requirements.txt`. Used by the new autouse fixture in `tests/services/conftest.py` to pin `datetime.now()` to `date(2026, 5, 4)` — the same value every `tests/services/test_detect_*.py` file hardcodes as `TODAY`. This aligns fixture-builder timestamps (`make_employee` / `make_machine` / `make_job` etc. all read `datetime.now(timezone.utc) - timedelta(days=N)`) with the detector's `today` argument. **Production behaviour is unaffected** — real attendance.recorded events carry true `now()` `created_at` and dispatchers pass live tenant-local today, so the two anchors stay in sync at runtime regardless of this test-side autouse.
+- **`tests/services/conftest.py` `freeze_clock_at_detector_today` autouse fixture** — replaces the test-side workaround that v6.3.18 + v6.3.19 slice 2D-shadow patched via 13 `@pytest.mark.xfail` markers.
+- **`tests/services/test_detector_date_anchoring.py`** (new) — 26-case parametrised verification harness. Runs `detect_delayed_jobs` at 13 frozen-`now()` anchors spanning Jan–Jul 2026 (90 days each side of canonical TODAY) for both the positive case (one overdue job fires) and the negative case (no overdue jobs returns None). Each anchor uses the matching `today` argument; identical behaviour at every anchor proves the detector is wall-clock-independent.
 
 ### Fixed
--
+- **All 13 detector tests previously `xfail`'d for date drift now pass.** xfail count drops from 13 → 0. Markers stripped from `tests/services/test_detect_idle_machine.py` (3), `test_detect_low_utilization.py` (2), `test_detect_manager_silence.py` (2), `test_detect_new_employee_no_show.py` (2), `test_detect_no_progress.py` (3), `test_detect_status_change_alert.py` (1). The `import pytest` lines added in v6.3.19 slice 2D-shadow (3 files) plus the lines added in v6.3.18 for the original 5 xfails (3 files) are also removed — those imports were dead after the markers came out. Closes CHANGELOG `[v6.3.19]` note 92 + the `Hard deadline` clause ("If a 14th detector test fails for the same reason before v6.3.19.1 ships, treat it as a release blocker").
+
+### Changed
+- 
 
 ### Migration
--
+- (none — test-only change)
 
 ### Notes
 -

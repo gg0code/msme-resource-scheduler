@@ -20,7 +20,6 @@
 #   30%, well above), the self-suppression vs idle_machine rule, and
 #   inverted-ratio severity_score for escalation.
 
-import pytest
 from datetime import date, timedelta
 
 from app.services.briefing_intelligence.catalog.machine import (
@@ -74,7 +73,6 @@ class TestDetectLowUtilization:
         db.commit()
         assert detect_low_utilization(tenant.id, TODAY, db) is None
 
-    @pytest.mark.xfail(strict=False, reason="date drift, see CHANGELOG note 92")
     def test_fires_when_utilization_below_30pct(self, db):
         # Capacity = 8h/day * 7 days = 56h. 10h ≈ 18% → fires.
         tenant = make_tenant(db, age_days=IDLE_MIN_TENANT_AGE_DAYS + 5)
@@ -110,7 +108,6 @@ class TestDetectLowUtilization:
         db.commit()
         assert detect_low_utilization(tenant.id, TODAY, db) is None
 
-    @pytest.mark.xfail(strict=False, reason="date drift, see CHANGELOG note 92")
     def test_severity_score_inversely_tracks_ratio(self, db):
         tenant = make_tenant(db, age_days=IDLE_MIN_TENANT_AGE_DAYS + 5)
         _seed_machine_with_hours(db, tenant, "VeryLow", hours_total=2.0)

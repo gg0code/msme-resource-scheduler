@@ -19,7 +19,6 @@
 #   open downtime row) and the worst-case selection when multiple
 #   machines qualify.
 
-import pytest
 from datetime import date, timedelta
 
 from app.services.briefing_intelligence.catalog.machine import (
@@ -61,7 +60,6 @@ class TestDetectIdleMachine:
         db.commit()
         assert detect_idle_machine(tenant.id, TODAY, db) is None
 
-    @pytest.mark.xfail(strict=False, reason="date drift, see CHANGELOG note 92")
     def test_fires_for_idle_operational_machine(self, db):
         tenant = make_tenant(db, age_days=IDLE_MIN_TENANT_AGE_DAYS + 5)
         m = make_machine(db, tenant=tenant, name="IdleOne", status="Operational")
@@ -77,7 +75,6 @@ class TestDetectIdleMachine:
         assert "IdleOne" in result.message_hi_en
         assert result.severity_score >= float(IDLE_WINDOW_DAYS)
 
-    @pytest.mark.xfail(strict=False, reason="date drift, see CHANGELOG note 92")
     def test_status_normalization_treats_active_lowercase_as_operational(self, db):
         tenant = make_tenant(db, age_days=IDLE_MIN_TENANT_AGE_DAYS + 5)
         make_machine(db, tenant=tenant, name="lower", status="active")
@@ -103,7 +100,6 @@ class TestDetectIdleMachine:
         db.commit()
         assert detect_idle_machine(tenant.id, TODAY, db) is None
 
-    @pytest.mark.xfail(strict=False, reason="date drift, see CHANGELOG note 92")
     def test_picks_worst_idle_when_multiple_qualify(self, db):
         tenant = make_tenant(db, age_days=IDLE_MIN_TENANT_AGE_DAYS + 5)
         m1 = make_machine(db, tenant=tenant, name="Mild", status="Operational")

@@ -17,7 +17,6 @@
 #   tenants), the strictly-less-than-4-checkins threshold, and the
 #   monotonic severity score (silence days = window − checkin count).
 
-import pytest
 from datetime import date, datetime, timedelta, timezone
 
 from app.services.briefing_intelligence.catalog.health import (
@@ -39,7 +38,6 @@ class TestDetectManagerSilence:
         db.commit()
         assert detect_manager_silence(tenant.id, TODAY, db) is None
 
-    @pytest.mark.xfail(strict=False, reason="date drift, see CHANGELOG note 92")
     def test_fires_when_few_checkins_in_window(self, db):
         tenant = make_tenant(
             db, age_days=MANAGER_SILENCE_MIN_TENANT_AGE_DAYS + 5,
@@ -87,7 +85,6 @@ class TestDetectManagerSilence:
         # Severity should reflect 7 missed days (window).
         assert result.severity_score >= 6.0
 
-    @pytest.mark.xfail(strict=False, reason="date drift, see CHANGELOG note 92")
     def test_severity_grows_as_silence_extends(self, db):
         tenant = make_tenant(
             db, age_days=MANAGER_SILENCE_MIN_TENANT_AGE_DAYS + 5,

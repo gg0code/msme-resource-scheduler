@@ -34,6 +34,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from freezegun import freeze_time
 from sqlalchemy import text as sa_text
 from sqlalchemy.sql.schema import DefaultClause
 
@@ -44,6 +45,44 @@ from app.models.extraction_candidate import ExtractionCandidate
 from app.models.job import Job, JobAssignment
 from app.models.machine import Machine
 from app.models.unavailability import EmployeeLeave, MachineDowntime
+
+
+# v6.3.19.1 slice 3A — detector test date-anchoring fix.
+#
+# Every test file under tests/services/test_detect_*.py hard-codes
+# `TODAY = date(2026, 5, 4)` and passes that constant into the
+# detector under test. The fixture builders (make_employee,
+# make_machine, make_job, etc.) call `datetime.now(timezone.utc) -
+# timedelta(days=N)` to derive `created_at` / `updated_at`. Without
+# alignment between the two anchors, fixture rows fall outside the
+# detector's `created_at >= cutoff_dt` window where `cutoff_dt` is
+# derived from TODAY — and trigger conditions silently fail. This is
+# the root cause of CHANGELOG note 92.
+#
+# Pinning wall-clock now() to TODAY via freezegun aligns both
+# anchors. The freeze is autouse + scope="function" so any test that
+# wants to deviate can do so via a local @freeze_time decorator that
+# overrides this one.
+#
+# Production behaviour is unaffected — real attendance.recorded
+# events carry true now() created_at timestamps and the dispatcher
+# passes the live tenant-local today, so the two anchors stay in sync
+# at runtime regardless of this autouse.
+
+_DETECTOR_TEST_TODAY = "2026-05-04"
+
+
+@pytest.fixture(autouse=True)
+def freeze_clock_at_detector_today():
+    """Pin wall-clock now() to date(2026, 5, 4) for every test that
+    inherits this conftest. See header note for context.
+
+    The freeze covers datetime.now(), datetime.utcnow(), and time.time().
+    Tests that need a different anchor can stack their own
+    @freeze_time decorator — freezegun's last-in-wins rule applies.
+    """
+    with freeze_time(_DETECTOR_TEST_TODAY):
+        yield
 
 
 @pytest.fixture(autouse=True)

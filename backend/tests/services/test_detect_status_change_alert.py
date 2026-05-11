@@ -18,7 +18,6 @@
 
 from datetime import date
 
-import pytest
 
 from app.services.briefing_intelligence.catalog.machine import (
     STATUS_CHANGE_SIGNAL_ID,
@@ -57,18 +56,6 @@ class TestDetectStatusChangeAlert:
         assert "JustBroken" in result.message_hi_en
         assert "Under Maintenance" in result.message_hi_en
 
-    @pytest.mark.xfail(
-        reason=(
-            "Date-relative test against real `date.today()` / "
-            "`datetime.now()`; pre-existing v6.3.11 detector bug "
-            "surfaced by v6.3.18 audit. Pre-existing failure, "
-            "not introduced by v6.3.18. Fix deferred to dedicated "
-            "patch release; remove this marker when the detector "
-            "test is rewritten to inject `now` instead of reading "
-            "the wall clock."
-        ),
-        strict=False,
-    )
     def test_skips_old_status_changes(self, db):
         tenant = make_tenant(db)
         make_machine(
