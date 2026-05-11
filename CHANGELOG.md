@@ -40,19 +40,102 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ## [Unreleased]
 
 ### Added
--
+- **v6.3.20 part 1 — WhatsApp NL push-settings updater (backend foundations).**
+  New service module `app/services/push_settings_service.py` ships the
+  whitelist (`EDITABLE_FIELDS`, 9 scalar columns split tenant-scoped vs
+  user-scoped), trilingual error templates (English / Hinglish / Hindi),
+  four validators (`_validate_bool`, `_validate_time_hhmm`,
+  `_validate_iana_timezone`, `_validate_weekday_csv`), and three
+  service functions (`update_push_setting`, `pause_push`,
+  `get_push_settings`). `morning_sections` / `evening_sections` are
+  deliberately excluded from the whitelist (desktop-only) and produce
+  a typed `field_not_editable_via_whatsapp` error redirecting the
+  owner to the desktop UI. `pause_push` computes
+  `today + (days - 1)` in the tenant's timezone with `[1, 30]` bounds
+  and replaces (not adds to) any existing pause. Every successful
+  write inserts one `events` row with
+  `event_type='tenant.push_setting_changed'`, `source='whatsapp'`,
+  `actor_user_id`, and a payload carrying `field` / `old_value` /
+  `new_value` / `source_phrase`.
+- **Confirmation flow extension via existing v5.6 machinery.**
+  `whatsapp_actions.ActionType` gains `UPDATE_PUSH_SETTING` and
+  `PAUSE_PUSH`. New sync `store_pending_action_sync` helper (mirrors
+  the async `store_pending_action` but uses a sync Redis client +
+  `_mock_sessions` fallback so `ai_service.execute_tool` — which is
+  sync — can stage pending state). New sync executors
+  `_execute_update_push_setting` and `_execute_pause_push` delegate
+  to `push_settings_service` after the user confirms with HAAN/YES.
+  `build_confirmation_prompt` extended to render the proposed
+  setting change or pause range; the pause confirmation MUST restate
+  the date range so day-counting mistakes surface before commit.
+  `whatsapp_session.py` gains a sync `sync_redis_client` companion
+  to `redis_client`.
+- **Three Groq AI tools registered in `ai_service.TOOLS` (v6.3.20):**
+  `update_push_setting` (field enum excludes
+  morning_sections/evening_sections), `pause_push` (days 1-30),
+  `get_push_settings` (read-only). `execute_tool` gains optional
+  `actor_user_id` / `phone_number` kwargs. The two write tools
+  refuse with `tool_requires_whatsapp_channel` when either is
+  missing — they are WhatsApp-only by design and the bridge
+  plumbing that fills these in lives in part 2 (see Notes).
+  Writes return a `confirmation_required` envelope that stages the
+  change in Redis and instructs the LLM to surface the
+  confirmation prompt verbatim instead of calling another tool.
+- **System prompt addendum (in `_SYSTEM_PROMPT_BASE`).** Adds the
+  v6.3.20 routing table (Hinglish + English examples for time
+  changes, enable/disable, working days, timezone, pause), the
+  desktop-only redirect rule for `morning_sections`/`evening_sections`,
+  the confirmation-flow rule (do NOT call any tool until user replies
+  with confirmation word), and the top-tier permission rule.
+- **Test coverage in `tests/services/test_push_settings_service.py`**:
+  26 cases covering happy paths (morning_time, weekday_csv normalised,
+  owner-edits-other-user-override), rejections (unknown_field,
+  morning_sections, evening_sections, invalid_time_format ×7
+  variants, non-top-tier, co-owner cannot edit other override,
+  proprietor-as-owner-synonym), pause arithmetic (today + (days - 1)
+  on Mon 2026-05-04 anchor, days=1 = today only, replaces existing),
+  range bounds (zero/negative/>30/bool-not-int), get_push_settings
+  (sections returned readable, no audit row, is_currently_paused
+  inclusive boundary), tenant isolation (cross-tenant actor lookup
+  returns `actor_not_found`), validator unit coverage (Hindi
+  bool synonyms, IANA tz reject), and full executor integration
+  (`_execute_update_push_setting` / `_execute_pause_push` happy paths
+  + rollback on validation error).
 
 ### Changed
--
+- **`app/services/whatsapp_session.py`** now imports `redis` (sync) in
+  addition to `redis.asyncio` and exposes both `redis_client`
+  (existing async) and `sync_redis_client` (new). Production behaviour
+  unchanged — both clients use the same `UPSTASH_REDIS_URL`.
 
 ### Fixed
 -
 
 ### Migration
--
+- None. Reuses columns added in migration 033 (v6.3.19 slice 2A —
+  `tenants.morning_sections` / `evening_sections` / `push_paused_until`).
+  Migration head stays 034.
 
 ### Notes
--
+- **v6.3.20 part 2 deferred (separate commit).** Plumbing
+  `actor_user_id` + `phone_number` from
+  `app/routers/whatsapp.py:1075` → `whatsapp_bridge.process_message`
+  → `ai_service.run_ai_chat` → `execute_tool` is required before the
+  three v6.3.20 tools become callable from the WhatsApp channel.
+  Without this plumbing the write tools return
+  `tool_requires_whatsapp_channel` and `get_push_settings` returns
+  data scoped to the tenant only (no per-user override section). The
+  service module + executors are independently shippable with
+  test-green coverage; part 2 will land the bridge signature changes
+  + the manual WhatsApp mock-mode walkthrough required by the
+  v6.3.20 acceptance criteria.
+- **Steps 1 and 7 from the v6.3.20 prompt were already shipped in
+  v6.3.19** (schema_context.py documents the three v6.3.19 columns
+  at lines 107-116; `consolidated_briefing._dispatch_one:846-864`
+  has the inclusive-boundary pause check emitting
+  `push.{kind}_skipped_paused`). The v6.3.20 prompt's pre-flight
+  reconciliation commit was likewise pre-empted by the v6.3.19.1
+  doc-trinity sync that landed under the amended v6.3.19.1 tag.
 
 ---
 

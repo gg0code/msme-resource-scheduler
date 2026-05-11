@@ -6,7 +6,11 @@ from enum import Enum
 from sqlalchemy.orm import Session
 
 # Reuse the Redis connection pool from whatsapp_session.py
-from app.services.whatsapp_session import redis_client, _mock_sessions
+from app.services.whatsapp_session import (
+    redis_client,
+    sync_redis_client,
+    _mock_sessions,
+)
 
 # ---------------------------------------------------------------------------
 # Module logger
@@ -38,11 +42,13 @@ class ActionType(str, Enum):
     Each action type maps to a specific DB operation in execute_action().
     Using an Enum prevents typos and makes the code self-documenting.
     """
-    MARK_ABSENT       = "mark_absent"       # Mark an employee absent for a date
-    CREATE_JOB        = "create_job"        # Create a new job
-    UPDATE_JOB_STATUS = "update_job_status" # Change a job's status
-    RESCHEDULE_JOB    = "reschedule_job"    # Change a job's start/end date
-    MARK_MAINTENANCE  = "mark_maintenance"  # Mark a machine under maintenance
+    MARK_ABSENT          = "mark_absent"          # Mark an employee absent for a date
+    CREATE_JOB           = "create_job"           # Create a new job
+    UPDATE_JOB_STATUS    = "update_job_status"    # Change a job's status
+    RESCHEDULE_JOB       = "reschedule_job"       # Change a job's start/end date
+    MARK_MAINTENANCE     = "mark_maintenance"     # Mark a machine under maintenance
+    UPDATE_PUSH_SETTING  = "update_push_setting"  # v6.3.20 — change a tenant/user push-briefing setting
+    PAUSE_PUSH           = "pause_push"           # v6.3.20 — temporarily suppress push briefings
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +238,62 @@ async def clear_pending_action(phone_number: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# SYNC STAGING (v6.3.20)
+# ---------------------------------------------------------------------------
+# ai_service.execute_tool runs sync (called from sync run_ai_chat). The async
+# Redis client cannot be awaited from sync code. This sync companion uses
+# whatsapp_session.sync_redis_client + the same _mock_sessions dict so the
+# async router-side reads still see the writes. Used by the v6.3.20
+# update_push_setting / pause_push tool handlers.
+
+def store_pending_action_sync(
+    phone_number: str,
+    action_type: ActionType,
+    action_params: dict,
+) -> bool:
+    """Sync companion to store_pending_action.
+
+    Same key namespace, same JSON shape, same TTL — only the transport
+    differs. Returns True on success, False on Redis failure (mock mode
+    cannot fail since it's a dict assignment).
+    """
+    pending_key = _build_pending_action_key(phone_number)
+    pending_action = {
+        "action_type":   action_type.value,
+        "action_params": action_params,
+        "proposed_at":   datetime.now(timezone.utc).isoformat(),
+        "phone_number":  phone_number,
+    }
+    action_json = json.dumps(pending_action, ensure_ascii=False)
+
+    if sync_redis_client is None:
+        _mock_sessions[pending_key] = action_json
+        logger.info(
+            f"Mock (sync): Pending action stored for ****{phone_number[-4:]} — "
+            f"action={action_type.value}, params={action_params}"
+        )
+        return True
+
+    try:
+        sync_redis_client.set(
+            pending_key,
+            action_json,
+            ex=CONFIRMATION_TIMEOUT_SECONDS,
+        )
+        logger.info(
+            f"Pending action stored (sync) for ****{phone_number[-4:]} — "
+            f"action={action_type.value}, TTL={CONFIRMATION_TIMEOUT_SECONDS}s"
+        )
+        return True
+    except Exception as e:
+        logger.error(
+            f"Failed to store pending action (sync) for ****{phone_number[-4:]}. "
+            f"Error: {e}"
+        )
+        return False
+
+
+# ---------------------------------------------------------------------------
 # MESSAGE INTENT DETECTION
 # ---------------------------------------------------------------------------
 
@@ -337,6 +399,26 @@ def build_confirmation_prompt(
         machine_name = action_params.get("machine_name", "machine")
         description  = f"'{machine_name}' ko maintenance mode mein daalna"
 
+    elif action_type == ActionType.UPDATE_PUSH_SETTING:
+        # v6.3.20 — staged by ai_service.execute_tool after server-side
+        # validation, so action_params already carries a 'snippet_en'
+        # string that describes the proposed change in plain English.
+        # Fall back to the field/value if snippet was missing.
+        snippet = action_params.get("snippet_en")
+        if not snippet:
+            field = action_params.get("field", "setting")
+            value = action_params.get("new_value", "?")
+            snippet = f"{field} ko {value} karna"
+        description = snippet
+
+    elif action_type == ActionType.PAUSE_PUSH:
+        # v6.3.20 — pause_range_human is the "Tue Sep 30 through Sat Oct 4,
+        # resume Sun Oct 5" string that pause_push() built. Restating the
+        # date range in the confirmation prompt is load-bearing — it
+        # catches today + (days - 1) inference errors before they commit.
+        range_human = action_params.get("pause_range_human") or "the requested range"
+        description = f"Push briefings {range_human} ke liye band karna"
+
     else:
         description = f"'{action_type.value}' action execute karna"
 
@@ -399,6 +481,12 @@ async def execute_action(
 
         elif action_type == ActionType.MARK_MAINTENANCE.value:
             return _execute_mark_maintenance(action_params, db, tenant_id)
+
+        elif action_type == ActionType.UPDATE_PUSH_SETTING.value:
+            return _execute_update_push_setting(action_params, db, tenant_id)
+
+        elif action_type == ActionType.PAUSE_PUSH.value:
+            return _execute_pause_push(action_params, db, tenant_id)
 
         else:
             logger.error(
@@ -638,3 +726,119 @@ def _execute_mark_maintenance(
         f"Done. '{machine_name}' ko maintenance mode mein dal diya gaya. "
         f"Is machine par scheduled jobs affected ho sakte hain."
     )
+
+
+# ---------------------------------------------------------------------------
+# v6.3.20 — push-setting executors
+# ---------------------------------------------------------------------------
+# These are thin wrappers over push_settings_service. The whitelist,
+# validators, top-tier check, audit row, and tenant-isolation guarantees
+# all live in that service module — these executors only re-call the
+# service with the params that were validated and staged in Redis at
+# tool-call time. Re-validation at execute time is intentional: the
+# Redis payload could in principle have been tampered with, and re-
+# running the validator costs microseconds.
+
+def _execute_update_push_setting(
+    params: dict,
+    db: "Session",  # type: ignore[name-defined]
+    tenant_id: int,
+) -> tuple[bool, str]:
+    """Apply a confirmed push-setting change.
+
+    params keys (set by ai_service.execute_tool when the LLM called the
+    tool):
+      field          — the EDITABLE_FIELDS key (str)
+      raw_value      — the value the LLM passed (already validated once
+                       at stage time; re-validated by the service)
+      user_id        — None for tenant-scoped fields, int for user-scoped
+      actor_user_id  — int, the user behind the calling phone
+      source_phrase  — verbatim user message that produced the change
+      snippet_en     — confirmation snippet built at stage time (kept in
+                       payload for the post-execute reply)
+    """
+    from app.services import push_settings_service as pss
+
+    field = params.get("field")
+    raw_value = params.get("raw_value")
+    user_id = params.get("user_id")
+    actor_user_id = params.get("actor_user_id")
+    source_phrase = params.get("source_phrase", "")
+
+    if not field or actor_user_id is None:
+        return False, "Setting change parameters missing. Please ask again."
+
+    try:
+        result = pss.update_push_setting(
+            db=db,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            field=field,
+            raw_value=raw_value,
+            source_phrase=source_phrase,
+            actor_user_id=actor_user_id,
+        )
+        db.commit()
+    except pss.PushSettingValidationError as e:
+        db.rollback()
+        return False, e.messages.get("hi_en") or e.messages.get("en", str(e))
+    except pss.PushSettingForbidden as e:
+        db.rollback()
+        return False, e.messages.get("hi_en") or e.messages.get("en", str(e))
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            f"update_push_setting execute failed tenant={tenant_id} "
+            f"field={field}: {e}"
+        )
+        return False, "Setting update fail ho gaya. Phir se try karein."
+
+    return True, result.snippet.get("hi_en") or result.snippet.get("en", "Done.")
+
+
+def _execute_pause_push(
+    params: dict,
+    db: "Session",  # type: ignore[name-defined]
+    tenant_id: int,
+) -> tuple[bool, str]:
+    """Apply a confirmed push pause.
+
+    params keys (set by ai_service.execute_tool):
+      days           — int in [1, 30] (re-validated by the service)
+      actor_user_id  — int, the user behind the calling phone
+      source_phrase  — verbatim user message
+      pause_range_human — human range string built at stage time, used
+                          here only as a fallback in the success reply
+    """
+    from app.services import push_settings_service as pss
+
+    days = params.get("days")
+    actor_user_id = params.get("actor_user_id")
+    source_phrase = params.get("source_phrase", "")
+
+    if days is None or actor_user_id is None:
+        return False, "Pause parameters missing. Please ask again."
+
+    try:
+        result = pss.pause_push(
+            db=db,
+            tenant_id=tenant_id,
+            days=days,
+            source_phrase=source_phrase,
+            actor_user_id=actor_user_id,
+        )
+        db.commit()
+    except pss.PushSettingValidationError as e:
+        db.rollback()
+        return False, e.messages.get("hi_en") or e.messages.get("en", str(e))
+    except pss.PushSettingForbidden as e:
+        db.rollback()
+        return False, e.messages.get("hi_en") or e.messages.get("en", str(e))
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            f"pause_push execute failed tenant={tenant_id} days={days}: {e}"
+        )
+        return False, "Pause fail ho gaya. Phir se try karein."
+
+    return True, result.snippet.get("hi_en") or result.snippet.get("en", "Done.")

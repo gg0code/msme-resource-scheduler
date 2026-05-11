@@ -382,10 +382,191 @@ TOOLS = [
             },
         },
     },
+
+    # -----------------------------------------------------------------------
+    # v6.3.20 — WhatsApp NL push-settings updater
+    # -----------------------------------------------------------------------
+    # Three tools that let a top-tier WhatsApp user (Owner / Co-Owner /
+    # Factory Manager) change push-briefing settings, pause briefings, or
+    # read the current configuration in natural language. The whitelist of
+    # editable fields lives in app/services/push_settings_service.py:
+    # EDITABLE_FIELDS — anything off that list is rejected at the service
+    # boundary. morning_sections and evening_sections are deliberately NOT
+    # editable via WhatsApp (desktop-only).
+    #
+    # update_push_setting and pause_push are write-intents: execute_tool
+    # stages the proposed change in Redis (5-min TTL) instead of applying
+    # it directly, and returns a confirmation prompt for the AI to surface.
+    # Routing the user's "YES" reply through to actual execution is handled
+    # by the existing v5.6 confirmation flow in whatsapp_actions.execute_action.
+    #
+    # get_push_settings is read-only — no confirmation, no audit row.
+
+    {
+        "type": "function",
+        "function": {
+            "name": "update_push_setting",
+            "description": (
+                "Change one push-briefing setting for the tenant or for "
+                "the calling user. Use when a top-tier owner asks to change "
+                "morning/evening time, enable/disable a briefing, change "
+                "working days, change timezone, or change their own "
+                "subscription. Time values must be 24-hour HH:MM — convert "
+                "'8 baje' to '08:00', convert '8 pm' to '20:00'. If AM/PM "
+                "is ambiguous, ask the user to clarify, do not guess. "
+                "The `field` enum does NOT include morning_sections or "
+                "evening_sections — those are desktop-only. If the owner "
+                "asks to add/remove/reorder briefing sections, do NOT call "
+                "this tool; instead respond that section editing is done "
+                "from the desktop app."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "field": {
+                        "type": "string",
+                        "enum": [
+                            "briefing_morning_enabled",
+                            "briefing_morning_time",
+                            "briefing_evening_enabled",
+                            "briefing_evening_time",
+                            "briefing_timezone",
+                            "briefing_working_days",
+                            "briefing_time_override_morning",
+                            "briefing_time_override_evening",
+                            "briefing_subscribed",
+                        ],
+                        "description": (
+                            "Which setting to change. Tenant-scoped: "
+                            "briefing_morning_enabled / briefing_morning_time / "
+                            "briefing_evening_enabled / briefing_evening_time / "
+                            "briefing_timezone (IANA name) / "
+                            "briefing_working_days (CSV of ISO weekday numbers, "
+                            "Monday=1). User-scoped: briefing_time_override_morning / "
+                            "briefing_time_override_evening / briefing_subscribed."
+                        ),
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": (
+                            "New value. Booleans accept on/off/yes/no/haan/nahi. "
+                            "Times must be 24-hour HH:MM. Working days CSV: "
+                            "'1,2,3,4,5,6'. Timezone: IANA name like 'Asia/Kolkata'."
+                        ),
+                    },
+                    "source_phrase": {
+                        "type": "string",
+                        "description": (
+                            "Verbatim user message that produced this change "
+                            "request. Stored in the audit row. Pass the user's "
+                            "original text, do not paraphrase."
+                        ),
+                    },
+                },
+                "required": ["field", "value", "source_phrase"],
+            },
+        },
+    },
+
+    {
+        "type": "function",
+        "function": {
+            "name": "pause_push",
+            "description": (
+                "Temporarily suppress all push briefings for the tenant. "
+                "Use when the owner says 'agle N din band karo', 'ek hafta "
+                "pause', 'briefing band karo for X days', etc. The platform "
+                "computes today + (days - 1) as the last paused date in the "
+                "tenant's timezone — days=5 sent on Tuesday means Tue/Wed/"
+                "Thu/Fri/Sat are paused, dispatcher resumes Sunday. ALWAYS "
+                "restate the resulting date range in your confirmation "
+                "prompt. If the user says 'starting tomorrow', pass days "
+                "one less than the verbal count so the resulting range "
+                "still matches; restate the range either way. Pause "
+                "auto-expires; no resume call is needed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 30,
+                        "description": (
+                            "Number of days the pause covers, including today. "
+                            "Range 1-30. Anything longer should be done by "
+                            "disabling the briefing explicitly via update_push_setting."
+                        ),
+                    },
+                    "source_phrase": {
+                        "type": "string",
+                        "description": (
+                            "Verbatim user message that produced this pause. "
+                            "Stored in the audit row."
+                        ),
+                    },
+                },
+                "required": ["days", "source_phrase"],
+            },
+        },
+    },
+
+    {
+        "type": "function",
+        "function": {
+            "name": "get_push_settings",
+            "description": (
+                "Read the current push-briefing configuration. Use when the "
+                "owner asks 'morning briefing kab hai?', 'kya pause hai?', "
+                "'settings batao', 'konsa section morning me hai?', etc. "
+                "Returns scalar settings, the morning_sections and "
+                "evening_sections JSON blobs (read-only), and a derived "
+                "is_currently_paused boolean. Never call update_push_setting "
+                "with morning_sections or evening_sections — those are "
+                "read-only over WhatsApp. If the owner asks to edit "
+                "sections, redirect them to the desktop UI."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "include_user_overrides": {
+                        "type": "boolean",
+                        "description": (
+                            "Whether to include the calling user's per-user "
+                            "override settings (briefing_time_override_*, "
+                            "briefing_subscribed). Default true."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 # -- Tool executor - runs the actual DB queries --------------------------------
-def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
+def execute_tool(
+    name: str,
+    args: dict,
+    db: Session,
+    tenant_id: int,
+    *,
+    actor_user_id: int | None = None,
+    phone_number: str | None = None,
+) -> dict:
+    """Dispatch a Groq tool call against the local DB.
+
+    actor_user_id and phone_number are optional kwargs introduced in
+    v6.3.20 for the WhatsApp NL push-settings updater. They default to
+    None so existing callers (web UI ai_chat router) continue working
+    unchanged. The three v6.3.20 tools refuse with a typed error envelope
+    if either is missing — they are WhatsApp-channel-only by design.
+
+    The bridge / router plumbing that fills these in lives in a follow-up
+    commit (v6.3.20 part 2). Until that lands, the v6.3.20 tools are
+    callable but produce a "tool requires whatsapp channel" error,
+    keeping the system honest about its current state.
+    """
     args  = args or {}
 
     # Safely coerce month/year - Llama sometimes passes nested objects
@@ -1185,6 +1366,205 @@ def execute_tool(name: str, args: dict, db: Session, tenant_id: int) -> dict:
             "summary":f"{len(newly)} job(s) would become unprofitable at +{increase_pct*100:.0f}% RM cost increase."}
 
 
+    # -----------------------------------------------------------------------
+    # v6.3.20 — push-settings NL surface
+    # -----------------------------------------------------------------------
+    elif name == "get_push_settings":
+        # Read-only. No actor_user_id requirement (anyone allowed to talk
+        # to the AI on this channel can see the current config; the writes
+        # are gated). user_id only used to surface the per-user overrides.
+        from app.services import push_settings_service as pss
+
+        try:
+            view = pss.get_push_settings(
+                db=db,
+                tenant_id=tenant_id,
+                user_id=actor_user_id if args.get("include_user_overrides", True) else None,
+            )
+        except pss.PushSettingValidationError as e:
+            return {"error": e.code, "message": e.messages.get("en", str(e))}
+
+        return {
+            "tenant_id":                       view.tenant_id,
+            "user_id":                         view.user_id,
+            "briefing_morning_enabled":        view.briefing_morning_enabled,
+            "briefing_morning_time":           view.briefing_morning_time.strftime("%H:%M"),
+            "briefing_evening_enabled":        view.briefing_evening_enabled,
+            "briefing_evening_time":           view.briefing_evening_time.strftime("%H:%M"),
+            "briefing_timezone":               view.briefing_timezone,
+            "briefing_working_days":           view.briefing_working_days,
+            "morning_sections":                view.morning_sections,
+            "evening_sections":                view.evening_sections,
+            "morning_sections_editable":       False,
+            "evening_sections_editable":       False,
+            "sections_editable_note":          (
+                "Section structure can only be changed from the desktop app "
+                "(Settings → Push Briefings)."
+            ),
+            "push_paused_until":               (
+                view.push_paused_until.isoformat() if view.push_paused_until else None
+            ),
+            "is_currently_paused":             view.is_currently_paused,
+            "briefing_time_override_morning":  (
+                view.briefing_time_override_morning.strftime("%H:%M")
+                if view.briefing_time_override_morning else None
+            ),
+            "briefing_time_override_evening":  (
+                view.briefing_time_override_evening.strftime("%H:%M")
+                if view.briefing_time_override_evening else None
+            ),
+            "briefing_subscribed":             view.briefing_subscribed,
+        }
+
+    elif name == "update_push_setting":
+        # Write — stages in Redis, returns confirmation envelope.
+        if actor_user_id is None or phone_number is None:
+            return {
+                "error": "tool_requires_whatsapp_channel",
+                "message": (
+                    "This tool can only be used from the WhatsApp channel. "
+                    "Please use the desktop Settings UI."
+                ),
+            }
+        from app.services import push_settings_service as pss
+        from app.services.whatsapp_actions import (
+            ActionType,
+            store_pending_action_sync,
+            build_confirmation_prompt,
+        )
+
+        field = args.get("field")
+        raw_value = args.get("value")
+        source_phrase = args.get("source_phrase", "")
+
+        # Validate at stage time so the LLM gets immediate feedback if the
+        # value shape is wrong. We re-validate at execute time too — the
+        # Redis payload could in principle be tampered with, and re-running
+        # the validator costs microseconds.
+        spec = pss.EDITABLE_FIELDS.get(field) if field else None
+        is_user_scoped = bool(spec and spec.table == "users")
+
+        # Reject desktop-only fields with the redirect message.
+        if field in ("morning_sections", "evening_sections"):
+            return {
+                "error": "field_not_editable_via_whatsapp",
+                "message": pss._MSG["field_not_editable_via_whatsapp"]["en"],
+                "redirect": (
+                    "Open Settings → Push Briefings on your computer."
+                ),
+            }
+        if spec is None:
+            return {
+                "error": "unknown_field",
+                "message": pss._MSG["unknown_field"]["en"],
+            }
+        try:
+            spec.validate(raw_value)
+        except pss.PushSettingValidationError as e:
+            return {"error": e.code, "message": e.messages.get("en", str(e))}
+
+        # Build a confirmation snippet for the AI to surface.
+        snippet_en = f"Set {spec.label_en} to {raw_value}."
+        action_params = {
+            "field": field,
+            "raw_value": raw_value,
+            "user_id": actor_user_id if is_user_scoped else None,
+            "actor_user_id": actor_user_id,
+            "source_phrase": source_phrase,
+            "snippet_en": snippet_en,
+        }
+        store_pending_action_sync(
+            phone_number=phone_number,
+            action_type=ActionType.UPDATE_PUSH_SETTING,
+            action_params=action_params,
+        )
+        confirmation_text = build_confirmation_prompt(
+            ActionType.UPDATE_PUSH_SETTING, action_params,
+        )
+        return {
+            "status": "confirmation_required",
+            "confirmation_prompt": confirmation_text,
+            "field": field,
+            "value": raw_value,
+            "instruction_for_ai": (
+                "Surface confirmation_prompt to the user verbatim or in their "
+                "language. Do NOT call any tool again until the user replies "
+                "with a confirmation word; the platform handles the YES/NO "
+                "machinery and will execute the change automatically."
+            ),
+        }
+
+    elif name == "pause_push":
+        if actor_user_id is None or phone_number is None:
+            return {
+                "error": "tool_requires_whatsapp_channel",
+                "message": (
+                    "This tool can only be used from the WhatsApp channel. "
+                    "Please use the desktop Settings UI."
+                ),
+            }
+        from datetime import timedelta
+        from app.models.auth import Tenant
+        from app.services import push_settings_service as pss
+        from app.services.whatsapp_actions import (
+            ActionType,
+            store_pending_action_sync,
+            build_confirmation_prompt,
+        )
+
+        days = args.get("days")
+        source_phrase = args.get("source_phrase", "")
+
+        if not isinstance(days, int) or isinstance(days, bool) or not (
+            pss._MIN_PAUSE_DAYS <= days <= pss._MAX_PAUSE_DAYS
+        ):
+            return {
+                "error": "pause_days_out_of_range",
+                "message": pss._MSG["pause_days_out_of_range"]["en"],
+            }
+
+        # Compute the date range NOW so the confirmation prompt restates
+        # it. The execute step will recompute (today may have changed if
+        # the user takes a long time to confirm), but the staged range
+        # gives a faithful preview.
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if tenant is None:
+            return {
+                "error": "tenant_not_found",
+                "message": pss._MSG["tenant_not_found"]["en"],
+            }
+        today_local = pss._tenant_today(tenant)
+        last_paused = today_local + timedelta(days=days - 1)
+        range_human = pss._format_pause_range(today_local, last_paused)
+
+        action_params = {
+            "days": days,
+            "actor_user_id": actor_user_id,
+            "source_phrase": source_phrase,
+            "pause_range_human": range_human,
+        }
+        store_pending_action_sync(
+            phone_number=phone_number,
+            action_type=ActionType.PAUSE_PUSH,
+            action_params=action_params,
+        )
+        confirmation_text = build_confirmation_prompt(
+            ActionType.PAUSE_PUSH, action_params,
+        )
+        return {
+            "status": "confirmation_required",
+            "confirmation_prompt": confirmation_text,
+            "days": days,
+            "pause_range_human": range_human,
+            "instruction_for_ai": (
+                "Surface confirmation_prompt to the user verbatim or in their "
+                "language. The pause_range_human string MUST appear in your "
+                "confirmation so the user can correct day-counting mistakes "
+                "before they commit. Do NOT call any tool again until the "
+                "user replies with a confirmation word."
+            ),
+        }
+
     return {"error": f"Unknown tool: {name}"}
 
 
@@ -1251,7 +1631,66 @@ Never type these names into your text reply.
 - "delayed jobs", "overdue", "at risk": call `get_delayed_jobs`
 - "who is free today/tomorrow", "who is available": call `get_employee_availability`
 - "free / busy machines today": call `get_machine_availability`
-- "shop floor summary", "today summary": call `get_shop_floor_summary`"""
+- "shop floor summary", "today summary": call `get_shop_floor_summary`
+
+PUSH-BRIEFING SETTINGS (v6.3.20 — WhatsApp NL surface for top-tier owners only)
+
+Recognise these intents and call the right tool:
+
+- "morning briefing 8 baje karo", "shift morning briefing to 9 AM",
+  "morning briefing time change karo": call `update_push_setting` with
+  field=`briefing_morning_time`. Time MUST be 24-hour HH:MM ('08:00',
+  '20:00'). Convert '8 baje' to '08:00' for morning, '20:00' for
+  evening. If AM/PM is genuinely ambiguous, ask the user to clarify;
+  do NOT guess.
+- "evening recap 7 ke jagah 8 baje karo", "evening briefing time
+  change": call `update_push_setting` with field=`briefing_evening_time`.
+- "morning briefing band karo / chalu karo": call `update_push_setting`
+  with field=`briefing_morning_enabled` and value `false` / `true`.
+- "evening recap band / chalu": same with `briefing_evening_enabled`.
+- "weekends pe band rakho", "Sunday off karo", "only weekdays",
+  "Mon-Sat only": call `update_push_setting` with
+  field=`briefing_working_days`, value as ISO weekday CSV (Mon=1).
+  Examples: '1,2,3,4,5,6' (Mon-Sat), '1,2,3,4,5' (Mon-Fri),
+  '6,7' (weekends only).
+- "Mumbai time", "Asia/Kolkata", "change timezone": call
+  `update_push_setting` with field=`briefing_timezone`, value an IANA
+  name. Default for Indian users is 'Asia/Kolkata'.
+- "agle N din chuti hai", "agle N din briefing band karo", "ek hafta
+  pause", "kal se 3 din ke liye band": call `pause_push` with
+  appropriate `days`. ALWAYS restate the resulting date range in your
+  confirmation prompt — the tool returns `pause_range_human`. If the
+  user says "kal se" / "starting tomorrow", pass days one less than
+  the verbal count so the range still matches.
+- "morning briefing kab hai?", "kya pause hai?", "settings batao",
+  "konsa section morning me hai?", "is briefing paused?": call
+  `get_push_settings`.
+
+NOT EDITABLE via WhatsApp (sections are desktop-only):
+- If the user asks to add / remove / reorder briefing sections
+  ("morning me attendance section hatao", "evening me jobs add karo",
+  "section change karo"), do NOT call `update_push_setting`. Reply in
+  the user's language: "Briefing ke sections sirf desktop se badal
+  sakte ho. Apne computer pe Settings → Push Briefings kholo."
+  (English: "Briefing sections can only be changed from the desktop
+  app. Open Settings → Push Briefings on your computer.")
+
+CONFIRMATION FLOW for write tools (`update_push_setting`, `pause_push`):
+- These tools do NOT execute immediately. They stage the change and
+  return `status: "confirmation_required"` with a `confirmation_prompt`.
+- Surface the confirmation_prompt to the user in their language. For
+  pauses, the `pause_range_human` MUST appear in the confirmation —
+  this catches day-counting mistakes before they commit.
+- Do NOT call any tool again until the user replies with a
+  confirmation word. The platform handles YES/NO and will execute the
+  staged change automatically.
+- `get_push_settings` is read-only and does NOT need confirmation.
+  Call it directly and narrate the result.
+
+PERMISSION RULE: settings changes are top-tier-only (Owner / Co-Owner /
+Factory Manager). If the calling user is not top-tier, the tool will
+refuse — politely tell them to ask the Owner. `get_push_settings` is
+also top-tier-only in practice (the channel is gated upstream)."""
 
 
 # ---------------------------------------------------------------------------

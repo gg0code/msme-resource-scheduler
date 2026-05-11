@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
+import redis as sync_redis
 import redis.asyncio as aioredis
 
 from app.config import settings
@@ -76,6 +77,29 @@ def _create_redis_client() -> aioredis.Redis | None:
 # None = mock mode (UPSTASH_REDIS_URL not configured).
 # Created once at module load - do not recreate inside functions.
 redis_client = _create_redis_client()
+
+
+def _create_sync_redis_client() -> "sync_redis.Redis | None":
+    """Sync companion to _create_redis_client (v6.3.20).
+
+    Some code paths (notably ai_service.execute_tool, which is sync and
+    called from sync run_ai_chat) need to stage Redis state. The async
+    client cannot be awaited from sync code without a thread-bridge.
+    The sync client uses the same UPSTASH_REDIS_URL and the same key
+    space so the async router-side reads still see the writes.
+
+    Returns None in mock mode (no URL); callers fall back to
+    _mock_sessions just like the async path does.
+    """
+    if not settings.UPSTASH_REDIS_URL:
+        return None
+    return sync_redis.from_url(
+        settings.UPSTASH_REDIS_URL,
+        decode_responses=True,
+    )
+
+
+sync_redis_client = _create_sync_redis_client()
 
 
 # ---------------------------------------------------------------------------
