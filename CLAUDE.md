@@ -54,9 +54,10 @@ This is the single most common source of confusion.
 
 - **Product Version** — `vMAJOR.MINOR.PATCH`. Used in git tags, CHANGELOG,
   customer-facing communication. MAJOR = era (V5 WhatsApp-first, V6 AI-first,
-  V7 ERP-connected). Current: **v6.3.19** shipped (shadow mode),
-  **v6.3.19.1** is next (cutover flip + detector test anchoring fix +
-  delay/conflict dispatchers).
+  V7 ERP-connected). Current: **v6.3.19.1** shipped (cutover release —
+  shadow-mode flag removed, legacy push functions deleted, delay +
+  conflict dispatchers wired through new push system, all detector
+  xfails closed). **v6.4** is next.
 - **Document Version** — applies to the SRS only. Format `Document vX.Y`.
   Independent of product version. Current SRS is **v6.6**, describing
   product v5.0 through v6.3.17 (shipped) and v6.3.18 through v7.2 (planned).
@@ -160,12 +161,13 @@ Integration tests (`-m integration`) hit real Postgres and are skipped in
 CI. Run them manually before any release tag.
 
 Test suite baseline as of v6.3.0-whatsapp-industry: **332 passing**.
-Earlier baseline at v6.2.2-test-recovery: 199 passing. The jump came from
-v6.3 work, not new test infrastructure. **Current as of v6.3.19:**
-**1015 passing** unit-tier (`-m "not integration"`), **22 passing**
-integration-tier (`tests/integration/test_2d_dispatcher.py` + `test_push_v2_flip.py`),
-**13 xfailed** (date-drift detector tests; v6.3.19.1 fix planned —
-CHANGELOG note 92).
+Earlier baseline at v6.2.2-test-recovery: 199 passing. The jump came
+from v6.3 work, not new test infrastructure. **Current as of v6.3.19.1:**
+**1052 passing** unit-tier (`-m "not integration"`), **31 passing**
+integration-tier (`tests/integration/test_2d_dispatcher.py`),
+**0 xfailed** (v6.3.19's 13 detector xfails were closed in v6.3.19.1
+slice 3A via the `freezegun` anchor fixture + 90-day verification
+harness).
 
 ---
 
@@ -210,9 +212,9 @@ Use with `WHATSAPP_MOCK_MODE=True`. SRS §22.
 
 ---
 
-## Current state in one paragraph (as of 2026-05-10)
+## Current state in one paragraph (as of 2026-05-11)
 
-**Shipped through v6.3.19 (shadow mode).** v6.3.0-whatsapp-industry
+**Shipped through v6.3.19.1 (cutover release).** v6.3.0-whatsapp-industry
 fixed BUG-6 (industry attribution on `PhoneTenantMap`). v6.3.3 added
 the events audit table (migration 028). v6.3.4 landed the daily push
 briefing dispatcher. v6.3.5 consolidated the WhatsApp UI per SRS §6.28.4.
@@ -228,20 +230,27 @@ write path (migration 032). v6.3.18 shipped the WhatsApp message
 styling pass (centralised emoji vocabulary, entity formatters,
 Meta-bound HSM template constants, dispatcher-shape templates wired
 into `whatsapp_alerts.py`; new SRS Section 23 Voice/Tone/Formatting).
-**v6.3.19 ships the consolidated push dispatcher in shadow mode**
-(migrations 033 + 034): per-tenant push config via cascade resolver
-(`push_config.py` + `push_defaults.yaml`), async `dispatch_morning`
-+ `dispatch_evening` wiring `PushConfig` + slice-2B field computers
-+ slice-1 flag/next_step selector + v6.3.18 Meta-bound templates,
-new APScheduler `push_v2_tick_job` running every minute on the 0-second
-mark with `tenant_id % 60` hash stagger. Per slice 2D scope reduction
-(D4), v6.3.19 ships morning + evening only; legacy 8:00 + 8:30 ticks
-survive ungated until v6.3.19.1. Ships behind `settings.PUSH_V2_ENABLED`
-default False — new tick logs `push.shadow_log` rows; legacy 5-min tick
-remains authoritative until ops runs `python scripts/push_v2_flip.py
---enable` post-verification per the 5-box gate in
-`docs/v6_3_19_smoke_tests.md`. Operator `POST /api/v1/whatsapp/debug/dispatch`
-endpoint exposes shadow + force-send testing. The WhatsApp production
+**v6.3.19 + v6.3.19.1 ship the consolidated push dispatcher as the
+sole code path** (migrations 033 + 034): per-tenant push config via
+cascade resolver (`push_config.py` + `push_defaults.yaml`), async
+`dispatch_morning` + `dispatch_evening` wiring `PushConfig` +
+slice-2B field computers + slice-1 flag/next_step selector + v6.3.18
+Meta-bound templates, new APScheduler `push_v2_tick_job` running
+every minute on the 0-second mark with `tenant_id % 60` hash
+stagger. **v6.3.19.1 cutover release** removed the v6.3.19
+`PUSH_V2_ENABLED` shadow-mode flag entirely, deleted the legacy
+v5.10-era push functions (`run_briefing_dispatch_tick`,
+`check_delayed_jobs`, `check_scheduling_conflicts`) and their
+helpers (~232 lines), and shipped the deferred `dispatch_delay_alert`
++ `dispatch_conflict_alert` dispatchers — `push_v2_tick` now fires
+delay alerts at 8/10/12/14/16/18/20 IST and conflict alerts at
+8:30/12:30/16:30/20:30 IST (legacy parity, no dedup per
+test_push_v2_tick_consecutive_ticks_no_dedup). Slice 3A in v6.3.19.1
+also fixed the test-infrastructure date-drift bug: all 13 detector
+xfails are gone, `freezegun` autouse anchors the suite, 26-case
+90-day verification harness proves anchor-invariance. Operator
+`POST /api/v1/whatsapp/debug/dispatch` endpoint accepts all four
+dispatch types. The WhatsApp production
 cutover (originally planned as v5.11; shipped at v6.3.7 + v6.3.8 on
 2026-05-03) is engineering-complete; **Meta Business portfolio approval**
 remains to flip `WHATSAPP_MOCK_MODE` off. The platform runs in mock mode
@@ -250,15 +259,15 @@ end-to-end and is feature-complete behind that gate.
 **In progress.** v6.3 KPI Baseline + Monthly Savings Summary (SRS §6.24,
 migration not yet written).
 
-**Next up — v6.3.19.1.** Cutover flip (`PUSH_V2_ENABLED=true` post
-shadow verification) plus `dispatch_delay_alert` / `dispatch_conflict_alert`
-to gate the 8:00 + 8:30 ticks. Plus the detector test date-anchoring
-infrastructure fix — rewriting the 13 xfailed detector tests
-(CHANGELOG note 92) to use consistent `TODAY` / `NOW` anchoring across
-fixture setup and detector invocation, verified with `freezegun`
-parametrisation across a 90-day span. **Hard deadline:** the 13 must
-not grow further; if a 14th test fails for the same reason, treat it
-as a release blocker and bring v6.3.19.1 forward.
+**Next up — v6.4.0.** Full engagement ladder (Day-1 ack, Day-3 rhythm,
+Day-7 manager mirror, conditional nudges). Will reuse and extend
+`tenants.engagement_ladder_state`. Plus the deferred Meta v2
+conditional `{flag_section}` / `{next_step_section}` template
+re-submission (closes the §23 tone exception), the dedicated
+`zetaops_job_delayed` template (currently dispatch_delay_alert
+reuses `zetaops_job_ending_soon` with best-effort field shape),
+and the `User.language_preference` column + per-recipient locale
+routing.
 
 **Not started.** v6.4.0 full engagement ladder (Day-1 ack, Day-3 rhythm,
 Day-7 manager mirror, conditional nudges; will reuse and extend

@@ -2,7 +2,16 @@
 backend/scripts/push_v2_flip.py
 Branch: v5-whatsapp
 
-FILE PURPOSE
+OBSOLETE as of v6.3.19.1 — the cutover release removed the
+PUSH_V2_ENABLED flag entirely and made the new push system the sole
+code path. This CLI has no operational effect on a v6.3.19.1+ build:
+writing PUSH_V2_ENABLED=true|false to the .env produces an unused
+environment variable. The script is retained for historical
+reference (and so v6.3.19-era operator runbooks linking to it don't
+404). Delete in a future cleanup release once no surviving runbook
+references it.
+
+FILE PURPOSE (historical)
 v6.3.19 slice 2D-flip — admin CLI to flip the PUSH_V2_ENABLED gate.
 Writes PUSH_V2_ENABLED=true | PUSH_V2_ENABLED=false to backend/.env
 (or a path passed via --env-file) and reports current state plus a

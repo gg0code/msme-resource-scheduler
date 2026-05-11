@@ -39,22 +39,74 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 
 ## [Unreleased]
 
-### Added (slice 3A — detector test date-anchoring fix)
-- **`freezegun==1.5.5`** added to `backend/requirements.txt`. Used by the new autouse fixture in `tests/services/conftest.py` to pin `datetime.now()` to `date(2026, 5, 4)` — the same value every `tests/services/test_detect_*.py` file hardcodes as `TODAY`. This aligns fixture-builder timestamps (`make_employee` / `make_machine` / `make_job` etc. all read `datetime.now(timezone.utc) - timedelta(days=N)`) with the detector's `today` argument. **Production behaviour is unaffected** — real attendance.recorded events carry true `now()` `created_at` and dispatchers pass live tenant-local today, so the two anchors stay in sync at runtime regardless of this test-side autouse.
-- **`tests/services/conftest.py` `freeze_clock_at_detector_today` autouse fixture** — replaces the test-side workaround that v6.3.18 + v6.3.19 slice 2D-shadow patched via 13 `@pytest.mark.xfail` markers.
-- **`tests/services/test_detector_date_anchoring.py`** (new) — 26-case parametrised verification harness. Runs `detect_delayed_jobs` at 13 frozen-`now()` anchors spanning Jan–Jul 2026 (90 days each side of canonical TODAY) for both the positive case (one overdue job fires) and the negative case (no overdue jobs returns None). Each anchor uses the matching `today` argument; identical behaviour at every anchor proves the detector is wall-clock-independent.
-
-### Fixed
-- **All 13 detector tests previously `xfail`'d for date drift now pass.** xfail count drops from 13 → 0. Markers stripped from `tests/services/test_detect_idle_machine.py` (3), `test_detect_low_utilization.py` (2), `test_detect_manager_silence.py` (2), `test_detect_new_employee_no_show.py` (2), `test_detect_no_progress.py` (3), `test_detect_status_change_alert.py` (1). The `import pytest` lines added in v6.3.19 slice 2D-shadow (3 files) plus the lines added in v6.3.18 for the original 5 xfails (3 files) are also removed — those imports were dead after the markers came out. Closes CHANGELOG `[v6.3.19]` note 92 + the `Hard deadline` clause ("If a 14th detector test fails for the same reason before v6.3.19.1 ships, treat it as a release blocker").
+### Added
+-
 
 ### Changed
-- 
+-
+
+### Fixed
+-
 
 ### Migration
-- (none — test-only change)
+-
 
 ### Notes
 -
+
+---
+
+## [v6.3.19.1] — 2026-05-11
+**Branch:** v5-whatsapp
+
+Cutover release. The shadow-mode pattern v6.3.19 introduced (`PUSH_V2_ENABLED` flag, `push.shadow_log` events, 5-box verification gate) was abandoned: the safety benefit was theoretical (v5.11 production cutover blocked on Meta review; no real customer traffic) and the cognitive cost was real every session. v6.3.19.1 removes the flag entirely, deletes the legacy v5.10-era push functions, and ships the remaining v6.3.19.1-scope work (slice 3A detector-test anchoring fix + slice 3B delay/conflict dispatchers) as the new push system becomes the sole code path.
+
+**Slices landed:** 3A (freezegun + xfail strip + 90-day anchor-invariance harness) and 3B (dispatch_delay_alert + dispatch_conflict_alert + legacy push-function deletion + flag removal).
+
+### Added (slice 3A — detector test date-anchoring fix)
+- **`freezegun==1.5.5`** added to `backend/requirements.txt`. Used by the new autouse fixture in `tests/services/conftest.py` to pin `datetime.now()` to `date(2026, 5, 4)` — the same value every `tests/services/test_detect_*.py` file hardcodes as `TODAY`. This aligns fixture-builder timestamps with the detector's `today` argument. **Production behaviour unaffected** — real attendance.recorded events carry true `now()` `created_at` and dispatchers pass live tenant-local today, so the two anchors stay in sync at runtime regardless of this test-side autouse.
+- **`tests/services/conftest.py` `freeze_clock_at_detector_today` autouse fixture.**
+- **`tests/services/test_detector_date_anchoring.py`** (new) — 26-case parametrised verification harness. Runs `detect_delayed_jobs` at 13 frozen-`now()` anchors spanning Jan–Jul 2026 for both the positive and negative cases. Anchor-invariance proven.
+
+### Added (slice 3B — delay + conflict dispatchers)
+- **`consolidated_briefing.dispatch_delay_alert(tenant_id, now, db, *, job_id) -> DispatchResult`** — async, per-job. Renders the Meta-bound `DELAY_ALERT_EN` template (`zetaops_job_ending_soon` shape) with five fields computed from the Job (`job_name`, `customer`, `time_remaining`, `progress`, `next_job`). No dedup — consecutive ticks for the same job both fire `push.delay_sent`, mirroring legacy `check_delayed_jobs` behaviour. Spam-fix tracked as a future release.
+- **`consolidated_briefing.dispatch_conflict_alert(tenant_id, now, db, *, conflict_payload) -> DispatchResult`** — async, per-conflict. Renders Meta-bound `CONFLICT_ALERT_EN` (`zetaops_job_conflict_alert`) with `job_a`/`job_b`/`resource`/`window`/`next_step`. Caller-computed payload; `_compute_conflict_alert_fields` is passthrough + decoration.
+- **`consolidated_briefing._compute_delay_alert_fields(job, now, db)` + `_compute_conflict_alert_fields(payload)`** — best-effort field computation. `time_remaining` renders as `"overdue by N days"` for delays (template's "ending soon" shape adapted); `resource` and `next_step` for conflicts are placeholders pending v6.4 scheduler-conflict rewrite that exposes contended resources.
+- **`consolidated_briefing._get_delayed_jobs_for_dispatch` + `_get_conflicts_for_dispatch`** — sync helpers mirroring legacy `_get_delayed_jobs` / `_get_conflicts` semantics (which were deleted in this release) but taking an external `db` session. Conflict pairing collapses single-job allocation-gap conflicts into paired `(job_a, job_b)` slots; lone conflicts render `job_b='—'`.
+- **`consolidated_briefing._is_delay_tick` / `_is_conflict_tick`** — IST minute-mark detectors. Delay: 8/10/12/14/16/18/20 :00 IST (7 ticks daily). Conflict: 8:30 / 12:30 / 16:30 / 20:30 IST (4 ticks daily). Mirrors legacy `check_delayed_jobs` + `check_scheduling_conflicts` cadence.
+- **`push_v2_tick` extended** to fire delay + conflict dispatches at the IST tick marks (in addition to morning/evening per-tenant time match). One dispatch task per delayed-job per tick; one per conflict per tick.
+- **`consolidated_briefing._tenants_for_alert_pref(alert_pref_key, db)`** — returns distinct tenant_ids with at least one active top-tier phone opted in to a given alert preference key. Used by `push_v2_tick` to scope the delay/conflict tick to opted-in tenants only.
+- **New alert-preference keys:** `push_delay`, `push_conflict` (default-True for missing-key tenants, same convention as `push_morning` / `push_evening`).
+- **New event vocabulary:** `push.delay_sent` / `push.delay_skipped_paused` / `push.delay_skipped_no_recipients` / `push.delay_send_failed`. Mirror set for `push.conflict_*`.
+- **`whatsapp_debug.py` extended** — POST `/api/v1/whatsapp/debug/dispatch` now accepts `type='delay_alert'` (requires `job_id`) and `type='conflict_alert'` (requires `conflict_payload`). Returns 400 with explanatory message when the required extra field is absent.
+- **Slice 3B tests** (in `tests/integration/test_2d_dispatcher.py`): 12 dispatcher cases (6 delay + 6 conflict — happy / tenant-filter / no-recipients / paused / Meta-failure / template-render), 2 tick-window cases (8:00 fires delay / 8:30 conflict; off-window does not), cadence iteration (full 7-tick delay schedule produces 7 events), parity-with-legacy no-dedup assertion (consecutive ticks both emit `push.delay_sent`), 2 debug-endpoint routing cases. 31 integration tests total, all green.
+
+### Removed
+- **`PUSH_V2_ENABLED` config setting** in `app/config.py` — gone. The new push system is now the sole code path.
+- **`app/services/whatsapp_alerts.run_briefing_dispatch_tick`** — the v6.3.4 5-minute briefing dispatcher. Replaced by `consolidated_briefing.push_v2_tick`.
+- **`app/services/whatsapp_alerts.check_delayed_jobs`** + **`check_scheduling_conflicts`** — the v5.10 every-2-hour / every-4-hour ticks. Replaced by `dispatch_delay_alert` + `dispatch_conflict_alert` running at the legacy IST tick marks.
+- **Legacy helper functions** `_get_delayed_jobs`, `_get_conflicts`, `_build_delay_alert`, `_build_conflict_alert` (in `whatsapp_alerts.py`) — orphaned by the function deletions above; ~232 lines stripped.
+- **Legacy scheduler registrations** for `briefing_dispatch_job`, `job_delay_check`, and `conflict_check`. `set_dev_schedule` updated accordingly.
+- **Legacy constants** `JOB_DELAY_CHECK_HOURS`, `JOB_DELAY_CHECK_EVERY`, `CONFLICT_CHECK_EVERY`, `ALERT_TYPE_JOB_DELAY`, `ALERT_TYPE_CONFLICT`, `BRIEFING_DISPATCH_INTERVAL_MINUTES` — consumed only by the deleted functions.
+- **Shadow-mode infrastructure** — `shadow=True` kwarg on `dispatch_morning` / `dispatch_evening` / `_dispatch_one`, the `push.shadow_log` event_type, the consolidated-emit logic that funneled all stages under one event. Replaced by direct per-stage event writes.
+- **`tests/integration/test_push_v2_flip.py`** — tests for the obsolete CLI deleted. The script `scripts/push_v2_flip.py` itself is retained with an "OBSOLETE as of v6.3.19.1" header so v6.3.19-era operator runbooks don't 404, but the tests for it are dead-code coverage.
+- **Two retired tests in `tests/integration/test_2d_dispatcher.py`**: `test_old_tick_short_circuits_when_flag_enabled` (validated the early-return on the deleted legacy tick) and `test_new_tick_shadow_logs_when_flag_disabled` (validated shadow-mode log writes). Replaced with `test_push_v2_tick_sends_for_morning_match` in `tests/services/test_consolidated_briefing.py`.
+
+### Changed
+- **`tests/integration/test_2d_dispatcher.py::test_debug_endpoint_shadow_mode_returns_payload`** renamed to `test_debug_endpoint_returns_payload`. Assertions updated to reflect the cutover: dispatcher always sends; `actually_sent: True`; mock_meta receives one call.
+- **`DispatchResponse.shadow_log_event_id`** field name retained in the response schema for v6.3.19 backward compatibility, but now carries the `push.{kind}_sent` (or skip) row id, not a `push.shadow_log` id. Documented in the field's docstring.
+- **`force_send`** in the debug-endpoint request body retained as a no-op for backward compatibility with v6.3.19 operator scripts. The dispatcher always sends post-cutover.
+- **CLAUDE.md current-state paragraph** rewritten through v6.3.19.1.
+
+### Migration
+- (none — code-only release)
+
+### Notes
+- **`docs/v6_3_19_smoke_tests.md`** marked OBSOLETE at the top with a note explaining the cutover. 5-box gate retired.
+- **`docs/srs_section_6_28_v2.md`** marked with a v6.3.19.1 update banner. Sections 6.28.v2.6 (Shadow mode) and 6.28.v2.7.2 (Flip CLI) retained for historical reference.
+- **`scripts/push_v2_flip.py`** retained with OBSOLETE header. CLI writes to `.env` produce an unused environment variable post-v6.3.19.1; the script is preserved so v6.3.19-era operator runbooks don't 404. Future cleanup release can delete.
+- **No-dedup parity choice** — `dispatch_delay_alert` and `dispatch_conflict_alert` mirror legacy `check_delayed_jobs` / `check_scheduling_conflicts` exactly: consecutive ticks for the same job/conflict both fire. Per slice 3B test `test_push_v2_tick_consecutive_ticks_no_dedup` this is explicit and intentional. Spam fix is tracked as a future release with its own version number (no v6.3.19.2 dedicated to this — the future release will roll up spam dedup + any other small follow-ups).
+- **Field shape divergence** — `DELAY_ALERT_EN` (`zetaops_job_ending_soon`) is a "job ending soon" Meta template; v6.3.19.1 wires it for "delayed" semantics with best-effort field computation (`time_remaining = "overdue by N days"`). The Meta template was approved for the "ending soon" use case; reusing it for "delayed" is honest about the field-shape mismatch in the dispatcher docstring. A dedicated `zetaops_job_delayed` Meta template is on the v6.4 backlog.
 
 ---
 

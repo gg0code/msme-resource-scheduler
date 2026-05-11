@@ -1,5 +1,14 @@
 # v6.3.19 shadow-mode smoke tests
 
+> **OBSOLETE as of v6.3.19.1.** The shadow-mode verification approach
+> was abandoned: the `PUSH_V2_ENABLED` flag was removed and the new
+> push system is now the sole code path. This document is retained
+> for historical reference; the 5-box gate no longer applies.
+> Operator-facing smoke tests against `POST /api/v1/whatsapp/debug/dispatch`
+> remain useful and are documented inline in
+> `app/routers/whatsapp_debug.py`.
+
+
 Manual checklist for the operator running the v6.3.19 slice 2D-shadow
 verification. Run all five steps end-to-end before the v6.3.19 tag,
 and again before flipping `PUSH_V2_ENABLED=true` in v6.3.19.1.

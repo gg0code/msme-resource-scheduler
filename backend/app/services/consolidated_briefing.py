@@ -747,7 +747,6 @@ async def _dispatch_one(
     db: "Session",  # type: ignore[name-defined]
     *,
     kind: str,  # 'morning' | 'evening'
-    shadow: bool = False,
 ) -> DispatchResult:
     """Shared dispatch path for morning and evening.
 
@@ -756,9 +755,9 @@ async def _dispatch_one(
                   _resolve_top_tier_recipients, _already_dispatched_today,
                   _log_event, _render_morning_message,
                   _send_whatsapp_message.
-    Side effects: writes events rows + commits, calls Meta send (mock-
-                  aware via WHATSAPP_MOCK_MODE inside _send_whatsapp_message)
-                  unless shadow=True.
+    Side effects: writes events rows + commits, calls Meta send
+                  (mock-aware via WHATSAPP_MOCK_MODE inside
+                  _send_whatsapp_message).
 
     The kind parameter selects:
       - which PushConfig.<kind>_enabled flag gates the send,
@@ -766,24 +765,9 @@ async def _dispatch_one(
       - which event_type prefix is logged,
       - which template (currently both share MORNING_BRIEFING_*).
 
-    SHADOW MODE (slice 2D-shadow, v6.3.19):
-    When shadow=True, the dispatcher:
-      - Skips the actual `_send_whatsapp_message` call. Recipients
-        still resolve, the message still renders, but no Meta API
-        traffic is generated.
-      - Consolidates ALL log writes under a single `push.shadow_log`
-        event_type instead of `push.{kind}_*` per-stage events. The
-        payload carries `kind`, `stage` ('skipped_disabled' /
-        'skipped_paused' / 'skipped_idempotent' /
-        'skipped_no_recipients' / 'sent' / 'send_failed'), and
-        `would_send=False`.
-      - Skips the idempotency dedup check entirely (push.shadow_log
-        events do not anchor the next-tick decision; we want every
-        tick to log so shadow verification can compare against the
-        legacy tick's output minute-for-minute).
-      - DispatchResult.sent_count counts "would-have-sent" recipients
-        so callers can compare shadow-mode totals against the legacy
-        briefing.sent payload during the 24-hour parity test.
+    v6.3.19.1 — `shadow` kwarg removed. The cutover release dropped
+    the PUSH_V2_ENABLED flag and made the new push system the sole
+    code path. Shadow-mode logging is no longer available.
     """
     from app.models.auth import Tenant  # local import — avoid cycle
 
@@ -819,12 +803,7 @@ async def _dispatch_one(
     scheduled_for_str = scheduled_for.isoformat()
     now_str = now.isoformat()
 
-    # `emit` consolidates the choice of event_type. In real mode it
-    # writes the per-stage event (push.{kind}_skipped_disabled etc.).
-    # In shadow mode every stage funnels into a single
-    # push.shadow_log row carrying `kind`, `stage`, and would_send=False
-    # so a single events filter (event_type = 'push.shadow_log')
-    # surfaces every shadow tick decision.
+    # `emit` writes the per-stage event (push.{kind}_skipped_disabled etc).
     _stage_to_real_event = {
         "skipped_disabled": event_skipped_disabled,
         "skipped_paused": event_skipped_paused,
@@ -838,26 +817,12 @@ async def _dispatch_one(
 
     def emit(stage: str, payload: dict[str, Any]) -> None:
         nonlocal last_event_id
-        if shadow:
-            shadow_payload: dict[str, Any] = {
-                **payload,
-                "kind": kind,
-                "stage": stage,
-                "would_send": False,
-            }
-            row = _log_event(
-                tenant_id=tenant_id,
-                event_type="push.shadow_log",
-                payload=shadow_payload,
-                db=db,
-            )
-        else:
-            row = _log_event(
-                tenant_id=tenant_id,
-                event_type=_stage_to_real_event[stage],
-                payload=payload,
-                db=db,
-            )
+        row = _log_event(
+            tenant_id=tenant_id,
+            event_type=_stage_to_real_event[stage],
+            payload=payload,
+            db=db,
+        )
         last_event_id = row.id
 
     # Disabled gate (per-direction).
@@ -898,10 +863,9 @@ async def _dispatch_one(
             event_id=last_event_id,
         )
 
-    # Idempotency. Skipped entirely in shadow mode — see docstring
-    # SHADOW MODE section. In real mode, the *_sent event from a
-    # prior dispatch is the dedup anchor.
-    if not shadow and _already_dispatched_today(
+    # Idempotency. The *_sent event from a prior dispatch is the
+    # dedup anchor.
+    if _already_dispatched_today(
         tenant_id, event_sent, scheduled_for, db,
     ):
         emit(
@@ -941,11 +905,6 @@ async def _dispatch_one(
     sent_count = 0
     last_error: str | None = None
     for r in recipients:
-        if shadow:
-            # Shadow path — count as would-have-sent without
-            # invoking the transport.
-            sent_count += 1
-            continue
         try:
             await _send_whatsapp_message(r.phone_number, rendered)
             sent_count += 1
@@ -967,11 +926,8 @@ async def _dispatch_one(
 
     # Idempotency anchor — only when at least one recipient received
     # the message. Failed-only dispatches do NOT create a *_sent event,
-    # so the next tick can retry. In shadow mode every dispatch path
-    # that reaches send-loop logs a shadow 'sent' stage even when
-    # would-send-count is zero (preserves the "every tick logs once"
-    # contract).
-    if sent_count > 0 or shadow:
+    # so the next tick can retry.
+    if sent_count > 0:
         emit(
             "sent",
             {
@@ -1001,17 +957,15 @@ async def dispatch_morning(
     tenant_id: int,
     now: datetime,
     db: "Session",  # type: ignore[name-defined]
-    *,
-    shadow: bool = False,
 ) -> DispatchResult:
     """Send the morning briefing to one tenant's top-tier WhatsApp recipients.
 
-    Called by:    push_v2_tick (this file, slice 2D-shadow), the debug
-                  dispatch endpoint, and tests.
+    Called by:    push_v2_tick (this file), the debug dispatch
+                  endpoint, and tests.
     Calls into:   _dispatch_one (this file). All template / send /
                   event-log work happens there.
-    Side effects: writes events rows, commits, calls Meta send (mock-
-                  aware via WHATSAPP_MOCK_MODE) unless shadow=True.
+    Side effects: writes events rows, commits, calls Meta send
+                  (mock-aware via WHATSAPP_MOCK_MODE).
 
     Argument order — `(tenant_id, now, db)` — matches slice 2B field
     helpers. Diverges from the v6.3.19 brief sketch
@@ -1020,25 +974,20 @@ async def dispatch_morning(
     Locale: slice 2C dispatches all recipients in 'hi_en'. Per-recipient
     locale resolution defers until User.language_preference exists.
 
-    `shadow=True` (slice 2D-shadow): renders the message and resolves
-    recipients but does NOT send. Logs a single push.shadow_log event
-    capturing what would have been sent. See _dispatch_one's
-    SHADOW MODE docstring section for the full contract.
+    v6.3.19.1 — `shadow` kwarg removed in the cutover release.
     """
-    return await _dispatch_one(tenant_id, now, db, kind="morning", shadow=shadow)
+    return await _dispatch_one(tenant_id, now, db, kind="morning")
 
 
 async def dispatch_evening(
     tenant_id: int,
     now: datetime,
     db: "Session",  # type: ignore[name-defined]
-    *,
-    shadow: bool = False,
 ) -> DispatchResult:
     """Send the evening recap to one tenant's top-tier WhatsApp recipients.
 
-    Called by:    push_v2_tick (this file, slice 2D-shadow), the debug
-                  dispatch endpoint, and tests.
+    Called by:    push_v2_tick (this file), the debug dispatch
+                  endpoint, and tests.
     Calls into:   _dispatch_one (this file).
     Side effects: writes events rows, commits, calls Meta send.
 
@@ -1049,36 +998,28 @@ async def dispatch_evening(
     (briefing_evening_enabled, push.evening_*). A dedicated EVENING_*
     template constant + render path is on the v6.4 backlog.
 
-    `shadow=True` semantics identical to dispatch_morning — see
-    _dispatch_one's SHADOW MODE docstring section.
+    v6.3.19.1 — `shadow` kwarg removed in the cutover release.
     """
-    return await _dispatch_one(tenant_id, now, db, kind="evening", shadow=shadow)
+    return await _dispatch_one(tenant_id, now, db, kind="evening")
 
 
 # ---------------------------------------------------------------------------
-# v6.3.19 slice 2D-shadow — push_v2_tick + hash stagger
+# v6.3.19.1 — push_v2_tick + hash stagger (sole code path post-cutover)
 # ---------------------------------------------------------------------------
-# The new APScheduler tick. Runs every minute (cron, not interval, to
-# avoid drift). Iterates tenants with morning_enabled OR evening_enabled,
-# resolves PushConfig per tenant, picks the ones whose configured
-# push_time hour:minute (in their timezone) matches `now`, and calls
-# the appropriate dispatch_* with the per-tenant hash stagger.
+# APScheduler tick running every minute (cron, not interval, to avoid
+# drift). Iterates tenants and dispatches morning/evening pushes when
+# the per-tenant briefing_*_time matches `now`, plus delay alerts at
+# the legacy 8/10/12/14/16/18/20 IST cadence and conflict alerts at
+# 8:30/12:30/16:30/20:30 IST. Per-tenant hash stagger spreads sends
+# across the 60-second window so 3000 tenants don't all fire in the
+# same second.
 #
-# When settings.PUSH_V2_ENABLED is False (default), the dispatchers
-# are called with shadow=True — message is rendered, recipients are
-# resolved, but no Meta send happens. A push.shadow_log event records
-# what would have been sent. The legacy 5-min briefing tick
-# (whatsapp_alerts.run_briefing_dispatch_tick) continues to send
-# authoritatively in this mode.
-#
-# Per slice 2D scope reduction (D4): only the 5-min briefing tick is
-# gated by PUSH_V2_ENABLED. The 8:00 delay tick and 8:30 conflict
-# tick remain authoritative regardless until v6.3.19.1 wires up
-# delay/conflict dispatchers.
+# v6.3.19.1 removed the PUSH_V2_ENABLED shadow-mode gate. The new
+# push system is now the only push code path; the legacy v5.10
+# functions (run_briefing_dispatch_tick / check_delayed_jobs /
+# check_scheduling_conflicts) were deleted from whatsapp_alerts.py.
 
 import asyncio  # noqa: E402
-
-from app.config import settings as _settings  # noqa: E402
 
 
 def _offset_seconds_for(tenant_id: int) -> int:
@@ -1151,17 +1092,23 @@ async def _dispatch_with_offset(
     db: "Session",  # type: ignore[name-defined]
     *,
     kind: str,
-    shadow: bool,
     apply_stagger: bool,
+    job_id: int | None = None,
+    conflict_payload: dict | None = None,
 ) -> DispatchResult:
     """Sleep for the per-tenant offset then dispatch. Wraps any
     dispatcher exception in a push.tick_failed log so a single
     bad tenant cannot stop the whole tick.
 
     Called by:    push_v2_tick (this file).
-    Calls into:   asyncio.sleep, dispatch_morning / dispatch_evening,
+    Calls into:   asyncio.sleep, dispatch_morning / dispatch_evening /
+                  dispatch_delay_alert / dispatch_conflict_alert,
                   _log_event.
     Side effects: ~0–60 second deferral, writes events rows on failure.
+
+    For kind='delay' the caller must pass job_id; for kind='conflict'
+    the caller must pass conflict_payload. Morning/evening ignore
+    both extras.
     """
     if apply_stagger:
         offset = _offset_seconds_for(tenant_id)
@@ -1170,8 +1117,18 @@ async def _dispatch_with_offset(
 
     try:
         if kind == "morning":
-            return await dispatch_morning(tenant_id, now, db, shadow=shadow)
-        return await dispatch_evening(tenant_id, now, db, shadow=shadow)
+            return await dispatch_morning(tenant_id, now, db)
+        if kind == "evening":
+            return await dispatch_evening(tenant_id, now, db)
+        if kind == "delay":
+            return await dispatch_delay_alert(
+                tenant_id, now, db, job_id=job_id,
+            )
+        if kind == "conflict":
+            return await dispatch_conflict_alert(
+                tenant_id, now, db, conflict_payload=conflict_payload,
+            )
+        raise ValueError(f"Unknown dispatch kind: {kind!r}")
     except Exception as exc:  # noqa: BLE001 — protect the tick loop
         # One bad tenant must not abort the tick. Log and return a
         # failure result so push_v2_tick's gather() does not raise.
@@ -1181,7 +1138,6 @@ async def _dispatch_with_offset(
                 event_type="push.tick_failed",
                 payload={
                     "kind": kind,
-                    "shadow": shadow,
                     "now": now.isoformat(),
                     "error": str(exc) or exc.__class__.__name__,
                 },
@@ -1205,55 +1161,736 @@ async def _dispatch_with_offset(
         )
 
 
+# v6.3.19.1 — multi-pass cadence matching legacy `check_delayed_jobs`
+# (which fired every 2 hours during working hours) and
+# `check_scheduling_conflicts` (every 4 hours starting 8:30 IST,
+# filtered to working hours). Hour values are tenant-local IST.
+# Stay synchronous with the deleted legacy schedule so dispatcher
+# behaviour is one-for-one with the v5.10 era.
+_DELAY_HOURS_IST: tuple[int, ...] = (8, 10, 12, 14, 16, 18, 20)
+_CONFLICT_HOURS_IST: tuple[int, ...] = (8, 12, 16, 20)
+_CONFLICT_MINUTE_IST: int = 30
+
+
+def _is_delay_tick(now: datetime) -> bool:
+    """True when `now` matches one of the legacy delay-alert hours at :00.
+
+    Called by:    push_v2_tick (this file).
+    Calls into:   zoneinfo.ZoneInfo.
+    Side effects: none.
+    """
+    if ZoneInfo is None:
+        return False
+    try:
+        local = now.astimezone(ZoneInfo("Asia/Kolkata"))
+    except Exception:  # noqa: BLE001 — defensive
+        return False
+    return local.hour in _DELAY_HOURS_IST and local.minute == 0
+
+
+def _is_conflict_tick(now: datetime) -> bool:
+    """True when `now` matches one of the legacy conflict-alert minute
+    marks (8:30 / 12:30 / 16:30 / 20:30 IST).
+
+    Called by:    push_v2_tick (this file).
+    Calls into:   zoneinfo.ZoneInfo.
+    Side effects: none.
+    """
+    if ZoneInfo is None:
+        return False
+    try:
+        local = now.astimezone(ZoneInfo("Asia/Kolkata"))
+    except Exception:  # noqa: BLE001 — defensive
+        return False
+    return (
+        local.hour in _CONFLICT_HOURS_IST
+        and local.minute == _CONFLICT_MINUTE_IST
+    )
+
+
+def _tenants_for_alert_pref(
+    alert_pref_key: str,
+    db: "Session",  # type: ignore[name-defined]
+) -> list[int]:
+    """Distinct tenant_ids that have at least one active top-tier phone
+    opted in to the given alert preference key. Used by the delay /
+    conflict tick to find the candidate set per pass.
+
+    Called by:    push_v2_tick (this file) when _is_delay_tick or
+                  _is_conflict_tick fires.
+    Calls into:   PhoneTenantMap ORM (read-only).
+    Side effects: none.
+    """
+    from app.models.auth import Tenant  # local — avoid import cycle
+
+    rows = (
+        db.query(Tenant.id, PhoneTenantMap)
+        .join(PhoneTenantMap, PhoneTenantMap.tenant_id == Tenant.id)
+        .filter(PhoneTenantMap.is_active == True)  # noqa: E712
+        .all()
+    )
+    seen: set[int] = set()
+    out: list[int] = []
+    for tenant_id, ptm in rows:
+        if tenant_id in seen:
+            continue
+        if not ptm.is_top_tier:
+            continue
+        prefs = ptm.alert_preferences or {}
+        if prefs.get(alert_pref_key, True) is False:
+            continue
+        seen.add(tenant_id)
+        out.append(tenant_id)
+    return sorted(out)
+
+
 async def push_v2_tick(
     now: datetime,
     db: "Session",  # type: ignore[name-defined]
     *,
     apply_stagger: bool = True,
 ) -> list[DispatchResult]:
-    """One per-minute scheduler tick for the v6.3.19 push v2 cadence.
+    """One per-minute scheduler tick for the v6.3.19.1 consolidated
+    push cadence.
 
     Called by:    APScheduler 'push_v2_tick_job' (registered in
                   whatsapp_alerts.start_scheduler), the debug endpoint,
-                  and slice 2D-tests integration tests.
-    Calls into:   _tenants_due_for, _dispatch_with_offset.
-    Side effects: writes events rows, conditional Meta sends. Bounded
-                  asyncio.sleep up to 59 seconds per tenant when
-                  apply_stagger=True (default in production); tests
-                  pass apply_stagger=False to bypass the wait.
+                  and integration tests.
+    Calls into:   _tenants_due_for, _tenants_for_alert_pref,
+                  _is_delay_tick, _is_conflict_tick,
+                  _dispatch_with_offset, _get_delayed_jobs_for_dispatch,
+                  _get_conflicts_for_dispatch.
+    Side effects: writes events rows, Meta sends. Bounded asyncio.sleep
+                  up to 59 seconds per tenant when apply_stagger=True
+                  (default in production); tests pass apply_stagger=False
+                  to bypass the wait.
 
-    SHADOW vs REAL MODE
-    The dispatcher mode is controlled by settings.PUSH_V2_ENABLED.
-    False (default) -> shadow mode: every dispatch logs push.shadow_log
-        and does not send via Meta.
-    True            -> real mode: dispatchers send and log
-        push.{kind}_sent. The legacy run_briefing_dispatch_tick
-        early-returns in this mode to avoid double-send.
+    Cadence in v6.3.19.1 (post-cutover — the only push code path):
+      - Morning: per-tenant briefing_morning_time (default 07:30 IST).
+      - Evening: per-tenant briefing_evening_time (default 18:30 IST).
+      - Delay alerts: hours 8/10/12/14/16/18/20 IST at :00 — one
+        dispatch per delayed job per tenant per matching tick. Mirrors
+        the legacy `check_delayed_jobs` cadence (which was a "*-hour-
+        on-the-hour during working hours" cron). No dedup; consecutive
+        ticks both fire push.delay_sent. Spam-fix tracked as a future
+        release.
+      - Conflict alerts: 8:30 / 12:30 / 16:30 / 20:30 IST — one dispatch
+        per conflict per tenant per matching tick. Mirrors the legacy
+        `check_scheduling_conflicts` cadence. No dedup.
 
     Per-tenant exceptions are captured and logged as push.tick_failed
-    rows; the tick continues to the next tenant. asyncio.gather is
-    invoked with return_exceptions=False — but each task swallows its
-    own dispatch exception via _dispatch_with_offset, so gather sees
-    only completed DispatchResults.
+    rows; the tick continues to the next tenant.
     """
-    shadow = not _settings.PUSH_V2_ENABLED
+    tasks: list = []
 
+    # Morning / evening (per-tenant time match).
     due_morning = _tenants_due_for(now, "morning", db)
     due_evening = _tenants_due_for(now, "evening", db)
-
-    tasks: list = []
     for tenant_id in due_morning:
         tasks.append(_dispatch_with_offset(
             tenant_id, now, db,
-            kind="morning", shadow=shadow, apply_stagger=apply_stagger,
+            kind="morning", apply_stagger=apply_stagger,
         ))
     for tenant_id in due_evening:
         tasks.append(_dispatch_with_offset(
             tenant_id, now, db,
-            kind="evening", shadow=shadow, apply_stagger=apply_stagger,
+            kind="evening", apply_stagger=apply_stagger,
         ))
+
+    # Delay alerts (multi-pass IST cadence, one task per delayed job).
+    if _is_delay_tick(now):
+        today_local = _scheduled_date_for(now, "Asia/Kolkata")
+        for tenant_id in _tenants_for_alert_pref(_ALERT_KEY_PUSH_DELAY, db):
+            for job in _get_delayed_jobs_for_dispatch(
+                tenant_id, today_local, db,
+            ):
+                tasks.append(_dispatch_with_offset(
+                    tenant_id, now, db,
+                    kind="delay", apply_stagger=apply_stagger,
+                    job_id=job.id,
+                ))
+
+    # Conflict alerts (multi-pass IST cadence, one task per conflict).
+    if _is_conflict_tick(now):
+        today_local = _scheduled_date_for(now, "Asia/Kolkata")
+        for tenant_id in _tenants_for_alert_pref(_ALERT_KEY_PUSH_CONFLICT, db):
+            for payload in _get_conflicts_for_dispatch(
+                tenant_id, today_local, db,
+            ):
+                tasks.append(_dispatch_with_offset(
+                    tenant_id, now, db,
+                    kind="conflict", apply_stagger=apply_stagger,
+                    conflict_payload=payload,
+                ))
 
     if not tasks:
         return []
 
     return await asyncio.gather(*tasks, return_exceptions=False)
+
+
+# ---------------------------------------------------------------------------
+# v6.3.19.1 — dispatch_delay_alert + dispatch_conflict_alert
+# ---------------------------------------------------------------------------
+# Per-job / per-conflict singular dispatches, matching the shape of
+# the Meta-bound DELAY_ALERT_EN and CONFLICT_ALERT_EN templates
+# (zetaops_job_ending_soon and zetaops_job_conflict_alert). The
+# legacy whatsapp_alerts.check_delayed_jobs sent a summary message
+# per tenant (one row per tick); v6.3.19.1 splits into per-job
+# messages to match the Meta template's singular shape. This is
+# more verbose than legacy by design — the Meta-side templates
+# treat each delayed job as a discrete actionable item.
+
+from app.models.job import Job  # noqa: E402
+from sqlalchemy import select, text as sa_text  # noqa: E402
+
+
+_ALERT_KEY_PUSH_DELAY: str = "push_delay"
+_ALERT_KEY_PUSH_CONFLICT: str = "push_conflict"
+
+_EVENT_PUSH_DELAY_SENT: str = "push.delay_sent"
+_EVENT_PUSH_DELAY_SKIPPED_PAUSED: str = "push.delay_skipped_paused"
+_EVENT_PUSH_DELAY_SKIPPED_NO_RECIPIENTS: str = "push.delay_skipped_no_recipients"
+_EVENT_PUSH_DELAY_SEND_FAILED: str = "push.delay_send_failed"
+
+_EVENT_PUSH_CONFLICT_SENT: str = "push.conflict_sent"
+_EVENT_PUSH_CONFLICT_SKIPPED_PAUSED: str = "push.conflict_skipped_paused"
+_EVENT_PUSH_CONFLICT_SKIPPED_NO_RECIPIENTS: str = "push.conflict_skipped_no_recipients"
+_EVENT_PUSH_CONFLICT_SEND_FAILED: str = "push.conflict_send_failed"
+
+
+_TERMINAL_JOB_STATUSES_LOWER = frozenset({"completed", "cancelled"})
+
+
+def _get_delayed_jobs_for_dispatch(
+    tenant_id: int,
+    today: "date",  # type: ignore[name-defined]
+    db: "Session",  # type: ignore[name-defined]
+) -> list[Job]:
+    """Mirror of legacy whatsapp_alerts._get_delayed_jobs as a sync
+    helper that accepts an external session and `today` anchor.
+
+    Called by:    push_v2_tick (this file).
+    Calls into:   Job ORM (read-only).
+    Side effects: none.
+
+    Filter: tenant_id matches AND end_date < today AND status NOT IN
+    (completed, cancelled), case-insensitive.
+    """
+    rows: list[Job] = (
+        db.query(Job)
+        .filter(
+            Job.tenant_id == tenant_id,
+            Job.end_date.isnot(None),
+            Job.end_date < today,
+        )
+        .order_by(Job.end_date.asc(), Job.id.asc())
+        .all()
+    )
+    return [
+        j for j in rows
+        if (j.status or "").strip().lower() not in _TERMINAL_JOB_STATUSES_LOWER
+    ]
+
+
+def _get_conflicts_for_dispatch(
+    tenant_id: int,
+    today: "date",  # type: ignore[name-defined]
+    db: "Session",  # type: ignore[name-defined]
+) -> list[dict[str, Any]]:
+    """Mirror of legacy whatsapp_alerts._get_conflicts as a sync
+    helper that returns conflict-payload dicts shaped for the
+    CONFLICT_ALERT_EN template ({job_a, job_b, resource, window,
+    next_step}).
+
+    Called by:    push_v2_tick (this file).
+    Calls into:   Job ORM + schedule_entries raw SQL (read-only).
+    Side effects: none.
+
+    Conflict detection mirrors v5.10: a job has fewer schedule_entries
+    rows than (end_date - start_date + 1) calendar days. The new
+    template wants TWO jobs in conflict; the legacy detector only
+    flagged single jobs with allocation gaps, so v6.3.19.1 pairs
+    consecutive conflict jobs into the (job_a, job_b) slots. When
+    there is exactly one conflict, job_b renders as '—' (placeholder
+    matching the template's required-field shape).
+
+    The `resource` field is filled as '—' today — the v5.10 detector
+    does not expose which specific machine / employee is contended.
+    Surfacing the real resource is on the v6.4 scheduler-conflict
+    rewrite backlog; until then the placeholder is honest about the
+    information gap.
+    """
+    rows = (
+        db.query(Job)
+        .filter(
+            Job.tenant_id == tenant_id,
+            Job.status.notin_([
+                "completed", "cancelled", "Completed", "Cancelled",
+            ]),
+            Job.start_date.isnot(None),
+            Job.end_date.isnot(None),
+        )
+        .all()
+    )
+    if not rows:
+        return []
+
+    # Count schedule_entries per job — same pattern as legacy.
+    job_ids = [j.id for j in rows]
+    entry_counts: dict[int, int] = {}
+    try:
+        result = db.execute(
+            sa_text(
+                "SELECT job_id, COUNT(*) AS entry_count "
+                "FROM schedule_entries "
+                "WHERE job_id = ANY(:job_ids) "
+                "GROUP BY job_id"
+            ),
+            {"job_ids": job_ids},
+        ).all()
+        for row in result:
+            entry_counts[row.job_id] = row.entry_count
+    except Exception:  # noqa: BLE001 — defensive (SQLite test path may miss)
+        entry_counts = {}
+
+    conflicted: list[Job] = []
+    for j in rows:
+        expected_days = max(1, (j.end_date - j.start_date).days + 1)
+        if entry_counts.get(j.id, 0) < expected_days:
+            conflicted.append(j)
+
+    if not conflicted:
+        return []
+
+    # Pair consecutive conflicts into (job_a, job_b) slots. Lone
+    # conflicts render job_b as '—'.
+    payloads: list[dict[str, Any]] = []
+    i = 0
+    while i < len(conflicted):
+        ja = conflicted[i]
+        jb = conflicted[i + 1] if i + 1 < len(conflicted) else None
+        payloads.append({
+            "job_a": ja.name or f"Job #{ja.id}",
+            "job_b": (jb.name or f"Job #{jb.id}") if jb else "—",
+            "resource": "—",
+            "window": _format_conflict_window(ja, jb),
+            "job_a_id": ja.id,
+            "job_b_id": jb.id if jb else None,
+        })
+        i += 2
+    return payloads
+
+
+def _format_conflict_window(job_a: Job, job_b: Job | None) -> str:
+    """Format a date range string for the conflict template's
+    `window` field.
+
+    Called by:    _get_conflicts_for_dispatch (this file).
+    Calls into:   nothing — pure formatting.
+    Side effects: none.
+
+    When only job_a is in scope (lone conflict), the window is its
+    own start/end. When both are present, the window is the overlap
+    (max start to min end), which is the slice the two jobs
+    contend for.
+    """
+    if job_b is None:
+        return f"{job_a.start_date.isoformat()} to {job_a.end_date.isoformat()}"
+    start = max(job_a.start_date, job_b.start_date)
+    end = min(job_a.end_date, job_b.end_date)
+    if end < start:
+        return (
+            f"{job_a.start_date.isoformat()} to {job_a.end_date.isoformat()} "
+            f"vs {job_b.start_date.isoformat()} to {job_b.end_date.isoformat()}"
+        )
+    return f"{start.isoformat()} to {end.isoformat()}"
+
+
+def _compute_delay_alert_fields(
+    job: Job,
+    now: datetime,
+    db: "Session",  # type: ignore[name-defined]
+) -> dict[str, str]:
+    """Compute the five fields the Meta-bound DELAY_ALERT_EN template
+    expects from one delayed Job.
+
+    Called by:    dispatch_delay_alert (this file).
+    Calls into:   Job ORM (read-only) for the next-job lookup.
+    Side effects: none.
+
+    Template field semantics (best-effort for "delayed" within the
+    Meta template's "ending soon" shape):
+      - job_name      Job.name (or 'Job #<id>' fallback)
+      - customer      Job.customer (or 'your customer' fallback)
+      - time_remaining  human string: 'overdue by N day(s)' or 'past due'
+      - progress        Job.status as displayed
+      - next_job        the next job by start_date for the same tenant,
+                        or '—' when none exists
+    """
+    today = now.date()
+    overdue_days = (today - job.end_date).days if job.end_date else 0
+    if overdue_days <= 0:
+        time_remaining = "past due"
+    elif overdue_days == 1:
+        time_remaining = "overdue by 1 day"
+    else:
+        time_remaining = f"overdue by {overdue_days} days"
+
+    next_job_row = (
+        db.query(Job)
+        .filter(
+            Job.tenant_id == job.tenant_id,
+            Job.id != job.id,
+            Job.start_date.isnot(None),
+            Job.start_date >= today,
+            Job.status.notin_([
+                "completed", "cancelled", "Completed", "Cancelled",
+            ]),
+        )
+        .order_by(Job.start_date.asc(), Job.id.asc())
+        .first()
+    )
+    next_job_name = (next_job_row.name if next_job_row else None) or "—"
+
+    return {
+        "job_name": job.name or f"Job #{job.id}",
+        "customer": (job.customer or "your customer"),
+        "time_remaining": time_remaining,
+        "progress": (job.status or "—"),
+        "next_job": next_job_name,
+    }
+
+
+def _compute_conflict_alert_fields(
+    conflict_payload: dict[str, Any],
+) -> dict[str, str]:
+    """Decorate a conflict payload dict with the `next_step` field the
+    CONFLICT_ALERT_EN template expects.
+
+    Called by:    dispatch_conflict_alert (this file).
+    Calls into:   nothing — pure dict construction.
+    Side effects: none.
+
+    `next_step` is a static suggestion today — surfacing the real
+    "what should the owner do?" requires v6.4 scheduling intelligence
+    that exposes conflict-resolution moves. Until then, the suggestion
+    is "Review the schedule conflict in the desktop app."
+    """
+    return {
+        "job_a": str(conflict_payload.get("job_a", "—")),
+        "job_b": str(conflict_payload.get("job_b", "—")),
+        "resource": str(conflict_payload.get("resource", "—")),
+        "window": str(conflict_payload.get("window", "—")),
+        "next_step": (
+            "Review the schedule conflict in the desktop app."
+        ),
+    }
+
+
+async def dispatch_delay_alert(
+    tenant_id: int,
+    now: datetime,
+    db: "Session",  # type: ignore[name-defined]
+    *,
+    job_id: int | None,
+) -> DispatchResult:
+    """Send one delayed-job alert for a specific job to the tenant's
+    top-tier WhatsApp recipients.
+
+    Called by:    push_v2_tick at the legacy delay tick marks
+                  (8/10/12/14/16/18/20 IST), the debug dispatch endpoint,
+                  and tests.
+    Calls into:   _compute_delay_alert_fields, message_formatters.DELAY_ALERT_EN,
+                  _resolve_top_tier_recipients, _log_event,
+                  _send_whatsapp_message.
+    Side effects: writes events rows, commits, calls Meta send
+                  (mock-aware via WHATSAPP_MOCK_MODE).
+
+    No dedup. Consecutive ticks for the same job both emit
+    push.delay_sent — matches legacy `check_delayed_jobs` behaviour
+    (which also had no dedup). Spam fix tracked as a future release.
+
+    Skip rules:
+      - push_paused_until covers today → push.delay_skipped_paused
+      - no top-tier recipient opted in to push_delay → push.delay_skipped_no_recipients
+
+    Note: no morning_enabled / evening_enabled gate — delay alerts use
+    their own `push_delay` alert_preferences key (default True for
+    parity with legacy default-True opt-in).
+    """
+    from app.models.auth import Tenant  # local — avoid import cycle
+
+    if job_id is None:
+        return DispatchResult(
+            success=False,
+            tenant_id=tenant_id,
+            kind="delay",
+            error="dispatch_delay_alert requires job_id",
+        )
+
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        return DispatchResult(
+            success=False,
+            tenant_id=tenant_id,
+            kind="delay",
+            skip_reason="tenant_not_found",
+            error=f"Tenant {tenant_id} not found",
+        )
+
+    job = db.get(Job, job_id)
+    if job is None or job.tenant_id != tenant_id:
+        return DispatchResult(
+            success=False,
+            tenant_id=tenant_id,
+            kind="delay",
+            error=f"Job {job_id} not found for tenant {tenant_id}",
+        )
+
+    config = resolve_push_config(tenant)
+    scheduled_for = _scheduled_date_for(now, config.push_timezone)
+    scheduled_for_str = scheduled_for.isoformat()
+    now_str = now.isoformat()
+    last_event_id: int | None = None
+
+    # Paused gate.
+    if config.push_paused_until and config.push_paused_until >= scheduled_for:
+        row = _log_event(
+            tenant_id=tenant_id,
+            event_type=_EVENT_PUSH_DELAY_SKIPPED_PAUSED,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "paused_until": config.push_paused_until.isoformat(),
+                "now": now_str,
+                "job_id": job_id,
+            },
+            db=db,
+        )
+        last_event_id = row.id
+        db.commit()
+        return DispatchResult(
+            success=True, tenant_id=tenant_id, kind="delay",
+            skip_reason="paused", event_id=last_event_id,
+        )
+
+    recipients = _resolve_top_tier_recipients(tenant_id, _ALERT_KEY_PUSH_DELAY, db)
+    if not recipients:
+        row = _log_event(
+            tenant_id=tenant_id,
+            event_type=_EVENT_PUSH_DELAY_SKIPPED_NO_RECIPIENTS,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "now": now_str,
+                "job_id": job_id,
+            },
+            db=db,
+        )
+        last_event_id = row.id
+        db.commit()
+        return DispatchResult(
+            success=True, tenant_id=tenant_id, kind="delay",
+            skip_reason="no_recipients", event_id=last_event_id,
+        )
+
+    fields = _compute_delay_alert_fields(job, now, db)
+    rendered = message_formatters.DELAY_ALERT_EN.format(**fields)
+
+    sent_count = 0
+    last_error: str | None = None
+    for r in recipients:
+        try:
+            await _send_whatsapp_message(r.phone_number, rendered)
+            sent_count += 1
+        except Exception as exc:  # noqa: BLE001
+            last_error = str(exc) or exc.__class__.__name__
+            row = _log_event(
+                tenant_id=tenant_id,
+                event_type=_EVENT_PUSH_DELAY_SEND_FAILED,
+                payload={
+                    "scheduled_for_date": scheduled_for_str,
+                    "phone": r.phone_number,
+                    "error": last_error,
+                    "now": now_str,
+                    "job_id": job_id,
+                },
+                db=db,
+            )
+            last_event_id = row.id
+            _log.warning(
+                "push.delay send_failed tenant=%s phone=****%s error=%s",
+                tenant_id, r.phone_number[-4:], last_error,
+            )
+
+    if sent_count > 0:
+        row = _log_event(
+            tenant_id=tenant_id,
+            event_type=_EVENT_PUSH_DELAY_SENT,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "now": now_str,
+                "recipients": [r.phone_number for r in recipients],
+                "sent_count": sent_count,
+                "rendered_message": rendered,
+                "job_id": job_id,
+                "fields": fields,
+            },
+            db=db,
+        )
+        last_event_id = row.id
+    db.commit()
+
+    return DispatchResult(
+        success=sent_count > 0 or last_error is None,
+        tenant_id=tenant_id,
+        kind="delay",
+        sent_count=sent_count,
+        rendered_message=rendered,
+        error=last_error,
+        recipients=tuple(r.phone_number for r in recipients),
+        event_id=last_event_id,
+    )
+
+
+async def dispatch_conflict_alert(
+    tenant_id: int,
+    now: datetime,
+    db: "Session",  # type: ignore[name-defined]
+    *,
+    conflict_payload: dict | None,
+) -> DispatchResult:
+    """Send one scheduling-conflict alert for a specific conflict to the
+    tenant's top-tier WhatsApp recipients.
+
+    Called by:    push_v2_tick at the legacy conflict tick marks
+                  (8:30 / 12:30 / 16:30 / 20:30 IST), the debug dispatch
+                  endpoint, and tests.
+    Calls into:   _compute_conflict_alert_fields,
+                  message_formatters.CONFLICT_ALERT_EN,
+                  _resolve_top_tier_recipients, _log_event,
+                  _send_whatsapp_message.
+    Side effects: writes events rows, commits, calls Meta send.
+
+    No dedup. Skip rules mirror dispatch_delay_alert.
+    """
+    from app.models.auth import Tenant  # local — avoid import cycle
+
+    if conflict_payload is None:
+        return DispatchResult(
+            success=False,
+            tenant_id=tenant_id,
+            kind="conflict",
+            error="dispatch_conflict_alert requires conflict_payload",
+        )
+
+    tenant = db.get(Tenant, tenant_id)
+    if tenant is None:
+        return DispatchResult(
+            success=False,
+            tenant_id=tenant_id,
+            kind="conflict",
+            skip_reason="tenant_not_found",
+            error=f"Tenant {tenant_id} not found",
+        )
+
+    config = resolve_push_config(tenant)
+    scheduled_for = _scheduled_date_for(now, config.push_timezone)
+    scheduled_for_str = scheduled_for.isoformat()
+    now_str = now.isoformat()
+    last_event_id: int | None = None
+
+    if config.push_paused_until and config.push_paused_until >= scheduled_for:
+        row = _log_event(
+            tenant_id=tenant_id,
+            event_type=_EVENT_PUSH_CONFLICT_SKIPPED_PAUSED,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "paused_until": config.push_paused_until.isoformat(),
+                "now": now_str,
+                "conflict_payload": conflict_payload,
+            },
+            db=db,
+        )
+        last_event_id = row.id
+        db.commit()
+        return DispatchResult(
+            success=True, tenant_id=tenant_id, kind="conflict",
+            skip_reason="paused", event_id=last_event_id,
+        )
+
+    recipients = _resolve_top_tier_recipients(tenant_id, _ALERT_KEY_PUSH_CONFLICT, db)
+    if not recipients:
+        row = _log_event(
+            tenant_id=tenant_id,
+            event_type=_EVENT_PUSH_CONFLICT_SKIPPED_NO_RECIPIENTS,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "now": now_str,
+                "conflict_payload": conflict_payload,
+            },
+            db=db,
+        )
+        last_event_id = row.id
+        db.commit()
+        return DispatchResult(
+            success=True, tenant_id=tenant_id, kind="conflict",
+            skip_reason="no_recipients", event_id=last_event_id,
+        )
+
+    fields = _compute_conflict_alert_fields(conflict_payload)
+    rendered = message_formatters.CONFLICT_ALERT_EN.format(**fields)
+
+    sent_count = 0
+    last_error: str | None = None
+    for r in recipients:
+        try:
+            await _send_whatsapp_message(r.phone_number, rendered)
+            sent_count += 1
+        except Exception as exc:  # noqa: BLE001
+            last_error = str(exc) or exc.__class__.__name__
+            row = _log_event(
+                tenant_id=tenant_id,
+                event_type=_EVENT_PUSH_CONFLICT_SEND_FAILED,
+                payload={
+                    "scheduled_for_date": scheduled_for_str,
+                    "phone": r.phone_number,
+                    "error": last_error,
+                    "now": now_str,
+                    "conflict_payload": conflict_payload,
+                },
+                db=db,
+            )
+            last_event_id = row.id
+            _log.warning(
+                "push.conflict send_failed tenant=%s phone=****%s error=%s",
+                tenant_id, r.phone_number[-4:], last_error,
+            )
+
+    if sent_count > 0:
+        row = _log_event(
+            tenant_id=tenant_id,
+            event_type=_EVENT_PUSH_CONFLICT_SENT,
+            payload={
+                "scheduled_for_date": scheduled_for_str,
+                "now": now_str,
+                "recipients": [r.phone_number for r in recipients],
+                "sent_count": sent_count,
+                "rendered_message": rendered,
+                "conflict_payload": conflict_payload,
+                "fields": fields,
+            },
+            db=db,
+        )
+        last_event_id = row.id
+    db.commit()
+
+    return DispatchResult(
+        success=sent_count > 0 or last_error is None,
+        tenant_id=tenant_id,
+        kind="conflict",
+        sent_count=sent_count,
+        rendered_message=rendered,
+        error=last_error,
+        recipients=tuple(r.phone_number for r in recipients),
+        event_id=last_event_id,
+    )

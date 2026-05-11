@@ -949,11 +949,10 @@ async def test_dispatch_morning_filters_by_tenant(db, mock_meta_sender):
 
 
 # ---------------------------------------------------------------------------
-# v6.3.19 slice 2D-shadow — push_v2_tick + shadow mode smoke tests
+# v6.3.19.1 — push_v2_tick smoke tests (post-cutover, no shadow mode)
 # ---------------------------------------------------------------------------
-# These verify the shadow infrastructure itself. The comprehensive
-# 15-case failure-mode matrix lives in tests/integration/test_2d_dispatcher.py
-# (slice 2D-tests). These smoke tests are intentionally narrow.
+# These verify the consolidated tick infrastructure. The comprehensive
+# failure-mode matrix lives in tests/integration/test_2d_dispatcher.py.
 
 def test_offset_seconds_hash_stagger_spread():
     """Verify _offset_seconds_for produces the expected mod-60 spread.
@@ -991,66 +990,11 @@ async def test_push_v2_tick_empty_when_no_tenants_due(db, mock_meta_sender):
 
 
 @pytest.mark.asyncio
-async def test_push_v2_tick_shadow_logs_without_sending(
-    db, mock_meta_sender, monkeypatch,
-):
-    """When PUSH_V2_ENABLED=False (default), push_v2_tick logs
-    push.shadow_log and does NOT call _send_whatsapp_message."""
-    # Seed a tenant with morning_push_time = 07:30 (default).
+async def test_push_v2_tick_sends_for_morning_match(db, mock_meta_sender):
+    """push_v2_tick fires dispatch_morning when `now` (in tenant tz)
+    matches briefing_morning_time. Writes push.morning_sent. No
+    shadow mode (removed in v6.3.19.1)."""
     t, _u, _p = _seed_tenant_with_owner(db)
-
-    # Force shadow mode via the config flag — explicit set even though
-    # False is the default, so the test is robust to env tweaks.
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED",
-        False,
-    )
-
-    # Tick at 07:30 UTC. The tenant's timezone is Asia/Kolkata which is
-    # +5:30 — so 07:30 UTC is 13:00 IST. The tenant's push_time is 07:30
-    # IST. To make the tick match, drive `now` as 07:30 IST minus
-    # 5:30 = 02:00 UTC. Use timezone-aware datetimes throughout.
-    from zoneinfo import ZoneInfo as _Z
-    ist_730 = datetime(2026, 5, 9, 7, 30, 0, tzinfo=_Z("Asia/Kolkata"))
-    now = ist_730.astimezone(timezone.utc)
-
-    results = await cb.push_v2_tick(now, db, apply_stagger=False)
-
-    # One due tenant -> one DispatchResult.
-    assert len(results) == 1
-    assert results[0].tenant_id == t.id
-    assert results[0].kind == "morning"
-    # Shadow mode: nothing sent.
-    assert mock_meta_sender == []
-    # push.shadow_log row written; no push.morning_sent row.
-    shadow_logs = db.query(Event).filter(
-        Event.event_type == "push.shadow_log",
-    ).all()
-    assert len(shadow_logs) == 1
-    assert shadow_logs[0].payload["kind"] == "morning"
-    assert shadow_logs[0].payload["stage"] == "sent"
-    assert shadow_logs[0].payload["would_send"] is False
-    assert (
-        db.query(Event)
-        .filter(Event.event_type == "push.morning_sent")
-        .count() == 0
-    )
-
-
-@pytest.mark.asyncio
-async def test_push_v2_tick_real_mode_sends_when_flag_enabled(
-    db, mock_meta_sender, monkeypatch,
-):
-    """When PUSH_V2_ENABLED=True, push_v2_tick calls the real
-    _send_whatsapp_message and writes push.morning_sent (NOT
-    push.shadow_log)."""
-    t, _u, _p = _seed_tenant_with_owner(db)
-
-    # Flip flag.
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED",
-        True,
-    )
 
     from zoneinfo import ZoneInfo as _Z
     ist_730 = datetime(2026, 5, 9, 7, 30, 0, tzinfo=_Z("Asia/Kolkata"))
@@ -1061,7 +1005,8 @@ async def test_push_v2_tick_real_mode_sends_when_flag_enabled(
     assert len(results) == 1
     assert results[0].sent_count == 1
     assert len(mock_meta_sender) == 1
-    # push.morning_sent (real anchor) written; no shadow_log row.
+    # push.morning_sent (real anchor) written; no shadow_log row exists
+    # post-v6.3.19.1 cutover.
     assert (
         db.query(Event)
         .filter(Event.event_type == "push.morning_sent")
@@ -1075,17 +1020,10 @@ async def test_push_v2_tick_real_mode_sends_when_flag_enabled(
 
 
 @pytest.mark.asyncio
-async def test_push_v2_tick_skips_disabled_direction(
-    db, mock_meta_sender, monkeypatch,
-):
+async def test_push_v2_tick_skips_disabled_direction(db, mock_meta_sender):
     """Tenant with briefing_morning_enabled=False is excluded from
     _tenants_due_for, so push_v2_tick does not even consider it."""
     t, _u, _p = _seed_tenant_with_owner(db, morning_enabled=False)
-
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED",
-        False,
-    )
 
     from zoneinfo import ZoneInfo as _Z
     ist_730 = datetime(2026, 5, 9, 7, 30, 0, tzinfo=_Z("Asia/Kolkata"))
@@ -1095,33 +1033,6 @@ async def test_push_v2_tick_skips_disabled_direction(
 
     # Tenant filtered out at the DB level — no result.
     assert results == []
-
-
-@pytest.mark.asyncio
-async def test_dispatch_morning_shadow_kwarg_writes_shadow_log(
-    db, mock_meta_sender,
-):
-    """Direct dispatch_morning(..., shadow=True) writes push.shadow_log
-    and does NOT send. Mirrors the push_v2_tick behaviour without the
-    tick wrapper."""
-    t, _u, _p = _seed_tenant_with_owner(db)
-
-    result = await cb.dispatch_morning(
-        t.id, _now_at(), db, shadow=True,
-    )
-
-    assert result.success is True
-    # event_id surfaces back so the debug endpoint can return it.
-    assert result.event_id is not None
-    # recipients populated even in shadow mode.
-    assert result.recipients == ("+919999000001",)
-    assert mock_meta_sender == []
-    # Single shadow_log row.
-    shadow_logs = db.query(Event).filter(
-        Event.event_type == "push.shadow_log",
-    ).all()
-    assert len(shadow_logs) == 1
-    assert shadow_logs[0].payload["stage"] == "sent"
 
 
 def test_module_assertion_catches_missing_template():

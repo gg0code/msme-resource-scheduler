@@ -71,24 +71,19 @@ SCHEDULER_TIMEZONE = "Asia/Kolkata"
 MORNING_BRIEFING_HOUR   = 7
 MORNING_BRIEFING_MINUTE = 0
 
-# Job delay check - runs every 2 hours during working hours (8am to 8pm IST)
-JOB_DELAY_CHECK_HOURS = "8-20"   # Only during working hours
-JOB_DELAY_CHECK_EVERY = 2        # Every 2 hours
+# v6.3.19.1 cutover — JOB_DELAY_CHECK_*, CONFLICT_CHECK_EVERY,
+# ALERT_TYPE_JOB_DELAY, ALERT_TYPE_CONFLICT, and
+# BRIEFING_DISPATCH_INTERVAL_MINUTES all deleted. They were consumed
+# only by the removed legacy functions (check_delayed_jobs /
+# check_scheduling_conflicts / run_briefing_dispatch_tick).
 
-# Conflict check - runs every 4 hours
-CONFLICT_CHECK_EVERY = 4
-
-# Alert type identifiers - must match keys in alert_preferences JSON column
+# Alert type identifiers — keys in PhoneTenantMap.alert_preferences
+# JSONB. ALERT_TYPE_BRIEFING is consumed by `send_morning_briefings`
+# (7am IST cron) and `send_owner_briefing_from_checkin` (7:15am IST,
+# manager-checkin response). ALERT_TYPE_MACHINE_DOWN is consumed by
+# `send_machine_down_alert` (on-demand from the machine router).
 ALERT_TYPE_BRIEFING     = "morning_briefing"
-ALERT_TYPE_JOB_DELAY    = "job_delay"
 ALERT_TYPE_MACHINE_DOWN = "machine_down"
-ALERT_TYPE_CONFLICT     = "conflict"
-
-# v6.3.4 - Daily push briefing dispatcher cadence. The dispatcher itself
-# decides which tenants are due inside the 5-minute window per their
-# briefing_morning_time / briefing_evening_time config; APScheduler just
-# needs to fire often enough that no configured time falls between ticks.
-BRIEFING_DISPATCH_INTERVAL_MINUTES = 5
 
 # v6.3.15 (revised) - Candidate evaluation job. Runs nightly at
 # 02:00 IST — low activity, before the 07:30 morning briefings. The
@@ -166,33 +161,11 @@ def start_scheduler() -> None:
         f"{MORNING_BRIEFING_HOUR:02d}:{MORNING_BRIEFING_MINUTE:02d} IST daily"
     )
 
-    # Register job delay check - every 2 hours during working hours
-    scheduler.add_job(
-        func=check_delayed_jobs,
-        trigger=CronTrigger(
-            hour=JOB_DELAY_CHECK_HOURS,
-            minute=0,
-            timezone=SCHEDULER_TIMEZONE
-        ),
-        id="job_delay_check",
-        name="Check for delayed jobs every 2 hours",
-        replace_existing=True
-    )
-    logger.info("Scheduled: job delay check every 2 hours (8am-8pm IST)")
-
-    # Register conflict check - every 4 hours
-    scheduler.add_job(
-        func=check_scheduling_conflicts,
-        trigger=CronTrigger(
-            hour="*/4",
-            minute=30,
-            timezone=SCHEDULER_TIMEZONE
-        ),
-        id="conflict_check",
-        name="Check for scheduling conflicts every 4 hours",
-        replace_existing=True
-    )
-    logger.info("Scheduled: conflict check every 4 hours")
+    # v6.3.19.1 cutover — legacy `check_delayed_jobs` (every 2 hours
+    # working hours) and `check_scheduling_conflicts` (every 4 hours)
+    # scheduler registrations deleted. The consolidated `push_v2_tick`
+    # below handles both at the legacy IST cadence (8/10/12/14/16/18/20
+    # for delay, 8:30/12:30/16:30/20:30 for conflict).
 
     # Register manager check-in prompt - 7:00am IST daily (v5.15)
     scheduler.add_job(
@@ -222,39 +195,16 @@ def start_scheduler() -> None:
     )
     logger.info("Scheduled: owner briefing from checkin at 07:15 IST daily")
 
-    # Register daily push briefing dispatcher - every 5 minutes (v6.3.4).
-    # The dispatcher iterates tenants and sends briefings whose configured
-    # morning_time / evening_time falls in the current 5-minute window.
-    # Coexists with the v5.15 manager_checkin (07:00 IST) and
-    # owner_briefing_checkin (07:15 IST) jobs - those are tied to a
-    # specific clock time; this one is a recurring sweep.
-    scheduler.add_job(
-        func=run_briefing_dispatch_tick,
-        trigger="interval",
-        minutes=BRIEFING_DISPATCH_INTERVAL_MINUTES,
-        id="briefing_dispatch_job",
-        name="Daily push briefing dispatcher (every 5 minutes)",
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-    )
-    logger.info(
-        "Scheduled: daily push briefing dispatcher every %d minutes",
-        BRIEFING_DISPATCH_INTERVAL_MINUTES,
-    )
+    # v6.3.19.1 cutover — legacy `briefing_dispatch_job` (every 5-min
+    # interval, calling `run_briefing_dispatch_tick`) registration
+    # deleted. `push_v2_tick_job` below is the sole push code path.
 
-    # Register push_v2_tick - every minute on the 0-second cron mark
-    # (v6.3.19 slice 2D-shadow). Uses cron not interval to avoid drift
-    # over long uptimes. Per slice 2D scope reduction (D4) this tick
-    # only handles morning + evening; the 8:00 delay tick and 8:30
-    # conflict tick remain authoritative regardless of PUSH_V2_ENABLED
-    # until v6.3.19.1 ships dispatch_delay_alert / dispatch_conflict_alert.
-    #
-    # When PUSH_V2_ENABLED=False (the v6.3.19 ship default) this tick
-    # runs in shadow mode — every dispatch logs push.shadow_log without
-    # sending. The legacy run_briefing_dispatch_tick continues to send
-    # authoritatively. When PUSH_V2_ENABLED=True (v6.3.19.1+ cutover),
-    # roles flip: this tick sends, the legacy 5-min tick early-returns.
+    # Register push_v2_tick — every minute on the 0-second cron mark.
+    # Uses cron not interval to avoid drift over long uptimes. Handles
+    # morning + evening briefings (per-tenant time match) plus delay
+    # alerts at 8/10/12/14/16/18/20 IST and conflict alerts at
+    # 8:30 / 12:30 / 16:30 / 20:30 IST — the consolidated cadence
+    # introduced by v6.3.19 and made authoritative by v6.3.19.1.
     scheduler.add_job(
         func=run_push_v2_tick,
         trigger=CronTrigger(
@@ -262,15 +212,13 @@ def start_scheduler() -> None:
             timezone=SCHEDULER_TIMEZONE,
         ),
         id="push_v2_tick_job",
-        name="v6.3.19 push_v2 tick (shadow mode while PUSH_V2_ENABLED=False)",
+        name="v6.3.19.1 push_v2 tick (morning/evening/delay/conflict)",
         replace_existing=True,
         coalesce=True,
         max_instances=1,
     )
     logger.info(
-        "Scheduled: push_v2_tick every minute on the 0-second mark "
-        "(shadow_mode=%s)",
-        not settings.PUSH_V2_ENABLED,
+        "Scheduled: push_v2_tick every minute on the 0-second mark"
     )
 
     # Register candidate-evaluation job - 02:00 IST nightly (v6.3.15
@@ -381,13 +329,13 @@ def set_dev_schedule() -> None:
         send_confirmations_for_all_tenants,
     )
 
+    # v6.3.19.1 cutover — check_delayed_jobs / check_scheduling_conflicts /
+    # run_briefing_dispatch_tick removed; push_v2_tick replaces them.
     for job_func, job_id in [
         (send_morning_briefings,            "morning_briefing"),
-        (check_delayed_jobs,                "job_delay_check"),
-        (check_scheduling_conflicts,        "conflict_check"),
         (send_manager_checkin,              "manager_checkin"),
         (send_owner_briefing_from_checkin,  "owner_briefing_checkin"),
-        (run_briefing_dispatch_tick,        "briefing_dispatch_job"),
+        (run_push_v2_tick,                  "push_v2_tick_job"),
         (evaluate_for_all_tenants,          "candidate_evaluation_job"),
         (send_confirmations_for_all_tenants, "confirmation_send_job"),
     ]:
@@ -458,86 +406,13 @@ async def send_morning_briefings() -> None:
 # ALERT JOB 2 - Job delay check
 # ---------------------------------------------------------------------------
 
-async def check_delayed_jobs() -> None:
-    """
-    Check for delayed jobs and alert factory owners.
-
-    Runs every 2 hours during working hours (8am-8pm IST).
-    A job is considered delayed if its end_date has passed
-    and its status is not completed or cancelled.
-
-    Side effects:
-        Reads from PostgreSQL for each active tenant.
-        Sends WhatsApp alert for each tenant with delayed jobs.
-    """
-    logger.info(f"Job delay check started at {datetime.now().isoformat()}")
-
-    active_phones = await _get_active_phone_mappings(ALERT_TYPE_JOB_DELAY)
-
-    for phone_mapping in active_phones:
-        try:
-            delayed_jobs = await _get_delayed_jobs(phone_mapping["tenant_id"])
-
-            if delayed_jobs:
-                alert_text = _build_delay_alert(
-                    delayed_jobs=delayed_jobs,
-                    industry_type=phone_mapping["industry_type"]
-                )
-                await _send_alert(
-                    phone_number=phone_mapping["phone_number"],
-                    message=alert_text,
-                    alert_type=ALERT_TYPE_JOB_DELAY
-                )
-
-        except Exception as e:
-            logger.error(
-                f"Job delay check failed for "
-                f"tenant {phone_mapping['tenant_id']}: {e}"
-            )
-
-    logger.info("Job delay check complete.")
-
-
-# ---------------------------------------------------------------------------
-# ALERT JOB 3 - Conflict check
-# ---------------------------------------------------------------------------
-
-async def check_scheduling_conflicts() -> None:
-    """
-    Check for scheduling conflicts and alert factory owners.
-
-    Runs every 4 hours. Detects jobs flagged with has_conflict=True.
-
-    Side effects:
-        Reads from PostgreSQL for each active tenant.
-        Sends WhatsApp alert for each tenant with conflicts.
-    """
-    logger.info(f"Conflict check started at {datetime.now().isoformat()}")
-
-    active_phones = await _get_active_phone_mappings(ALERT_TYPE_CONFLICT)
-
-    for phone_mapping in active_phones:
-        try:
-            conflicts = await _get_conflicts(phone_mapping["tenant_id"])
-
-            if conflicts:
-                alert_text = _build_conflict_alert(
-                    conflicts=conflicts,
-                    industry_type=phone_mapping["industry_type"]
-                )
-                await _send_alert(
-                    phone_number=phone_mapping["phone_number"],
-                    message=alert_text,
-                    alert_type=ALERT_TYPE_CONFLICT
-                )
-
-        except Exception as e:
-            logger.error(
-                f"Conflict check failed for "
-                f"tenant {phone_mapping['tenant_id']}: {e}"
-            )
-
-    logger.info("Conflict check complete.")
+# v6.3.19.1 cutover — check_delayed_jobs and check_scheduling_conflicts
+# deleted. Their cadence (every 2h working hours / every 4h) is now
+# served by consolidated_briefing.push_v2_tick which calls
+# dispatch_delay_alert and dispatch_conflict_alert at the legacy IST
+# tick marks. The per-job and per-conflict singular Meta-bound
+# templates (DELAY_ALERT_EN / CONFLICT_ALERT_EN) replace the legacy
+# multi-job summary rendering.
 
 
 # ---------------------------------------------------------------------------
@@ -753,95 +628,30 @@ async def send_owner_briefing_from_checkin() -> None:
     logger.info("Owner briefings from checkin sent to %d phones.", sent_count)
 
 
-# ---------------------------------------------------------------------------
-# ALERT JOB 6 - Daily push briefing dispatcher (v6.3.4)
-# ---------------------------------------------------------------------------
-
-async def run_briefing_dispatch_tick() -> None:
-    """
-    APScheduler entry point for the v6.3.4 daily push briefings.
-
-    Fires every BRIEFING_DISPATCH_INTERVAL_MINUTES (5). Delegates to
-    app.services.briefings.dispatcher.dispatch_due_briefings which:
-      - Iterates every tenant.
-      - Computes whether morning_time / evening_time falls in the
-        current 5-minute window in the tenant's timezone.
-      - Resolves top-tier subscribed recipients.
-      - Builds industry-aware content (morning forward-looking,
-        evening backward-looking).
-      - Sends via the existing _send_alert wiring (mock-mode aware).
-      - Writes briefing.* events for every send / skip / failure.
-
-    Called by:   APScheduler 'briefing_dispatch_job' interval trigger.
-    Calls into:  app.services.briefings.dispatcher.dispatch_due_briefings.
-    Args:        none - APScheduler invokes with no positional args.
-    Returns:     None (the dispatcher's DispatchSummary is logged here).
-    Side effects:
-        DB reads for every tenant. DB writes (Event rows) for sends,
-        skips, and failures. WhatsApp sends per recipient (logged in
-        mock mode, real Meta Cloud API POST in production).
-
-    Why this thin wrapper instead of registering dispatch_due_briefings
-    directly: APScheduler captures exceptions silently in some
-    versions; centralising the try/except here ensures any unexpected
-    crash inside the dispatcher surfaces as a logged error rather than
-    a silently swallowed schedule run.
-
-    v6.3.19 slice 2D-shadow gate: when settings.PUSH_V2_ENABLED is
-    True, this legacy tick early-returns. The new
-    consolidated_briefing.push_v2_tick takes over morning/evening
-    sending. While PUSH_V2_ENABLED stays False (the v6.3.19 ship-it
-    default), this tick continues to send authoritatively and the
-    new tick logs push.shadow_log only.
-    """
-    # v6.3.19 slice 2D-shadow gate. See docstring.
-    if settings.PUSH_V2_ENABLED:
-        logger.info(
-            "briefing_dispatch_job tick: skipped — PUSH_V2_ENABLED=true; "
-            "consolidated_briefing.push_v2_tick is authoritative.",
-        )
-        return
-
-    # Late import keeps the module's import graph free of v6.3.4 deps
-    # so v5-only callers can still load whatsapp_alerts without a
-    # zoneinfo / briefing-package penalty.
-    from app.services.briefings.dispatcher import dispatch_due_briefings
-
-    try:
-        summary = await dispatch_due_briefings()
-        logger.info(
-            "briefing_dispatch_job tick: tenants=%d sent=%d skipped=%d",
-            summary.tenants_processed,
-            summary.briefings_sent,
-            summary.briefings_skipped,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("briefing_dispatch_job crashed: %s", exc)
+# v6.3.19.1 cutover — `run_briefing_dispatch_tick` (the v6.3.4 5-min
+# briefing dispatcher) was deleted along with its
+# `app.services.briefings.dispatcher.dispatch_due_briefings` callee.
+# The consolidated `push_v2_tick` below is the sole push code path.
 
 
 async def run_push_v2_tick() -> None:
-    """v6.3.19 slice 2D-shadow APScheduler entry point.
+    """v6.3.19.1 APScheduler entry point for consolidated push cadence.
 
     Fires every minute on the cron 0-second mark. Delegates to
-    app.services.consolidated_briefing.push_v2_tick which:
-      - Queries enabled tenants whose push_time matches `now` in
-        their timezone.
-      - Per tenant, sleeps tenant_id % 60 seconds (hash stagger),
-        then calls dispatch_morning / dispatch_evening with
-        shadow=not settings.PUSH_V2_ENABLED.
-      - In shadow mode (the v6.3.19 ship default) writes
-        push.shadow_log events rather than sending.
-      - In real mode (post-v6.3.19.1 cutover) sends and writes
-        push.{kind}_sent events. The legacy
-        run_briefing_dispatch_tick early-returns in this mode so
-        the two ticks never both send.
+    `app.services.consolidated_briefing.push_v2_tick` which handles:
+      - Morning / evening briefings at the per-tenant
+        `briefing_morning_time` / `briefing_evening_time`.
+      - Delay alerts at 8/10/12/14/16/18/20 IST (legacy
+        `check_delayed_jobs` cadence).
+      - Conflict alerts at 8:30 / 12:30 / 16:30 / 20:30 IST (legacy
+        `check_scheduling_conflicts` cadence).
 
     Called by:    APScheduler 'push_v2_tick_job' cron trigger.
     Calls into:   app.services.consolidated_briefing.push_v2_tick,
                   SessionLocal.
     Side effects: DB reads + writes (Event rows). asyncio.sleep up
                   to 59 seconds per tenant under the hash stagger.
-                  Conditional Meta sends only when PUSH_V2_ENABLED.
+                  Meta sends (mock-aware via WHATSAPP_MOCK_MODE).
     """
     from datetime import datetime, timezone
 
@@ -859,9 +669,8 @@ async def run_push_v2_tick() -> None:
         skipped = sum(1 for r in results if r.skip_reason is not None)
         failed = sum(1 for r in results if not r.success)
         logger.info(
-            "push_v2_tick: results=%d sent=%d skipped=%d failed=%d shadow=%s",
+            "push_v2_tick: results=%d sent=%d skipped=%d failed=%d",
             len(results), sent, skipped, failed,
-            not settings.PUSH_V2_ENABLED,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("push_v2_tick_job crashed: %s", exc)
@@ -1085,238 +894,6 @@ async def _build_morning_briefing(
         db.close()
 
 
-async def _get_delayed_jobs(tenant_id: int) -> list[dict]:
-    """
-    Get all delayed jobs for a tenant.
-
-    A job is delayed if end_date < today and status is not
-    completed or cancelled.
-
-    Args:
-        tenant_id: The tenant to check.
-
-    Returns:
-        List of dicts with job_id, job_name, end_date, status.
-        Empty list if no delayed jobs.
-
-    Side effects:
-        Reads from PostgreSQL jobs table.
-    """
-    from sqlalchemy import select
-    from app.database import SessionLocal
-    from app.models.job import Job
-
-    db = SessionLocal()
-    delayed = []
-
-    try:
-        today = date.today()
-
-        query = select(Job).where(
-            Job.tenant_id == tenant_id,
-            Job.end_date < today,
-            Job.status.notin_([
-                "completed", "cancelled", "Completed", "Cancelled"
-            ])
-        )
-
-        jobs = db.execute(query).scalars().all()
-
-        for job in jobs:
-            delayed.append({
-                "job_id":   job.id,
-                "job_name": job.name or f"Job #{job.id}",
-                "end_date": str(job.end_date),
-                "status":   job.status
-            })
-
-    except Exception as e:
-        logger.error(f"Failed to get delayed jobs for tenant {tenant_id}: {e}")
-
-    finally:
-        db.close()
-
-    return delayed
-
-
-async def _get_conflicts(tenant_id: int) -> list[dict]:
-    """
-    Get scheduling conflicts for a tenant.
-
-    A conflict exists when a job has fewer schedule_entries rows than the
-    number of working days between its start_date and end_date. This means
-    the scheduler could not fully allocate the job — a resource gap exists.
-
-    Called by:   check_scheduling_conflicts()
-    Calls:       SessionLocal, Job, ScheduleEntry
-    Args:
-        tenant_id: The tenant to check.
-    Returns:
-        List of dicts with job_id, job_name, status.
-        Empty list if no conflicts found.
-    Side effects:
-        Reads from PostgreSQL jobs and schedule_entries tables.
-
-    NOTE: Job.has_conflict column does NOT exist. Conflict detection uses
-    schedule_entries GROUP BY count per dev prompt architecture rule 5.
-    Never revert this to Job.has_conflict — that column was never created.
-    """
-    from sqlalchemy import select, func, text
-    from app.database import SessionLocal
-    from app.models.job import Job
-
-    db = SessionLocal()
-
-    try:
-        # Load active jobs for this tenant in one query — no N+1
-        active_jobs = db.execute(
-            select(Job).where(
-                Job.tenant_id == tenant_id,
-                Job.status.notin_([
-                    "completed", "cancelled", "Completed", "Cancelled"
-                ]),
-                Job.start_date.isnot(None),
-                Job.end_date.isnot(None),
-            )
-        ).scalars().all()
-
-        if not active_jobs:
-            return []
-
-        job_ids = [j.id for j in active_jobs]
-
-        # Count schedule_entries per job in one query — prevents N+1
-        entry_counts_raw = db.execute(
-            text(
-                "SELECT job_id, COUNT(*) AS entry_count "
-                "FROM schedule_entries "
-                "WHERE job_id = ANY(:job_ids) "
-                "GROUP BY job_id"
-            ),
-            {"job_ids": job_ids},
-        ).all()
-
-        entry_count_map: dict[int, int] = {
-            row.job_id: row.entry_count for row in entry_counts_raw
-        }
-
-        today = date.today()
-        conflicts: list[dict] = []
-
-        for job in active_jobs:
-            if job.start_date is None or job.end_date is None:
-                continue
-            # Expected days = calendar days in job range (simple heuristic —
-            # not working-days-only, keeps it dependency-free)
-            expected_days = max(1, (job.end_date - job.start_date).days + 1)
-            actual_entries = entry_count_map.get(job.id, 0)
-
-            if actual_entries < expected_days:
-                conflicts.append({
-                    "job_id":   job.id,
-                    "job_name": job.name or f"Job #{job.id}",
-                    "status":   job.status,
-                })
-
-        return conflicts
-
-    except Exception as e:
-        logger.error(f"Failed to get conflicts for tenant {tenant_id}: {e}")
-        return []
-
-    finally:
-        db.close()
-
-
-def _build_delay_alert(delayed_jobs: list[dict], industry_type: str) -> str:
-    """
-    Build a WhatsApp alert message listing delayed jobs.
-
-    v6.3.18: renders via message_templates.DELAY_ALERT (single English
-    string per Q3 — Meta has approved en_US only for zetaops_job_ending_soon).
-    Job list is shaped via message_formatters.format_jobs_list which
-    enforces the 5-item cap + "+N more" tail.
-
-    Args:
-        delayed_jobs:  List of delayed job dicts from _get_delayed_jobs().
-                       Each dict has 'job_id', 'job_name', 'end_date',
-                       'status' keys.
-        industry_type: Reserved for future terminology customisation.
-
-    Returns:
-        Plain text alert message ready to send via WhatsApp.
-
-    Side effects:
-        None — pure function.
-    """
-    from types import SimpleNamespace
-
-    from app.services.message_formatters import format_for_whatsapp, format_jobs_list
-    from app.services.message_templates import DELAY_ALERT
-
-    job_count = len(delayed_jobs)
-
-    # Adapt the dict-shaped rows to the duck-typed JobLike protocol that
-    # format_jobs_list reads via getattr. Keeps the formatter contract
-    # clean (one structural shape) while preserving the dict shape on
-    # _get_delayed_jobs (which other tests may rely on).
-    job_objs = [
-        SimpleNamespace(name=row["job_name"], end_date=row["end_date"])
-        for row in delayed_jobs
-    ]
-    jobs_block = format_jobs_list(job_objs, max_items=3)
-
-    alert = DELAY_ALERT.format(
-        count=job_count,
-        plural_s="s" if job_count != 1 else "",
-        jobs_block=jobs_block,
-    )
-
-    return format_for_whatsapp(alert)
-
-
-def _build_conflict_alert(conflicts: list, industry_type: str) -> str:
-    """
-    Build a WhatsApp alert message for scheduling conflicts.
-
-    v6.3.18: renders via message_templates.CONFLICT_ALERT (single English
-    string per Q3 — the Hindi sibling exists in the JSON registry as
-    `status: "draft_pending_meta_submission"` and is not yet wired up).
-    Job list shaped via format_jobs_list with 3-item cap.
-
-    Args:
-        conflicts:     List of conflict dicts from _get_conflicts().
-                       Each dict has 'job_id', 'job_name', 'status' keys
-                       (no end_date — conflict listings don't carry due
-                       dates).
-        industry_type: Reserved for future terminology customisation.
-
-    Returns:
-        Plain text alert message ready to send via WhatsApp.
-
-    Side effects:
-        None — pure function.
-    """
-    from types import SimpleNamespace
-
-    from app.services.message_formatters import format_for_whatsapp, format_jobs_list
-    from app.services.message_templates import CONFLICT_ALERT
-
-    conflict_count = len(conflicts)
-
-    job_objs = [
-        SimpleNamespace(name=row["job_name"], end_date=None)
-        for row in conflicts
-    ]
-    jobs_block = format_jobs_list(job_objs, max_items=3)
-
-    alert = CONFLICT_ALERT.format(
-        count=conflict_count,
-        plural_s="s" if conflict_count != 1 else "",
-        jobs_block=jobs_block,
-    )
-
-    return format_for_whatsapp(alert)
 
 
 async def _send_alert(

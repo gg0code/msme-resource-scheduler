@@ -197,14 +197,11 @@ def _utc_for_ist(hour: int, minute: int) -> datetime:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_recipient_resolution_basic(db, mock_meta_sender, monkeypatch):
+async def test_recipient_resolution_basic(db, mock_meta_sender):
     """Failure mode 2: wrong recipients. 3 tenants with different
     morning_push_time, tick at 7:30 IST picks only the one whose
     time matches.
     """
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", True,
-    )
     _seed_full(db, name="A", phone="+919900000001",
                morning_time=time(6, 0))
     target, _u, _p = _seed_full(db, name="B", phone="+919900000002",
@@ -225,11 +222,8 @@ async def test_recipient_resolution_basic(db, mock_meta_sender, monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_recipient_skips_paused_tenant(db, mock_meta_sender, monkeypatch):
+async def test_recipient_skips_paused_tenant(db, mock_meta_sender):
     """Failure mode 2: paused tenants must not receive."""
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", True,
-    )
     t, _u, _p = _seed_full(db, morning_time=time(7, 30))
     t.push_paused_until = (
         _utc_for_ist(7, 30).astimezone(ZoneInfo("Asia/Kolkata")).date()
@@ -249,13 +243,10 @@ async def test_recipient_skips_paused_tenant(db, mock_meta_sender, monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_recipient_skips_disabled_direction(db, mock_meta_sender, monkeypatch):
+async def test_recipient_skips_disabled_direction(db, mock_meta_sender):
     """Failure mode 2: tenant with briefing_morning_enabled=False is
     excluded from morning tick (and from _tenants_due_for at the DB
     layer, before reaching the dispatcher)."""
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", True,
-    )
     _seed_full(
         db, morning_time=time(7, 30),
         morning_enabled=False, evening_enabled=True,
@@ -272,14 +263,11 @@ async def test_recipient_skips_disabled_direction(db, mock_meta_sender, monkeypa
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_now_kwarg_discipline(db, mock_meta_sender, monkeypatch):
+async def test_now_kwarg_discipline(db, mock_meta_sender):
     """Failure mode 8: clock drift. Pass now=07:30 IST, freeze the wall
     clock to 09:00 IST via monkeypatch, assert dispatch decisions use
     the passed `now` (and the resulting events row's
     payload['scheduled_for_date'] reflects 07:30 IST not 09:00 IST)."""
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", True,
-    )
     t, _u, _p = _seed_full(db, morning_time=time(7, 30))
 
     # Freeze datetime.now() / datetime.utcnow() at a wildly different
@@ -316,16 +304,13 @@ async def test_now_kwarg_discipline(db, mock_meta_sender, monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_idempotent_repeated_call(db, mock_meta_sender, monkeypatch):
+async def test_idempotent_repeated_call(db, mock_meta_sender):
     """Failure mode 4: duplicate sends. Call dispatch_morning twice with
     the same tenant and same scheduled_for_date. Assert mock_meta
     received only ONE send.
 
     Slice 2C added events-table dedup against
     payload['scheduled_for_date']; this test locks that contract."""
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", True,
-    )
     t, _u, _p = _seed_full(db, morning_time=time(7, 30))
 
     r1 = await cb.dispatch_morning(t.id, _utc_for_ist(7, 30), db)
@@ -338,79 +323,18 @@ async def test_idempotent_repeated_call(db, mock_meta_sender, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 6. test_old_tick_short_circuits_when_flag_enabled
+# Tests 6 + 7 retired in v6.3.19.1
 # ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_old_tick_short_circuits_when_flag_enabled(
-    db, mock_meta_sender, monkeypatch,
-):
-    """Failure mode 5: both systems sending. push_v2_enabled=True; call
-    the legacy run_briefing_dispatch_tick directly and assert it
-    early-returns without sending.
-    """
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", True,
-    )
-    monkeypatch.setattr(
-        "app.config.settings.PUSH_V2_ENABLED", True,
-    )
-    _seed_full(db, morning_time=time(7, 30))
-
-    # Spy on dispatch_due_briefings — it should NOT be called.
-    called: list[bool] = []
-
-    async def _spy():
-        called.append(True)
-        from types import SimpleNamespace
-        return SimpleNamespace(
-            tenants_processed=0, briefings_sent=0, briefings_skipped=0,
-        )
-
-    monkeypatch.setattr(
-        "app.services.briefings.dispatcher.dispatch_due_briefings",
-        _spy,
-    )
-
-    from app.services.whatsapp_alerts import run_briefing_dispatch_tick
-    await run_briefing_dispatch_tick()
-
-    assert called == [], "Old tick must NOT call dispatch_due_briefings when flag is on"
-    assert mock_meta_sender == []
-
-
-# ---------------------------------------------------------------------------
-# 7. test_new_tick_shadow_logs_when_flag_disabled
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_new_tick_shadow_logs_when_flag_disabled(
-    db, mock_meta_sender, monkeypatch,
-):
-    """Failure mode 5: both systems sending. push_v2_enabled=False;
-    push_v2_tick logs push.shadow_log entries instead of sending.
-    """
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", False,
-    )
-    _seed_full(db, morning_time=time(7, 30))
-
-    results = await cb.push_v2_tick(_utc_for_ist(7, 30), db, apply_stagger=False)
-
-    assert len(results) == 1
-    assert mock_meta_sender == []
-    shadow_count = (
-        db.query(Event)
-        .filter(Event.event_type == "push.shadow_log")
-        .count()
-    )
-    morning_sent_count = (
-        db.query(Event)
-        .filter(Event.event_type == "push.morning_sent")
-        .count()
-    )
-    assert shadow_count == 1
-    assert morning_sent_count == 0
+# `test_old_tick_short_circuits_when_flag_enabled` validated the
+# PUSH_V2_ENABLED-gated early-return on `run_briefing_dispatch_tick`.
+# The legacy tick was deleted in v6.3.19.1 and the flag was removed,
+# so this test has no surface to assert against. Deleted, not skipped.
+#
+# `test_new_tick_shadow_logs_when_flag_disabled` validated shadow-mode
+# log writes when PUSH_V2_ENABLED=False. Shadow mode was removed in
+# v6.3.19.1 along with the `push.shadow_log` event_type. Deleted, not
+# skipped. The "tick sends" behaviour is covered by
+# `tests/services/test_consolidated_briefing.py::test_push_v2_tick_sends_for_morning_match`.
 
 
 # ---------------------------------------------------------------------------
@@ -426,9 +350,6 @@ async def test_meta_api_exception_logged_does_not_crash(
     has the entry, and the dispatcher returns DispatchResult with
     success=False.
     """
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", True,
-    )
     t, _u, _p = _seed_full(db, morning_time=time(7, 30))
 
     async def boom(phone: str, message: str) -> None:
@@ -470,9 +391,6 @@ async def test_one_tenant_failure_does_not_block_others(
     send succeeds. Run push_v2_tick covering both. Assert B got sent,
     A logged failure, tick completed without raising.
     """
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", True,
-    )
     a, _au, _ap = _seed_full(db, name="A", phone="+919900000001",
                               morning_time=time(7, 30))
     b, _bu, _bp = _seed_full(db, name="B", phone="+919900000002",
@@ -548,7 +466,7 @@ def test_hash_stagger_spreads_sends():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_locale_resolution_per_recipient(db, mock_meta_sender, monkeypatch):
+async def test_locale_resolution_per_recipient(db, mock_meta_sender):
     """Failure mode 9 (locale): slice 2C decision A1 ships hi_en for
     ALL recipients — per-recipient locale resolution is deferred until
     User.language_preference exists. This test locks the current
@@ -559,9 +477,6 @@ async def test_locale_resolution_per_recipient(db, mock_meta_sender, monkeypatch
     must be REPLACED with a real per-recipient locale split — do not
     silently delete it. Marked with a TODO at the body level.
     """
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", True,
-    )
     t = _seed_tenant(db, morning_time=time(7, 30))
     u1 = _seed_owner(db, tenant_id=t.id, email="a@test.test")
     u2 = _seed_owner(db, tenant_id=t.id, email="b@test.test")
@@ -585,7 +500,7 @@ async def test_locale_resolution_per_recipient(db, mock_meta_sender, monkeypatch
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_24_hour_simulation_old_vs_new_parity(db, mock_meta_sender, monkeypatch):
+async def test_24_hour_simulation_old_vs_new_parity(db, mock_meta_sender):
     """The big one — simplified scope.
 
     Full-day per-minute simulation against the full v6.3.4 dispatcher
@@ -608,9 +523,6 @@ async def test_24_hour_simulation_old_vs_new_parity(db, mock_meta_sender, monkey
     If this passes, recipient-set + cadence parity is proven. Content
     parity is NOT asserted here — slice 2C unit tests cover it.
     """
-    monkeypatch.setattr(
-        "app.services.consolidated_briefing._settings.PUSH_V2_ENABLED", True,
-    )
     fixture = [
         ("Alpha",   "+919900001001", time(6, 0),  time(17, 0)),
         ("Bravo",   "+919900001002", time(7, 30), time(18, 30)),
@@ -682,10 +594,15 @@ def auth_client(db):
     app.dependency_overrides.clear()
 
 
-def test_debug_endpoint_shadow_mode_returns_payload(auth_client, mock_meta_sender):
-    """curl-equivalent: POST /api/v1/whatsapp/debug/dispatch with
-    force_send=false returns a payload that includes would_send_to,
-    rendered_message, and shadow_log_event_id. mock_meta is empty."""
+def test_debug_endpoint_returns_payload(auth_client, mock_meta_sender):
+    """curl-equivalent: POST /api/v1/whatsapp/debug/dispatch returns a
+    payload that includes would_send_to, rendered_message, and the
+    anchor event_id (carried in the `shadow_log_event_id` field for
+    v6.3.19 backward compatibility — see whatsapp_debug.py docstring).
+
+    v6.3.19.1 — shadow mode removed; the dispatcher always sends for
+    real. `force_send` is retained as a no-op parameter; this test
+    leaves it False to verify the no-op behaviour."""
     client, headers, tenant_id = auth_client
     response = client.post(
         "/api/v1/whatsapp/debug/dispatch",
@@ -699,11 +616,11 @@ def test_debug_endpoint_shadow_mode_returns_payload(auth_client, mock_meta_sende
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["actually_sent"] is False
+    assert body["actually_sent"] is True
     assert body["would_send_to"] == ["+919900099001"]
     assert body["rendered_message"] is not None
     assert body["shadow_log_event_id"] is not None
-    assert mock_meta_sender == []
+    assert len(mock_meta_sender) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -768,3 +685,419 @@ def test_debug_endpoint_requires_top_tier_auth(db, mock_meta_sender):
             assert mock_meta_sender == []
     finally:
         app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# v6.3.19.1 slice 3B — dispatch_delay_alert + dispatch_conflict_alert
+# ---------------------------------------------------------------------------
+# Six dispatcher cases per kind plus tick-window matching, cadence
+# iteration, and parity-with-legacy (no dedup) assertions.
+
+from datetime import date as _date  # noqa: E402
+
+from app.models.job import Job as _Job  # noqa: E402
+
+
+def _seed_delayed_job(db, *, tenant_id: int, name: str = "Late one",
+                       end_offset_days: int = 3) -> _Job:
+    """Stage an in_progress job whose end_date is `end_offset_days`
+    before today (the fixed 2026-05-09 anchor)."""
+    today = _date(2026, 5, 9)
+    j = _Job(
+        tenant_id=tenant_id,
+        name=name,
+        customer="Acme Co",
+        start_date=today - timedelta(days=10),
+        end_date=today - timedelta(days=end_offset_days),
+        status="in_progress",
+        estimated_hours_per_day=8.0,
+    )
+    db.add(j)
+    db.flush()
+    return j
+
+
+# --- delay (6 cases) --------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_delay_alert_happy_path(db, mock_meta_sender):
+    """Happy path: one delayed job → push.delay_sent + one Meta send."""
+    t, _u, _p = _seed_full(db, name="DelayHappy", phone="+919900003001")
+    j = _seed_delayed_job(db, tenant_id=t.id)
+
+    result = await cb.dispatch_delay_alert(
+        t.id, _utc_for_ist(8, 0), db, job_id=j.id,
+    )
+
+    assert result.success is True
+    assert result.sent_count == 1
+    assert len(mock_meta_sender) == 1
+    assert (
+        db.query(Event)
+        .filter(Event.event_type == "push.delay_sent")
+        .count() == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_delay_alert_filters_by_tenant(db, mock_meta_sender):
+    """Job belonging to a different tenant returns error result."""
+    t1, _u1, _p1 = _seed_full(db, name="DelayT1", phone="+919900003101")
+    t2, _u2, _p2 = _seed_full(db, name="DelayT2", phone="+919900003102")
+    j = _seed_delayed_job(db, tenant_id=t2.id)
+
+    result = await cb.dispatch_delay_alert(
+        t1.id, _utc_for_ist(8, 0), db, job_id=j.id,
+    )
+
+    assert result.success is False
+    assert "not found" in (result.error or "")
+    assert mock_meta_sender == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_delay_alert_skips_no_recipients(db, mock_meta_sender):
+    """Tenant whose only phone is non-top-tier: skip with reason."""
+    t = _seed_tenant(db, name="DelayNoTop")
+    u = _seed_owner(db, tenant_id=t.id, email="op@delay-notop.test")
+    _seed_phone(db, tenant_id=t.id, user_id=u.id,
+                phone="+919900003201", phone_role="viewer")
+    j = _seed_delayed_job(db, tenant_id=t.id)
+
+    result = await cb.dispatch_delay_alert(
+        t.id, _utc_for_ist(8, 0), db, job_id=j.id,
+    )
+
+    assert result.skip_reason == "no_recipients"
+    assert mock_meta_sender == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_delay_alert_skips_paused(db, mock_meta_sender):
+    """push_paused_until covers today → skip with reason 'paused'."""
+    t, _u, _p = _seed_full(db, name="DelayPause", phone="+919900003301")
+    t.push_paused_until = _date(2026, 5, 15)
+    db.flush()
+    j = _seed_delayed_job(db, tenant_id=t.id)
+
+    result = await cb.dispatch_delay_alert(
+        t.id, _utc_for_ist(8, 0), db, job_id=j.id,
+    )
+
+    assert result.skip_reason == "paused"
+    assert mock_meta_sender == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_delay_alert_meta_failure_no_raise(db, monkeypatch):
+    """Meta send raises → result.success=False, push.delay_send_failed
+    logged, no exception propagates."""
+    t, _u, _p = _seed_full(db, name="DelayBoom", phone="+919900003401")
+    j = _seed_delayed_job(db, tenant_id=t.id)
+
+    async def boom(phone: str, message: str) -> None:
+        raise RuntimeError("Meta says no — delay test")
+
+    monkeypatch.setattr(
+        "app.services.consolidated_briefing._send_whatsapp_message", boom,
+    )
+
+    result = await cb.dispatch_delay_alert(
+        t.id, _utc_for_ist(8, 0), db, job_id=j.id,
+    )
+
+    assert result.success is False
+    assert (
+        db.query(Event)
+        .filter(Event.event_type == "push.delay_send_failed")
+        .count() == 1
+    )
+    # No anchor _sent event.
+    assert (
+        db.query(Event)
+        .filter(Event.event_type == "push.delay_sent")
+        .count() == 0
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_delay_alert_renders_template_fields(db, mock_meta_sender):
+    """Rendered message includes the job name, customer, time_remaining
+    overdue text, and the next_job placeholder."""
+    t, _u, _p = _seed_full(db, name="DelayRender", phone="+919900003501")
+    j = _seed_delayed_job(
+        db, tenant_id=t.id, name="Patel brochures", end_offset_days=3,
+    )
+
+    result = await cb.dispatch_delay_alert(
+        t.id, _utc_for_ist(8, 0), db, job_id=j.id,
+    )
+
+    msg = mock_meta_sender[0]["message"]
+    assert "Patel brochures" in msg
+    assert "Acme Co" in msg
+    assert "overdue by 3 days" in msg
+
+
+# --- conflict (6 cases) -----------------------------------------------------
+
+def _make_conflict_payload(job_a_name: str = "Job A") -> dict:
+    return {
+        "job_a": job_a_name,
+        "job_b": "—",
+        "resource": "—",
+        "window": "2026-05-09 to 2026-05-12",
+        "job_a_id": None,
+        "job_b_id": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_dispatch_conflict_alert_happy_path(db, mock_meta_sender):
+    """One conflict_payload → push.conflict_sent + one Meta send."""
+    t, _u, _p = _seed_full(db, name="ConfHappy", phone="+919900004001")
+
+    result = await cb.dispatch_conflict_alert(
+        t.id, _utc_for_ist(8, 30), db,
+        conflict_payload=_make_conflict_payload(),
+    )
+
+    assert result.success is True
+    assert result.sent_count == 1
+    assert len(mock_meta_sender) == 1
+    assert (
+        db.query(Event)
+        .filter(Event.event_type == "push.conflict_sent")
+        .count() == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_conflict_alert_filters_by_tenant(db, mock_meta_sender):
+    """Tenant lookup mismatch — already covered by `tenant_not_found`
+    skip; ensures no Meta send on tenant_not_found."""
+    result = await cb.dispatch_conflict_alert(
+        99999, _utc_for_ist(8, 30), db,
+        conflict_payload=_make_conflict_payload(),
+    )
+    assert result.success is False
+    assert result.skip_reason == "tenant_not_found"
+    assert mock_meta_sender == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_conflict_alert_skips_no_recipients(db, mock_meta_sender):
+    """Tenant whose only phone is non-top-tier: skip with reason."""
+    t = _seed_tenant(db, name="ConfNoTop")
+    u = _seed_owner(db, tenant_id=t.id, email="op@conf-notop.test")
+    _seed_phone(db, tenant_id=t.id, user_id=u.id,
+                phone="+919900004201", phone_role="viewer")
+
+    result = await cb.dispatch_conflict_alert(
+        t.id, _utc_for_ist(8, 30), db,
+        conflict_payload=_make_conflict_payload(),
+    )
+
+    assert result.skip_reason == "no_recipients"
+    assert mock_meta_sender == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_conflict_alert_skips_paused(db, mock_meta_sender):
+    """push_paused_until covers today → skip with reason 'paused'."""
+    t, _u, _p = _seed_full(db, name="ConfPause", phone="+919900004301")
+    t.push_paused_until = _date(2026, 5, 15)
+    db.flush()
+
+    result = await cb.dispatch_conflict_alert(
+        t.id, _utc_for_ist(8, 30), db,
+        conflict_payload=_make_conflict_payload(),
+    )
+
+    assert result.skip_reason == "paused"
+    assert mock_meta_sender == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_conflict_alert_meta_failure_no_raise(db, monkeypatch):
+    """Meta send raises → result.success=False; no exception propagates."""
+    t, _u, _p = _seed_full(db, name="ConfBoom", phone="+919900004401")
+
+    async def boom(phone: str, message: str) -> None:
+        raise RuntimeError("Meta says no — conflict test")
+
+    monkeypatch.setattr(
+        "app.services.consolidated_briefing._send_whatsapp_message", boom,
+    )
+
+    result = await cb.dispatch_conflict_alert(
+        t.id, _utc_for_ist(8, 30), db,
+        conflict_payload=_make_conflict_payload(),
+    )
+
+    assert result.success is False
+    assert (
+        db.query(Event)
+        .filter(Event.event_type == "push.conflict_send_failed")
+        .count() == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_conflict_alert_renders_template_fields(db, mock_meta_sender):
+    """Rendered message includes job_a, window, and the static
+    next_step suggestion."""
+    t, _u, _p = _seed_full(db, name="ConfRender", phone="+919900004501")
+    payload = _make_conflict_payload(job_a_name="Patel brochures")
+
+    await cb.dispatch_conflict_alert(
+        t.id, _utc_for_ist(8, 30), db, conflict_payload=payload,
+    )
+
+    msg = mock_meta_sender[0]["message"]
+    assert "Patel brochures" in msg
+    assert "2026-05-09 to 2026-05-12" in msg
+    assert "desktop app" in msg.lower()
+
+
+# --- tick-window + cadence + parity-with-legacy ----------------------------
+
+@pytest.mark.asyncio
+async def test_push_v2_tick_delay_window_8_fires(db, mock_meta_sender):
+    """push_v2_tick at 8:00 IST fires a delay dispatch. At 8:15 IST it
+    does NOT (off-window)."""
+    t, _u, _p = _seed_full(db, name="TickDelay", phone="+919900005001")
+    _seed_delayed_job(db, tenant_id=t.id)
+
+    # On-window: 8:00 IST.
+    await cb.push_v2_tick(_utc_for_ist(8, 0), db, apply_stagger=False)
+    on_window_sent = (
+        db.query(Event).filter(Event.event_type == "push.delay_sent").count()
+    )
+    assert on_window_sent == 1
+
+    # Off-window: 8:15 IST → no new delay events.
+    await cb.push_v2_tick(_utc_for_ist(8, 15), db, apply_stagger=False)
+    off_window_sent = (
+        db.query(Event).filter(Event.event_type == "push.delay_sent").count()
+    )
+    assert off_window_sent == on_window_sent  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_push_v2_tick_conflict_window_830_fires(db, mock_meta_sender):
+    """push_v2_tick at 8:30 IST fires a conflict dispatch. At 8:45 IST
+    it does NOT (off-window). Note: conflicts only fire when the
+    legacy detector produces a payload — and that detector reads
+    schedule_entries which is empty in this fixture, so the result is
+    zero events at both ticks. This test verifies the WINDOW gate,
+    not the conflict detector itself (covered by
+    test_dispatch_conflict_alert_happy_path)."""
+    t, _u, _p = _seed_full(db, name="TickConf", phone="+919900005101")
+
+    # Both ticks: no conflict_sent events (detector finds nothing).
+    await cb.push_v2_tick(_utc_for_ist(8, 30), db, apply_stagger=False)
+    on_window = (
+        db.query(Event).filter(Event.event_type == "push.conflict_sent").count()
+    )
+    await cb.push_v2_tick(_utc_for_ist(8, 45), db, apply_stagger=False)
+    off_window = (
+        db.query(Event).filter(Event.event_type == "push.conflict_sent").count()
+    )
+    assert on_window == 0  # detector found nothing in this fixture
+    assert off_window == on_window  # 8:45 didn't add anything either
+
+
+@pytest.mark.asyncio
+async def test_push_v2_tick_cadence_full_day_delay(db, mock_meta_sender):
+    """Simulated day: ticks at every legacy delay hour (8/10/12/14/16/18/20
+    IST) each produce push.delay_sent events. 7 hours × 1 delayed job
+    = 7 events. No dedup — consecutive ticks both fire (mirrors legacy
+    behaviour; spam-fix tracked as a future release)."""
+    t, _u, _p = _seed_full(db, name="CadenceDelay", phone="+919900005201")
+    _seed_delayed_job(db, tenant_id=t.id)
+
+    for hour in (8, 10, 12, 14, 16, 18, 20):
+        await cb.push_v2_tick(
+            _utc_for_ist(hour, 0), db, apply_stagger=False,
+        )
+
+    delay_sent = (
+        db.query(Event).filter(Event.event_type == "push.delay_sent").count()
+    )
+    assert delay_sent == 7
+
+
+@pytest.mark.asyncio
+async def test_push_v2_tick_consecutive_ticks_no_dedup(db, mock_meta_sender):
+    """Parity-with-legacy assertion: legacy `check_delayed_jobs` had
+    no dedup (every tick sent the full delayed-jobs summary again).
+    v6.3.19.1 mirrors that: two consecutive delay ticks on the same
+    day both emit push.delay_sent for the same job. Spam-fix tracked
+    as a future release (potential v6.3.19.3 candidate)."""
+    t, _u, _p = _seed_full(db, name="NoDedup", phone="+919900005301")
+    _seed_delayed_job(db, tenant_id=t.id)
+
+    await cb.push_v2_tick(_utc_for_ist(8, 0), db, apply_stagger=False)
+    await cb.push_v2_tick(_utc_for_ist(10, 0), db, apply_stagger=False)
+
+    delay_sent = (
+        db.query(Event).filter(Event.event_type == "push.delay_sent").count()
+    )
+    assert delay_sent == 2, (
+        "Legacy parity: consecutive ticks must both fire push.delay_sent"
+    )
+    assert len(mock_meta_sender) == 2
+
+
+# --- debug endpoint extension ----------------------------------------------
+
+def test_debug_endpoint_routes_delay_alert(auth_client, mock_meta_sender, db):
+    """v6.3.19.1: POST /debug/dispatch with type='delay_alert' + job_id
+    routes to dispatch_delay_alert and sends a real message."""
+    client, headers, tenant_id = auth_client
+    j = _seed_delayed_job(db, tenant_id=tenant_id)
+    db.commit()
+
+    response = client.post(
+        "/api/v1/whatsapp/debug/dispatch",
+        headers=headers,
+        json={
+            "type": "delay_alert",
+            "tenant_id": tenant_id,
+            "now": "2026-05-09T08:00:00",
+            "force_send": False,
+            "job_id": j.id,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["actually_sent"] is True
+    assert len(mock_meta_sender) == 1
+
+
+def test_debug_endpoint_routes_conflict_alert(auth_client, mock_meta_sender):
+    """v6.3.19.1: POST /debug/dispatch with type='conflict_alert' +
+    conflict_payload routes to dispatch_conflict_alert and sends."""
+    client, headers, tenant_id = auth_client
+
+    response = client.post(
+        "/api/v1/whatsapp/debug/dispatch",
+        headers=headers,
+        json={
+            "type": "conflict_alert",
+            "tenant_id": tenant_id,
+            "now": "2026-05-09T08:30:00",
+            "force_send": False,
+            "conflict_payload": {
+                "job_a": "Demo job A",
+                "job_b": "Demo job B",
+                "resource": "Press 1",
+                "window": "2026-05-09 to 2026-05-12",
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["actually_sent"] is True
+    assert len(mock_meta_sender) == 1

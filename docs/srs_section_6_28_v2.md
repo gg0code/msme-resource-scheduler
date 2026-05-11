@@ -1,5 +1,18 @@
 # SRS Section 6.28 v2 — Consolidated Push Cadence
 
+> **v6.3.19.1 update.** The shadow-mode pattern documented below
+> (PUSH_V2_ENABLED flag, push.shadow_log events, 5-box cutover gate)
+> was abandoned in v6.3.19.1: the flag was removed and the new push
+> system became the sole code path. Sections **6.28.v2.6 Shadow mode**
+> and **6.28.v2.7.2 Flip CLI** are retained for historical reference
+> only. The push_v2_tick now sends authoritatively on every run; the
+> legacy `run_briefing_dispatch_tick` + `check_delayed_jobs` +
+> `check_scheduling_conflicts` functions were deleted in v6.3.19.1.
+> dispatch_delay_alert and dispatch_conflict_alert also shipped in
+> v6.3.19.1 (originally deferred per the D4 scope reduction); see
+> CHANGELOG `[v6.3.19.1]` for the full migration.
+
+
 **Status:** Markdown supplement. The canonical SRS lives in
 `docs/ZetaOps_SRS_v6_6.docx` (and its v6.7+ successors). This file
 captures the v6.3.19 push-dispatcher rewrite as plain Markdown so

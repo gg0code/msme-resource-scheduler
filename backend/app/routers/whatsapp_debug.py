@@ -2,21 +2,21 @@
 # Branch: v5-whatsapp
 #
 # FILE PURPOSE
-# v6.3.19 slice 2D-shadow operator-debug endpoints. Currently exposes
-# one endpoint:
+# v6.3.19.1 operator-debug endpoints. Currently exposes one endpoint:
 #
 #   POST /api/v1/whatsapp/debug/dispatch
-#       Operator-driven shadow / force-send dispatch test for the
-#       v6.3.19 push v2 cadence. Top-tier auth required. Gated behind
+#       Operator-driven dispatch test for the v6.3.19 push v2 cadence.
+#       Top-tier auth required. Gated behind
 #       settings.DEBUG_DISPATCH_ENABLED so production deployments can
 #       turn it off via env even when the binary ships with the
 #       endpoint compiled in.
 #
-# Per slice 2D scope reduction (D4): the `type` parameter accepts only
-# 'morning' and 'evening' in v6.3.19. 'delay_alert' / 'conflict_alert'
-# are reserved vocabulary for v6.3.19.1 and return 400 with an
-# explanatory message — surfaces the deferred-feature scope to ops
-# without a silent missing-route 404.
+# v6.3.19.1 — all four dispatch types are now supported
+# ('morning' / 'evening' / 'delay_alert' / 'conflict_alert'). The
+# PUSH_V2_ENABLED shadow-mode gate was removed in the cutover release;
+# every dispatch sends for real (mock-aware via WHATSAPP_MOCK_MODE).
+# The `force_send` request field is retained as a no-op for backward
+# compatibility with v6.3.19 operator scripts.
 #
 # WHO CALLS THIS FILE
 # - app/main.py — registers via include_router.
@@ -44,6 +44,8 @@ from app.database import get_db
 from app.models.auth import User
 from app.services.consolidated_briefing import (
     DispatchResult,
+    dispatch_conflict_alert,
+    dispatch_delay_alert,
     dispatch_evening,
     dispatch_morning,
 )
@@ -71,12 +73,19 @@ class DispatchRequest(BaseModel):
     now         — ISO-8601 datetime to use as the dispatch's `now`
                   kwarg. Lets operators reproduce scheduled-time
                   decisions without waiting for the wall clock.
-    force_send  — When False (default) the dispatcher runs in shadow
-                  mode regardless of settings.PUSH_V2_ENABLED. When
-                  True, forces a real send — useful for end-to-end
-                  smoke tests in dev/staging where mock-mode
-                  WHATSAPP_MOCK_MODE captures the [MOCK ALERT] log
-                  line without hitting Meta.
+    force_send  — Retained for v6.3.19 backward compatibility. As of
+                  v6.3.19.1 the dispatchers always send for real
+                  (the shadow-mode flag PUSH_V2_ENABLED was removed),
+                  so this parameter is ignored. Kept in the schema so
+                  existing operator scripts don't break.
+    job_id      — Required when type='delay_alert'. The specific Job to
+                  alert about. The endpoint validates that the Job
+                  belongs to tenant_id.
+    conflict_payload — Required when type='conflict_alert'. Caller-
+                  computed payload with job_a / job_b / resource /
+                  window keys. Typically operators don't drive this
+                  manually; the cron-fired push_v2_tick computes it
+                  internally via _get_conflicts_for_dispatch.
     """
 
     type: Literal[
@@ -85,29 +94,32 @@ class DispatchRequest(BaseModel):
     tenant_id: int = Field(..., gt=0)
     now: datetime
     force_send: bool = False
+    job_id: int | None = None
+    conflict_payload: dict | None = None
 
 
 class DispatchResponse(BaseModel):
     """Response for POST /dispatch.
 
-    actually_sent        — True only when force_send=True and the
-                           dispatcher's send loop ran. Always False in
-                           shadow mode.
+    actually_sent        — True when the dispatcher's send loop
+                           reached at least one recipient successfully
+                           and no skip branch fired. v6.3.19.1: the
+                           shadow-mode flag was removed; every
+                           dispatch sends for real.
     skip_reason          — Forwarded from DispatchResult; populated
                            when the dispatcher took a skip branch.
     would_send_to        — List of phone numbers the dispatcher
-                           resolved as recipients. Same in shadow +
-                           real modes. Empty on skip paths that
-                           returned before recipient resolution.
+                           resolved as recipients. Empty on skip paths
+                           that returned before recipient resolution.
     rendered_message     — Full Meta-bound template string. None when
                            a skip path returned before rendering.
     sent_count           — Number of phones the send loop reached.
-                           Counts would-have-sent in shadow mode.
     shadow_log_event_id  — Primary key of the events row written by
-                           this dispatch (push.shadow_log in shadow
-                           mode, push.{kind}_* in real mode). None
-                           when the dispatcher returned before any
-                           events row was written.
+                           this dispatch (push.{kind}_sent on success,
+                           push.{kind}_skipped_* on skip, etc.). Field
+                           name retained from v6.3.19 for backward
+                           compatibility with operator scripts; no
+                           shadow_log rows exist post-cutover.
     """
 
     actually_sent: bool
@@ -145,9 +157,11 @@ async def debug_dispatch(
       403 otherwise (operators cannot cross-tenant probe).
 
     SCOPE
-    Per v6.3.19 slice 2D scope reduction (D4), `type` of
-    'delay_alert' or 'conflict_alert' returns 400 — those dispatchers
-    are scoped to v6.3.19.1 and not yet implemented.
+    v6.3.19.1 — all four dispatch types are now supported. The
+    PUSH_V2_ENABLED shadow-mode flag was removed; the dispatchers
+    always send for real. `force_send` is retained as a no-op
+    parameter for backward compatibility with v6.3.19 operator
+    scripts.
     """
     if not settings.DEBUG_DISPATCH_ENABLED:
         raise HTTPException(
@@ -167,29 +181,39 @@ async def debug_dispatch(
             detail="Cannot dispatch for a different tenant than the caller.",
         )
 
-    if payload.type in ("delay_alert", "conflict_alert"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"type={payload.type!r} is deferred to v6.3.19.1 — "
-                "dispatch_delay_alert / dispatch_conflict_alert "
-                "are not yet implemented. Use 'morning' or 'evening'."
-            ),
-        )
-
-    shadow = not payload.force_send
-
+    # v6.3.19.1 — all four dispatch types routed; no shadow mode.
     if payload.type == "morning":
         result: DispatchResult = await dispatch_morning(
-            payload.tenant_id, payload.now, db, shadow=shadow,
+            payload.tenant_id, payload.now, db,
         )
-    else:  # 'evening' — Literal narrowed by the 400 above.
+    elif payload.type == "evening":
         result = await dispatch_evening(
-            payload.tenant_id, payload.now, db, shadow=shadow,
+            payload.tenant_id, payload.now, db,
+        )
+    elif payload.type == "delay_alert":
+        if payload.job_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="type='delay_alert' requires `job_id`.",
+            )
+        result = await dispatch_delay_alert(
+            payload.tenant_id, payload.now, db, job_id=payload.job_id,
+        )
+    else:  # 'conflict_alert'
+        if payload.conflict_payload is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "type='conflict_alert' requires `conflict_payload`."
+                ),
+            )
+        result = await dispatch_conflict_alert(
+            payload.tenant_id, payload.now, db,
+            conflict_payload=payload.conflict_payload,
         )
 
     return DispatchResponse(
-        actually_sent=(not shadow) and result.sent_count > 0,
+        actually_sent=result.sent_count > 0 and result.skip_reason is None,
         skip_reason=result.skip_reason,
         would_send_to=list(result.recipients),
         rendered_message=result.rendered_message,

@@ -42,30 +42,28 @@
 #      below — known gap, tracked in CHANGELOG [Unreleased] under
 #      "schema_context backfill".
 #
-#      v6.3.19 slice 2D-shadow note: the events table (added in
-#      migration 028 — also not in the AI-facing schema below) carries
-#      the new push.* event_type vocabulary as of this release:
-#         push.morning_sent / push.evening_sent
-#             — anchor row written when the consolidated dispatcher
-#               sends successfully. Idempotency dedup queries this row.
-#         push.morning_skipped_disabled / push.evening_skipped_disabled
-#         push.morning_skipped_paused   / push.evening_skipped_paused
-#         push.morning_skipped_idempotent / push.evening_skipped_idempotent
-#         push.morning_skipped_no_recipients / push.evening_skipped_no_recipients
+#      v6.3.19 + v6.3.19.1 note: the events table (added in migration
+#      028 — also not in the AI-facing schema below) carries the new
+#      push.* event_type vocabulary as of v6.3.19.1:
+#         push.{kind}_sent for kind in {morning, evening, delay, conflict}
+#             — anchor row written when a dispatch sends successfully.
+#               Morning/evening idempotency dedup queries this row.
+#         push.{kind}_skipped_disabled  (morning/evening only)
+#         push.{kind}_skipped_paused    (all four kinds)
+#         push.{kind}_skipped_idempotent (morning/evening only)
+#         push.{kind}_skipped_no_recipients (all four kinds)
 #             — skip-path telemetry. payload carries scheduled_for_date,
-#               now (ISO), paused_until when relevant.
-#         push.morning_send_failed / push.evening_send_failed
+#               now (ISO), paused_until / job_id / conflict_payload
+#               where relevant.
+#         push.{kind}_send_failed (all four kinds)
 #             — per-recipient Meta exception capture. One row per
 #               failed phone; the dispatcher continues to next recipient.
-#         push.shadow_log
-#             — slice 2D-shadow consolidated event. While
-#               PUSH_V2_ENABLED=False, the new push_v2_tick logs every
-#               dispatch (skip + send) under this single event_type;
-#               payload.kind is 'morning'|'evening', payload.stage is
-#               the would-have-been event suffix, payload.would_send=False.
 #         push.tick_failed
 #             — push_v2_tick wrapping a per-tenant exception. Ensures
 #               one bad tenant cannot abort the tick for others.
+#
+#      v6.3.19's `push.shadow_log` event_type was retired in v6.3.19.1
+#      when the cutover landed and the shadow-mode flag was removed.
 
 # ---------------------------------------------------------------------------
 # SCHEMA_CONTEXT — injected into every AI system prompt via context_builder.py
