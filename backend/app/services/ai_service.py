@@ -1826,12 +1826,26 @@ def run_ai_chat(
     tenant_id: int,
     structured_data: dict | None = None,
     industry_type: str = "printing",
+    *,
+    actor_user_id: int | None = None,
+    phone_number: str | None = None,
 ) -> str:
     """
     Run a full Groq tool-calling conversation cycle.
     messages: list of {role, content} — full conversation history
     structured_data: pre-computed data from v3.9.7/v3.9.8 endpoints.
                      If provided, AI skips tool calls and narrates this data only.
+
+    actor_user_id and phone_number are optional kwargs introduced in
+    v6.3.20 part 2 for the WhatsApp NL push-settings updater. They are
+    plumbed through to execute_tool so the three v6.3.20 tools
+    (update_push_setting / pause_push / get_push_settings) can stage
+    the user's pending change in Redis under the correct phone-keyed
+    namespace and write the audit row with the right actor. Defaults
+    to None so the web-UI ai_chat caller continues working unchanged
+    — and the v6.3.20 write tools refuse with
+    tool_requires_whatsapp_channel when either is missing.
+
     Returns: final text response string
     """
     client = get_groq_client()
@@ -1918,7 +1932,11 @@ def run_ai_chat(
     tool_results = []
     for tc in msg.tool_calls:
         args = json.loads(tc.function.arguments) if tc.function.arguments else {}
-        result = execute_tool(tc.function.name, args, db, tenant_id)
+        result = execute_tool(
+            tc.function.name, args, db, tenant_id,
+            actor_user_id=actor_user_id,
+            phone_number=phone_number,
+        )
         # Truncate large tool results to cap token usage (~4KB max)
         result_str = json.dumps(result)
         if len(result_str) > 4000:

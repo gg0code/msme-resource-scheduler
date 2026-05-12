@@ -40,6 +40,27 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ## [Unreleased]
 
 ### Added
+- **v6.3.20 part 2 — bridge plumbing (actor_user_id + phone_number).**
+  Plumbs the calling user's identity from
+  `app/routers/whatsapp.py:_process_inbound_message` (which has it on
+  `IdentityResult` from `resolve_identity`) through
+  `whatsapp_bridge.AIChannelBridge.process_message` (Protocol +
+  `GroqDirectBridge`) → `ai_service.run_ai_chat` →
+  `execute_tool`. Optional kwargs default to None so the web-UI
+  `ai_chat` caller continues working unchanged. With this commit
+  the three v6.3.20 tools become callable end-to-end from WhatsApp:
+  `update_push_setting` and `pause_push` stage the pending change in
+  Redis under `whatsapp:pending_action:<phone>` and the existing
+  v5.6 confirmation flow at `whatsapp.py:831` resolves HAAN/NAHI
+  into the actual write. `get_push_settings` returns the per-user
+  override section when called with the user's id.
+- **`tests/test_v6_3_20_plumbing.py`** (new) — 7 cases covering both
+  legs of the security boundary: (a) `run_ai_chat` carries
+  `actor_user_id` + `phone_number` through to `execute_tool` when
+  given; (b) the web-UI path defaults both to None; (c) the two
+  v6.3.20 write tools refuse with `tool_requires_whatsapp_channel`
+  when either kwarg is missing (incl. partial-kwarg variants); (d)
+  `get_push_settings` works without either kwarg (read-only).
 - **v6.3.20 part 1 — WhatsApp NL push-settings updater (backend foundations).**
   New service module `app/services/push_settings_service.py` ships the
   whitelist (`EDITABLE_FIELDS`, 9 scalar columns split tenant-scoped vs
@@ -117,18 +138,14 @@ audit purposes; in the SRS they collapse into the parent version's entry.
   Migration head stays 034.
 
 ### Notes
-- **v6.3.20 part 2 deferred (separate commit).** Plumbing
-  `actor_user_id` + `phone_number` from
-  `app/routers/whatsapp.py:1075` → `whatsapp_bridge.process_message`
-  → `ai_service.run_ai_chat` → `execute_tool` is required before the
-  three v6.3.20 tools become callable from the WhatsApp channel.
-  Without this plumbing the write tools return
-  `tool_requires_whatsapp_channel` and `get_push_settings` returns
-  data scoped to the tenant only (no per-user override section). The
-  service module + executors are independently shippable with
-  test-green coverage; part 2 will land the bridge signature changes
-  + the manual WhatsApp mock-mode walkthrough required by the
-  v6.3.20 acceptance criteria.
+- **v6.3.20 part 2 landed in this same `[Unreleased]` window.** The
+  bridge plumbing called out as "deferred" in part 1 is now wired —
+  see the `v6.3.20 part 2` Added entry above. Tools are callable
+  end-to-end from WhatsApp; the only remaining v6.3.20 acceptance
+  step is the manual WhatsApp mock-mode walkthrough documented at
+  `docs/v6_3_20_manual_walkthrough.md`. Run that, then tag
+  `v6.3.20` and flip this `[Unreleased]` section to a tagged
+  `## [v6.3.20] — YYYY-MM-DD` block per the doc-trinity rule.
 - **Steps 1 and 7 from the v6.3.20 prompt were already shipped in
   v6.3.19** (schema_context.py documents the three v6.3.19 columns
   at lines 107-116; `consolidated_briefing._dispatch_one:846-864`

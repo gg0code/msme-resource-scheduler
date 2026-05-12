@@ -120,7 +120,10 @@ class AIChannelBridge(Protocol):
         db: Session,
         tenant_id: int,
         industry_type: str,
-        language: str
+        language: str,
+        *,
+        actor_user_id: int | None = None,
+        phone_number: str | None = None,
     ) -> str:
         """
         Send conversation messages to the AI backend and return the response.
@@ -170,7 +173,10 @@ class GroqDirectBridge:
         db: Session,
         tenant_id: int,
         industry_type: str,
-        language: str
+        language: str,
+        *,
+        actor_user_id: int | None = None,
+        phone_number: str | None = None,
     ) -> str:
         """
         Inject WhatsApp context and call run_ai_chat() in a thread pool.
@@ -212,7 +218,9 @@ class GroqDirectBridge:
                 messages=messages_with_context,
                 db=db,
                 tenant_id=tenant_id,
-                industry_type=industry_type
+                industry_type=industry_type,
+                actor_user_id=actor_user_id,
+                phone_number=phone_number,
             )
         )
 

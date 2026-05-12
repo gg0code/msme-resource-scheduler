@@ -1077,7 +1077,16 @@ async def _process_inbound_message(
             db=sync_db,
             tenant_id=identity.tenant_id,
             industry_type=identity.industry_type,
-            language=language
+            language=language,
+            # v6.3.20 part 2 — plumbed so the WhatsApp NL push-settings
+            # tools (update_push_setting / pause_push / get_push_settings)
+            # can stage Redis pending state under the right phone-keyed
+            # namespace and write the audit row with the right actor.
+            # The web-UI ai_chat caller does NOT pass these — that's how
+            # the v6.3.20 write tools stay WhatsApp-channel-only (they
+            # refuse with tool_requires_whatsapp_channel when missing).
+            actor_user_id=identity.user_id,
+            phone_number=identity.phone_number,
         )
     except Exception as e:
         logger.error(f"AI failed for ****{phone_number[-4:]}: {e}.")
