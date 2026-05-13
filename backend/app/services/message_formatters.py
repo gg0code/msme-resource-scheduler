@@ -620,11 +620,10 @@ surfaced it. Mock-mode renders + audit logs now match what Meta
 actually sends.
 
 Total placeholder count = 5. The Hindi sibling
-`zetaops_job_conflict_alert (hi)` exists as a draft in
-whatsapp_meta_templates.json with status
-'draft_pending_meta_submission' (added in v6.3.18); the corresponding
-Python constant `JOB_CONFLICT_ALERT_HI` was wired in v6.3.21 — already
-positional, no normalisation needed.
+`zetaops_job_conflict_alert (hi)` is in whatsapp_meta_templates.json
+as a live (approved) entry; the corresponding Python constant
+`JOB_CONFLICT_ALERT_HI` is wired in Section 4 (positional, no
+normalisation needed).
 """
 
 

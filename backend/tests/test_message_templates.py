@@ -352,41 +352,11 @@ def test_23_ac7_code_template_matches_meta_placeholder_count(
 # ===========================================================================
 # 23-AC8 — Hindi conflict-alert draft entry
 # ===========================================================================
-
-def test_23_ac8_hindi_conflict_alert_draft_status() -> None:
-    """The new Hindi sibling for zetaops_job_conflict_alert must be
-    present in whatsapp_meta_templates.json and explicitly marked as
-    a draft pending Meta submission. The status field is the
-    contract that ops uses to know which entries still need to be
-    pushed through Meta review."""
-    entry = META_TEMPLATES.get(("zetaops_job_conflict_alert", "hi"))
-    assert entry is not None, (
-        "zetaops_job_conflict_alert (hi) missing from whatsapp_meta_templates.json"
-    )
-    assert entry["status"] == "draft_pending_meta_submission", (
-        f"Expected draft_pending_meta_submission, got {entry['status']!r}. "
-        "Update only when Meta has approved the Hindi entry; see SRS §11 AC8."
-    )
-    # Placeholder count parity with en_US sibling — submission-time
-    # ordering must still line up so the JSON can ship verbatim.
-    en = META_TEMPLATES[("zetaops_job_conflict_alert", "en_US")]
-    assert count_meta_placeholders(entry) == count_meta_placeholders(en), (
-        "Hindi draft placeholder count diverges from en_US — fix before Meta submit."
-    )
-
-
-def test_23_ac8_json_file_status_field_persists() -> None:
-    """Round-trip the JSON file independently of META_TEMPLATES so that
-    a future code change to the loader cannot mask a JSON regression.
-    Reads whatsapp_meta_templates.json directly."""
-    path = (
-        Path(__file__).resolve().parent.parent
-        / "app" / "services" / "whatsapp_meta_templates.json"
-    )
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    hi_drafts = [
-        x for x in raw
-        if x["name"] == "zetaops_job_conflict_alert" and x["language"] == "hi"
-    ]
-    assert len(hi_drafts) == 1
-    assert hi_drafts[0].get("status") == "draft_pending_meta_submission"
+# Tests previously asserted the v6.3.18 "draft_pending_meta_submission"
+# transition flag was present on (zetaops_job_conflict_alert, hi).
+# The flag has been cleared (Meta approval landed), the transition
+# state no longer exists, and the tests were one-off guards for that
+# state — removed when the flag was removed. Placeholder-count parity
+# between the Hindi and en_US siblings is still enforced by
+# test_23_ac7_code_template_matches_meta_placeholder_count, which
+# parametrises over every bound (name, language) including this one.

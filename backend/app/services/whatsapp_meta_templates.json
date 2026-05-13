@@ -296,8 +296,7 @@
                 }
             }
         ],
-        "parameter_format": "POSITIONAL",
-        "status": "draft_pending_meta_submission"
+        "parameter_format": "POSITIONAL"
     },
     {
         "name": "zetaops_job_ending_soon",

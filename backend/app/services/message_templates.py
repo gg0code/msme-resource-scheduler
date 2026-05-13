@@ -161,10 +161,9 @@ DELAY_ALERT: str = (
 # ---------------------------------------------------------------------------
 # CONFLICT_ALERT — single English string
 # ---------------------------------------------------------------------------
-# Per Q3 user decision: Meta has approved en_US only (zetaops_job_conflict_alert);
-# the Hindi sibling exists in the JSON registry as
-# `status: "draft_pending_meta_submission"` and is not yet wired up.
-# Placeholder map: same shape as DELAY_ALERT.
+# Dispatcher-shape template, distinct from the Meta-bound
+# CONFLICT_ALERT_EN / JOB_CONFLICT_ALERT_HI constants in
+# message_formatters.py. Placeholder map: same shape as DELAY_ALERT.
 
 CONFLICT_ALERT: str = (
     f"{SEVERITY_ALERT} ALERT: {{count}} scheduling conflict{{plural_s}} detected\n"
