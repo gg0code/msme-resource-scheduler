@@ -130,7 +130,31 @@ audit purposes; in the SRS they collapse into the parent version's entry.
   unchanged — both clients use the same `UPSTASH_REDIS_URL`.
 
 ### Fixed
--
+- **v6.3.20 release-blocker — briefing-request classifier intercepted
+  settings-change phrases.** `whatsapp_intent.detect_briefing_request_intent`
+  was a pure substring match on `BRIEFING_MORNING_KEYWORDS` /
+  `BRIEFING_EVENING_KEYWORDS`. Phrases like `"morning briefing 8 baje karo"`
+  matched `"morning briefing"`, were routed to `manual_trigger_briefing`,
+  and `update_push_setting` was never offered to the LLM. The user saw
+  `"Aaj koi tickets schedule mein nahi hai"` instead of a confirmation
+  prompt. New module-level `_SETTINGS_TIME_CUE_RE` regex (HH:MM /
+  N am-pm / `baje` / `ke jagah` / `instead of`) and
+  `_SETTINGS_STRONG_VERBS` frozenset (on/off:
+  band/bandh/chalu/off/on/disable/enable/stop/start; pause:
+  pause/chuti/chutti/holiday/roko/rok/break; change:
+  change/shift/set/modify/update/move/reschedule). When either signal
+  co-occurs with a briefing keyword the classifier returns None and the
+  message falls through to the AI. Bias is toward suppressing on
+  ambiguity: a false positive costs one slower AI hop, a false negative
+  is the original bug. Logs `Briefing keyword present but
+  settings-change signal co-occurs — falling through to AI` so the
+  routing decision is debuggable. Tests in
+  `tests/test_briefings.py::TestBriefingIntent`: 13 negative cases
+  (must fall through) + 11 positive cases (display intents must still
+  dispatch, including benign verbs `share`/`kar`/`do`/`dikhao` that
+  are deliberately excluded from the strong-verb set). Test counts:
+  **1108 unit-tier passing** (+23 from part 2's 1085: 13 negative + 10
+  positive new cases).
 
 ### Migration
 - None. Reuses columns added in migration 033 (v6.3.19 slice 2A —

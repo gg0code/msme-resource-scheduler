@@ -667,6 +667,65 @@ class TestBriefingIntent:
         assert "proprietor" in PHONE_TOP_TIER_ROLES
         assert "owner" in PHONE_TOP_TIER_ROLES
 
+    # -----------------------------------------------------------------------
+    # v6.3.20 disambiguation — settings-change phrases must fall through
+    # -----------------------------------------------------------------------
+    # Before v6.3.20 the classifier returned "morning" for any message
+    # containing the substring "morning briefing" — including
+    # "morning briefing 8 baje karo" which is a settings change, not a
+    # display request. The router then dispatched manual_trigger_briefing
+    # and update_push_setting was never offered to the LLM. See
+    # v6.3.20bug.md for the original bug report.
+
+    @pytest.mark.parametrize("phrase", [
+        # Time literal + briefing keyword
+        "morning briefing 8 baje karo",
+        "morning briefing 6:30 baje kar do",
+        "morning briefing 8pm kar do",
+        "today's plan 9 AM kar do",
+        # On/off intent + briefing keyword
+        "morning briefing band karo",
+        "evening briefing band karo",
+        "morning briefing chalu karo",
+        # Replacement phrasing
+        "evening briefing 7 ke jagah 8 baje karo",
+        "morning briefing instead of 7:30 do 8:00",
+        # Pause / break intent + briefing keyword
+        "agle 5 din chuti hai, morning briefing band karo",
+        "morning briefing pause karo",
+        # Change-intent verb + briefing keyword (no time literal)
+        "morning briefing time change karo",
+        "shift morning briefing to 8:00",
+    ])
+    def test_v6_3_20_settings_change_phrases_fall_through(self, phrase):
+        """Settings-change phrases that contain a briefing keyword must
+        NOT trigger manual_trigger_briefing — they must fall through to
+        the AI so update_push_setting / pause_push can be offered."""
+        assert detect_briefing_request_intent(phrase) is None
+
+    @pytest.mark.parametrize("phrase,expected", [
+        # Plain display intents — must continue to dispatch.
+        ("morning briefing",            "morning"),
+        ("today's plan",                "morning"),
+        ("today's plan dikhao",         "morning"),
+        ("evening briefing",            "evening"),
+        ("today's summary",             "evening"),
+        # Display-adjacent verbs that are NOT in the strong-verb set —
+        # "share kar do" / "share karo" must NOT trigger suppression.
+        ("aaj ka plan share kar do",    "morning"),
+        ("din ka summary share karo",   "evening"),
+        # "dikhao" is benign — never a settings verb.
+        ("abhi ka briefing dikhao",     None),   # no kind keyword — falls through anyway
+        ("morning briefing dikhao",     "morning"),
+        ("evening briefing dikhao",     "evening"),
+    ])
+    def test_v6_3_20_display_phrases_still_dispatch(self, phrase, expected):
+        """Display intents must still trigger the dispatcher even when
+        nearby words look settings-adjacent. The benign verbs
+        share/kar/do/dikhao are deliberately excluded from the
+        settings-change strong-verb set."""
+        assert detect_briefing_request_intent(phrase) == expected
+
 
 # ---------------------------------------------------------------------------
 # Stagger

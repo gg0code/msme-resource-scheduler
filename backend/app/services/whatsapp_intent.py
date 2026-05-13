@@ -11,6 +11,9 @@
 #      "today's plan", etc. The router uses the result to fan out to
 #      app.services.briefings.dispatcher.manual_trigger_briefing for
 #      top-tier requesters and to a polite refusal for everyone else.
+#      v6.3.20 — disambiguates display intent from settings-change
+#      intent so phrases like "morning briefing 8 baje karo" fall
+#      through to the AI's update_push_setting tool.
 #
 # WHO CALLS THIS FILE
 #   app/routers/whatsapp.py - calls detect_write_intent() and
@@ -189,6 +192,69 @@ BRIEFING_EVENING_KEYWORDS = [
 
 
 # ---------------------------------------------------------------------------
+# SETTINGS-CHANGE DISAMBIGUATION (v6.3.20)
+# ---------------------------------------------------------------------------
+# When a BRIEFING_*_KEYWORDS substring matches but the message also carries
+# a v6.3.20 settings-change signal, detect_briefing_request_intent falls
+# through to the AI instead of triggering manual_trigger_briefing. Without
+# this, "morning briefing 8 baje karo" silently routes to the briefing
+# dispatcher and update_push_setting never reaches the LLM.
+#
+# Signal vocabulary derived from the v6.3.20 system prompt few-shot
+# examples in app/services/ai_service.py lines ~1640-1665. Either signal
+# (a time literal OR a strong settings verb) alone is enough to fire.
+#
+# Bias note: a false positive costs one slower AI hop (still correct
+# behaviour). A false negative is the v6.3.20 release-blocker bug —
+# settings-change phrases get silently intercepted by the dispatcher.
+# We bias toward suppressing on ambiguity.
+
+_SETTINGS_TIME_CUE_RE = re.compile(
+    r"\b\d{1,2}:\d{2}\b"             # 07:30, 8:00, 6:30
+    r"|\b\d{1,2}\s*(?:am|pm)\b"      # 8 AM, 8pm, 9 am
+    r"|\bbaje\b"                      # 8 baje, paanch baje
+    r"|\bke jagah\b"                  # X ke jagah Y (replacement phrasing)
+    r"|\binstead of\b",
+    re.IGNORECASE,
+)
+
+_SETTINGS_STRONG_VERBS: frozenset[str] = frozenset([
+    # On/off intent
+    "band", "bandh", "chalu",
+    "off", "on", "disable", "enable",
+    "stop", "start",
+    # Pause intent
+    "pause", "chuti", "chutti", "holiday",
+    "roko", "rok", "break",
+    # Change / modify intent — only meaningful when a briefing keyword
+    # also matches. "change" alone in a benign read like "what changed"
+    # would never reach this check because there's no briefing keyword.
+    "change", "shift", "set", "modify", "update",
+    "move", "reschedule",
+])
+
+
+def _has_settings_change_signal(lower_message: str) -> bool:
+    """True when the message carries a v6.3.20 settings-change signal.
+
+    Called by:    detect_briefing_request_intent (this file) — only
+                  invoked after at least one briefing keyword has matched.
+    Calls into:   _SETTINGS_TIME_CUE_RE.search, re.findall.
+    Side effects: none.
+
+    Either a time literal (HH:MM / N am-pm / N baje / ke jagah /
+    instead of) or a strong settings verb (band/chalu/pause/change/etc.)
+    is sufficient. The verb set is matched as whole tokens (re.findall
+    over [a-zA-Z]+ then frozenset intersect) so "change" inside
+    "exchange" does not falsely fire.
+    """
+    if _SETTINGS_TIME_CUE_RE.search(lower_message):
+        return True
+    tokens = frozenset(re.findall(r"[a-zA-Z]+", lower_message))
+    return bool(tokens & _SETTINGS_STRONG_VERBS)
+
+
+# ---------------------------------------------------------------------------
 # HELPER - resolve relative date to YYYY-MM-DD string
 # ---------------------------------------------------------------------------
 
@@ -352,6 +418,20 @@ def detect_briefing_request_intent(user_message: str) -> str | None:
 
     if morning_pos is None and evening_pos is None:
         return None
+
+    # v6.3.20 — disambiguate display intent from settings-change intent.
+    # "morning briefing 8 baje karo" matches BRIEFING_MORNING_KEYWORDS
+    # but is a settings change, not a display request. Fall through to
+    # the AI so update_push_setting / pause_push can be offered.
+    # See v6.3.20bug.md for the bug report that motivated this.
+    if _has_settings_change_signal(lower):
+        logger.info(
+            "Briefing keyword present but settings-change signal "
+            "co-occurs — falling through to AI: %r",
+            user_message[:80],
+        )
+        return None
+
     if morning_pos is None:
         return "evening"
     if evening_pos is None:
