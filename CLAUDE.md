@@ -212,62 +212,107 @@ Use with `WHATSAPP_MOCK_MODE=True`. SRS §22.
 
 ---
 
-## Current state in one paragraph (as of 2026-05-11)
+## Current state in one paragraph (as of 2026-05-13)
 
-**Shipped through v6.3.19.1 (cutover release).** v6.3.0-whatsapp-industry
-fixed BUG-6 (industry attribution on `PhoneTenantMap`). v6.3.3 added
-the events audit table (migration 028). v6.3.4 landed the daily push
-briefing dispatcher. v6.3.5 consolidated the WhatsApp UI per SRS §6.28.4.
-v6.3.7–v6.3.10 covered v6.4 entry-gate columns (migration 027), role
-rename, and inbound intent routing. v6.3.11 introduced pattern-aware
-briefings via `briefing_intelligence/` (13 evaluators across 6 categories).
-v6.3.12 shipped the Day-1 onboarding sequence. v6.3.13 added the
-`extraction_candidates` staging table (migration 029). v6.3.14 shipped
-the entity extractor. v6.3.15 (revised) moved candidate promotion to
-owner-confirmed (migration 030). v6.3.16 added the Day-7 First-Insight
-Gate (migration 031). v6.3.17 added the WhatsApp owner-bypass entity
-write path (migration 032). v6.3.18 shipped the WhatsApp message
-styling pass (centralised emoji vocabulary, entity formatters,
-Meta-bound HSM template constants, dispatcher-shape templates wired
-into `whatsapp_alerts.py`; new SRS Section 23 Voice/Tone/Formatting).
-**v6.3.19 + v6.3.19.1 ship the consolidated push dispatcher as the
-sole code path** (migrations 033 + 034): per-tenant push config via
-cascade resolver (`push_config.py` + `push_defaults.yaml`), async
-`dispatch_morning` + `dispatch_evening` wiring `PushConfig` +
-slice-2B field computers + slice-1 flag/next_step selector + v6.3.18
-Meta-bound templates, new APScheduler `push_v2_tick_job` running
-every minute on the 0-second mark with `tenant_id % 60` hash
-stagger. **v6.3.19.1 cutover release** removed the v6.3.19
-`PUSH_V2_ENABLED` shadow-mode flag entirely, deleted the legacy
-v5.10-era push functions (`run_briefing_dispatch_tick`,
-`check_delayed_jobs`, `check_scheduling_conflicts`) and their
-helpers (~232 lines), and shipped the deferred `dispatch_delay_alert`
-+ `dispatch_conflict_alert` dispatchers — `push_v2_tick` now fires
-delay alerts at 8/10/12/14/16/18/20 IST and conflict alerts at
+**Shipped through v6.3.21 (Meta template inventory closure, tagged 2026-05-13).**
+v6.3.0-whatsapp-industry fixed BUG-6 (industry attribution on
+`PhoneTenantMap`). v6.3.3 added the events audit table (migration 028).
+v6.3.4 landed the daily push briefing dispatcher. v6.3.5 consolidated
+the WhatsApp UI per SRS §6.28.4. v6.3.7–v6.3.10 covered v6.4 entry-gate
+columns (migration 027), role rename, and inbound intent routing.
+v6.3.11 introduced pattern-aware briefings via `briefing_intelligence/`
+(13 evaluators across 6 categories). v6.3.12 shipped the Day-1
+onboarding sequence. v6.3.13 added the `extraction_candidates` staging
+table (migration 029). v6.3.14 shipped the entity extractor. v6.3.15
+(revised) moved candidate promotion to owner-confirmed (migration 030).
+v6.3.16 added the Day-7 First-Insight Gate (migration 031). v6.3.17
+added the WhatsApp owner-bypass entity write path (migration 032).
+v6.3.18 shipped the WhatsApp message styling pass (centralised emoji
+vocabulary, entity formatters, Meta-bound HSM template constants,
+dispatcher-shape templates wired into `whatsapp_alerts.py`; new SRS
+Section 23 Voice/Tone/Formatting). **v6.3.19 + v6.3.19.1 ship the
+consolidated push dispatcher as the sole code path** (migrations
+033 + 034): per-tenant push config via cascade resolver
+(`push_config.py` + `push_defaults.yaml`), async `dispatch_morning` +
+`dispatch_evening` wiring `PushConfig` + slice-2B field computers +
+slice-1 flag/next_step selector + v6.3.18 Meta-bound templates, new
+APScheduler `push_v2_tick_job` running every minute on the 0-second
+mark with `tenant_id % 60` hash stagger. **v6.3.19.1 cutover release**
+removed the v6.3.19 `PUSH_V2_ENABLED` shadow-mode flag entirely,
+deleted the legacy v5.10-era push functions
+(`run_briefing_dispatch_tick`, `check_delayed_jobs`,
+`check_scheduling_conflicts`) and their helpers (~232 lines), and
+shipped the deferred `dispatch_delay_alert` + `dispatch_conflict_alert`
+dispatchers — `push_v2_tick` now fires delay alerts at
+8/10/12/14/16/18/20 IST and conflict alerts at
 8:30/12:30/16:30/20:30 IST (legacy parity, no dedup per
-test_push_v2_tick_consecutive_ticks_no_dedup). Slice 3A in v6.3.19.1
-also fixed the test-infrastructure date-drift bug: all 13 detector
-xfails are gone, `freezegun` autouse anchors the suite, 26-case
-90-day verification harness proves anchor-invariance. Operator
-`POST /api/v1/whatsapp/debug/dispatch` endpoint accepts all four
-dispatch types. The WhatsApp production
-cutover (originally planned as v5.11; shipped at v6.3.7 + v6.3.8 on
-2026-05-03) is engineering-complete; **Meta Business portfolio approval**
-remains to flip `WHATSAPP_MOCK_MODE` off. The platform runs in mock mode
-end-to-end and is feature-complete behind that gate.
+`test_push_v2_tick_consecutive_ticks_no_dedup`). Slice 3A in
+v6.3.19.1 also fixed the test-infrastructure date-drift bug: all 13
+detector xfails are gone, `freezegun` autouse anchors the suite,
+26-case 90-day verification harness proves anchor-invariance.
+Operator `POST /api/v1/whatsapp/debug/dispatch` endpoint accepts all
+four dispatch types. **v6.3.20 added the WhatsApp natural-language
+push-settings updater** (SRS §6.28 NL extension): three Groq AI tools
+(`update_push_setting` / `pause_push` / `get_push_settings`) backed by
+`app/services/push_settings_service.py` — 9-column whitelist + 4
+validators (bool / HH:MM / IANA tz / ISO weekday CSV) + trilingual
+error templates, wired through the existing v5.6 confirmation flow
+with new `UPDATE_PUSH_SETTING` / `PAUSE_PUSH` ActionTypes. Reuses
+migration 033 columns; no new schema. `actor_user_id` +
+`phone_number` plumb from the `whatsapp.py` router →
+`whatsapp_bridge.process_message` → `ai_service.run_ai_chat` →
+`execute_tool`; the two write tools refuse with
+`tool_requires_whatsapp_channel` on the web-UI `ai_chat` caller —
+security boundary keeps NL push-settings WhatsApp-only. Briefing
+classifier in `whatsapp_intent.detect_briefing_request_intent`
+disambiguates display intent from settings-change intent via
+`_SETTINGS_TIME_CUE_RE` + `_SETTINGS_STRONG_VERBS`. **v6.3.21 closes
+the Meta WhatsApp template inventory on the Python side**: 32 new
+constants in `message_formatters.py` Section 4 plus 4 newly-submitted
+Meta templates in Section 5 = full coverage of `whatsapp_meta_templates.json`'s
+40 entries; the 4 v6.3.18 constants normalised from named to
+positional placeholders so the file uses one consistent convention
+across all 40 (and `CONFLICT_ALERT_EN` picked up the Meta HEADER
+prefix that v6.3.18 had silently dropped); new runtime lookup helper
+`app/services/whatsapp_templates.py` ships `resolve_template` +
+`ResolvedTemplate` + 25-event `EVENT_ROUTING` + `UnknownEventError` /
+`ArgCountMismatchError` (single entry point replacing ad-hoc template
+plumbing for every WhatsApp dispatcher, with `hi` → `en_US` language
+fallback and placeholder-count validation). The 4 newly-wired
+templates — `zetaops_owner_day7_insight` EN+HI for the v6.3.16
+First-Insight Gate; `zetaops_engagement_give_up_nudge` EN+HI for the
+v6.4.0 engagement-ladder fallback — carry
+`status: pending_meta_approval` in the JSON until Meta review
+completes. New utility `scripts/merge_approved_templates.py` clears
+pending status flags post-approval (idempotent; handles both
+`draft_pending_meta_submission` and `pending_meta_approval`). The
+WhatsApp production cutover (originally planned as v5.11; shipped at
+v6.3.7 + v6.3.8 on 2026-05-03) is engineering-complete; **Meta
+Business portfolio approval** remains to flip `WHATSAPP_MOCK_MODE`
+off, and **4 templates remain `pending_meta_approval` upstream** —
+both run through the same Meta-approval gate. The platform runs in
+mock mode end-to-end and is feature-complete behind that gate.
 
 **In progress.** v6.3 KPI Baseline + Monthly Savings Summary (SRS §6.24,
 migration not yet written).
 
 **Next up — v6.4.0.** Full engagement ladder (Day-1 ack, Day-3 rhythm,
 Day-7 manager mirror, conditional nudges). Will reuse and extend
-`tenants.engagement_ladder_state`. Plus the deferred Meta v2
-conditional `{flag_section}` / `{next_step_section}` template
-re-submission (closes the §23 tone exception), the dedicated
-`zetaops_job_delayed` template (currently dispatch_delay_alert
-reuses `zetaops_job_ending_soon` with best-effort field shape),
-and the `User.language_preference` column + per-recipient locale
-routing.
+`tenants.engagement_ladder_state`. The Day-7 insight + engagement
+give-up-nudge Meta templates are already wired into
+`message_formatters.py` + `EVENT_ROUTING` (v6.3.21 part 2); the
+dispatcher callsites that compute the field values and invoke
+`resolve_template('owner_day7_insight', …)` /
+`resolve_template('engagement_give_up_nudge', …)` are still v6.4.0
+scope. Plus the deferred Meta v2 conditional `{flag_section}` /
+`{next_step_section}` template re-submission (closes the §23 tone
+exception), the dedicated `zetaops_job_delayed` template (currently
+`dispatch_delay_alert` reuses `zetaops_job_ending_soon` with
+best-effort field shape), the `JOB_CONFLICT_ALERT_HI` Devanagari
+HEADER prefix (Hindi conflict-alert is BODY-only today; gets
+"Schedule में conflict — action चाहिए" when the matching dispatcher
+path lands), and the `User.language_preference` column +
+per-recipient locale routing.
 
 **Not started.** v6.4.0 full engagement ladder (Day-1 ack, Day-3 rhythm,
 Day-7 manager mirror, conditional nudges; will reuse and extend
