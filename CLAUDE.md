@@ -214,8 +214,7 @@ Use with `WHATSAPP_MOCK_MODE=True`. SRS §22.
 
 ## Current state in one paragraph (as of 2026-05-13)
 
-**Shipped through v6.3.21 (Meta template inventory closure, tagged 2026-05-13);
-v6.3.22 landed untagged.**
+**Shipped through v6.3.22 (channel-decision send helper, tagged 2026-05-13).**
 v6.3.0-whatsapp-industry fixed BUG-6 (industry attribution on
 `PhoneTenantMap`). v6.3.3 added the events audit table (migration 028).
 v6.3.4 landed the daily push briefing dispatcher. v6.3.5 consolidated

@@ -40,6 +40,35 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ## [Unreleased]
 
 ### Added
+-
+
+### Changed
+-
+
+### Fixed
+-
+
+### Migration
+-
+
+### Notes
+-
+
+---
+
+## [v6.3.22] — 2026-05-13
+**Branch:** v5-whatsapp
+**Spec:** SRS Section 6.28.6 (Channel-Decision Send Helper)
+
+Wires the runtime channel decision on top of v6.3.21's static template
+registry: outbound WhatsApp sends now pick free-form vs HSM template
+per recipient based on Meta's 24-hour conversation window. New module
+`whatsapp_send_helper.py` is the single entry point; five dispatchers
+refactored through it. No migration — `phone_tenant_map.last_seen_at`
+reused after audit confirmed it's inbound-only. Migration head stays
+at 034.
+
+### Added
 - **v6.3.22 — Channel-decision send helper (SRS §6.28.6).** New module
   `backend/app/services/whatsapp_send_helper.py` ships
   `send_with_window_decision()` + `SendOutcome` as the single outbound
