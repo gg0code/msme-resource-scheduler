@@ -170,6 +170,11 @@ PYTHON_CONSTANT_BINDINGS: dict[tuple[str, str], str] = {
     ("zetaops_performance_summary_monthly", "en_US"): "PERFORMANCE_SUMMARY_MONTHLY_EN",
     ("zetaops_performance_summary_monthly", "hi"):    "PERFORMANCE_SUMMARY_MONTHLY_HI",
     ("zetaops_gst_einvoice_ready",          "en_US"): "GST_EINVOICE_READY_EN",
+    # --- Day-7 + engagement ladder (pending Meta approval) ---
+    ("zetaops_owner_day7_insight",          "en_US"): "OWNER_DAY7_INSIGHT_EN",
+    ("zetaops_owner_day7_insight",          "hi"):    "OWNER_DAY7_INSIGHT_HI",
+    ("zetaops_engagement_give_up_nudge",    "en_US"): "ENGAGEMENT_GIVE_UP_NUDGE_EN",
+    ("zetaops_engagement_give_up_nudge",    "hi"):    "ENGAGEMENT_GIVE_UP_NUDGE_HI",
 }
 
 

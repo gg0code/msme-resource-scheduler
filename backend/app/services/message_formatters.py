@@ -978,3 +978,57 @@ Invoice value: ₹{2}
 File sent to: {3}
 
 Reply RESEND to receive the JSON file again on WhatsApp, or CHANGE if customer GSTIN was wrong."""
+
+
+# ---------------------------------------------------------------------------
+# Day-7 First-Insight Gate (SRS §6.3.16) — Meta submission PENDING
+# ---------------------------------------------------------------------------
+
+OWNER_DAY7_INSIGHT_EN = """Day 7 insight — {0}
+
+Hi {1}, after 1 week of morning check-ins, here is the pattern that stands out:
+
+{2}
+
+Supporting evidence:
+- {3}
+- {4}
+
+Suggested action: {5}
+
+Reply DETAIL for the full week's data, or NOT NOW to dismiss."""
+
+OWNER_DAY7_INSIGHT_HI = """हफ़्ते का insight — {0}
+
+नमस्ते {1}, एक हफ़्ते की morning check-ins के बाद, यह pattern दिख रहा है:
+
+{2}
+
+इसके supporting evidence:
+- {3}
+- {4}
+
+सुझाव: {5}
+
+पूरे हफ़्ते का data देखने के लिए DETAIL, या अभी skip करने के लिए NOT NOW भेजें।"""
+
+
+# ---------------------------------------------------------------------------
+# Engagement ladder fallback (v6.4.0 plan) — Meta submission PENDING
+# ---------------------------------------------------------------------------
+
+ENGAGEMENT_GIVE_UP_NUDGE_EN = """Hi {0}, your morning briefings are paused. Last check-in was {1} days ago.
+
+To resume:
+- Reply YES to start tomorrow morning at the usual time
+- Or reply SETTINGS to change the briefing time first
+
+To stop briefings permanently, reply STOP. No further messages will be sent."""
+
+ENGAGEMENT_GIVE_UP_NUDGE_HI = """नमस्ते {0}, आपकी morning briefings अभी pause पर हैं। पिछली check-in {1} दिन पहले हुई थी।
+
+शुरू करने के लिए:
+- कल सुबह उसी समय से शुरू करने के लिए YES भेजें
+- Briefing का समय बदलना है तो SETTINGS भेजें
+
+हमेशा के लिए briefings बंद करने के लिए STOP भेजें। फिर कोई message नहीं आएगा।"""

@@ -958,5 +958,119 @@
             }
         ],
         "parameter_format": "POSITIONAL"
+    },
+    {
+        "name": "zetaops_owner_day7_insight",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "Day 7 insight — {{1}}",
+                "example": {
+                    "header_text": ["Attendance"]
+                }
+            },
+            {
+                "type": "BODY",
+                "text": "Hi {{1}}, after 1 week of morning check-ins, here is the pattern that stands out:\n\n{{2}}\n\nSupporting evidence:\n- {{3}}\n- {{4}}\n\nSuggested action: {{5}}\n\nReply DETAIL for the full week's data, or NOT NOW to dismiss.",
+                "example": {
+                    "body_text": [[
+                        "Sharma ji",
+                        "Rakesh covered 3 absences this week — he is the most flexible operator on the floor",
+                        "Absences on Tuesday, Thursday, Saturday all covered without job slippage",
+                        "Rakesh worked 52 hours vs his usual 44 — overtime is creeping up",
+                        "Cross-train Suresh on Rakesh's tasks before next week to spread the load"
+                    ]]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL",
+        "status": "pending_meta_approval"
+    },
+    {
+        "name": "zetaops_owner_day7_insight",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "HEADER",
+                "format": "TEXT",
+                "text": "हफ़्ते का insight — {{1}}",
+                "example": {
+                    "header_text": ["हाज़िरी"]
+                }
+            },
+            {
+                "type": "BODY",
+                "text": "नमस्ते {{1}}, एक हफ़्ते की morning check-ins के बाद, यह pattern दिख रहा है:\n\n{{2}}\n\nइसके supporting evidence:\n- {{3}}\n- {{4}}\n\nसुझाव: {{5}}\n\nपूरे हफ़्ते का data देखने के लिए DETAIL, या अभी skip करने के लिए NOT NOW भेजें।",
+                "example": {
+                    "body_text": [[
+                        "शर्मा जी",
+                        "इस हफ़्ते 3 दिन राकेश ने absent workers का काम संभाला — वो floor पर सबसे flexible operator हैं",
+                        "मंगलवार, गुरुवार, शनिवार की absence — तीनों दिन jobs बिना slip हुए complete",
+                        "राकेश ने 52 घंटे काम किया, normal 44 — overtime बढ़ रही है",
+                        "अगले हफ़्ते से पहले सुरेश को राकेश का काम सिखा दें — load बँट जाएगा"
+                    ]]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL",
+        "status": "pending_meta_approval"
+    },
+    {
+        "name": "zetaops_engagement_give_up_nudge",
+        "category": "UTILITY",
+        "language": "en_US",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "Hi {{1}}, your morning briefings are paused. Last check-in was {{2}} days ago.\n\nTo resume:\n- Reply YES to start tomorrow morning at the usual time\n- Or reply SETTINGS to change the briefing time first\n\nTo stop briefings permanently, reply STOP. No further messages will be sent.",
+                "example": {
+                    "body_text": [[
+                        "Sharma ji",
+                        "7"
+                    ]]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL",
+        "status": "pending_meta_approval"
+    },
+    {
+        "name": "zetaops_engagement_give_up_nudge",
+        "category": "UTILITY",
+        "language": "hi",
+        "components": [
+            {
+                "type": "BODY",
+                "text": "नमस्ते {{1}}, आपकी morning briefings अभी pause पर हैं। पिछली check-in {{2}} दिन पहले हुई थी।\n\nशुरू करने के लिए:\n- कल सुबह उसी समय से शुरू करने के लिए YES भेजें\n- Briefing का समय बदलना है तो SETTINGS भेजें\n\nहमेशा के लिए briefings बंद करने के लिए STOP भेजें। फिर कोई message नहीं आएगा।",
+                "example": {
+                    "body_text": [[
+                        "शर्मा जी",
+                        "7"
+                    ]]
+                }
+            },
+            {
+                "type": "FOOTER",
+                "text": "ZetaOps Copilot"
+            }
+        ],
+        "parameter_format": "POSITIONAL",
+        "status": "pending_meta_approval"
     }
 ]

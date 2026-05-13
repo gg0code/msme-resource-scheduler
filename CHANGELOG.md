@@ -40,6 +40,44 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ## [Unreleased]
 
 ### Added
+- **v6.3.21 part 2 — Runtime lookup helper + Day-7 / give-up-nudge wiring.**
+  Two pieces folded into the v6.3.21 scope:
+  1. **Runtime lookup helper.** New module
+     `backend/app/services/whatsapp_templates.py` ships `resolve_template`,
+     `ResolvedTemplate`, `UnknownEventError`, `ArgCountMismatchError`,
+     `known_events`, and the `EVENT_ROUTING` dict (single source of
+     "internal event name" → "Meta template name"). The helper centralises
+     what previously would have been ad-hoc plumbing in seven dispatcher
+     files: language fallback (`hi` → `en_US` with logged warning),
+     placeholder-count validation against the Meta `{{n}}` count, and a
+     `ResolvedTemplate` dataclass carrying both the rendered Python
+     string (mock-mode logs + audit trail) and the str-coerced
+     `meta_params` list (production-mode Interakt POST). New test file
+     `backend/tests/test_whatsapp_templates.py` adds a 25-event coverage
+     invariant + 12 unit tests for happy paths, fallback, error paths,
+     and str-coercion.
+  2. **4 newly-submitted Meta templates wired** (`zetaops_owner_day7_insight`
+     en_US + hi for v6.3.16 First-Insight Gate;
+     `zetaops_engagement_give_up_nudge` en_US + hi for v6.4.0 engagement
+     ladder fallback). 4 constants added to a new Section 5 in
+     `message_formatters.py`; 4 rows added to `PYTHON_CONSTANT_BINDINGS`;
+     4 entries appended to `whatsapp_meta_templates.json` with
+     `"status": "pending_meta_approval"` until Meta review completes;
+     2 rows added to `EVENT_ROUTING`. New utility script
+     `backend/scripts/merge_approved_templates.py` clears
+     `draft_pending_meta_submission` + `pending_meta_approval` status
+     flags on any registry entry that carries them (idempotent, runs
+     post-approval).
+
+  Counts after this iteration: 40 `META_TEMPLATES` entries, 40 bound
+  Python constants, 25 events in `EVENT_ROUTING`, AC 23-AC7 audit
+  parametrises across 40 entries. Full unit-tier suite: **1181 passed,
+  3 skipped, 0 failed** (+41 from the pre-v6.3.21-part-2 baseline of
+  1140: 4 new AC 23-AC7 cases + 25 coverage invariant + 12 lookup-helper
+  unit tests). No Meta API submissions in this iteration. No new feature
+  flag. No dispatcher wiring of the new 4 (separate iteration when
+  caller data shapes catch up). Migration head unchanged at 034.
+
 - **v6.3.22a — Normalised the 4 v6.3.18 constants to positional placeholders.**
   `MORNING_BRIEFING_EN`, `MORNING_BRIEFING_HI`, `CONFLICT_ALERT_EN`,
   `DELAY_ALERT_EN` in `app/services/message_formatters.py` converted from
