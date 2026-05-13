@@ -40,6 +40,39 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ## [Unreleased]
 
 ### Added
+-
+
+### Changed
+-
+
+### Fixed
+-
+
+### Migration
+-
+
+### Notes
+-
+
+---
+
+## [v6.3.21] — 2026-05-13
+**Branch:** v5-whatsapp
+**Spec:** SRS Section 23 (Voice/Tone/Formatting) — full inventory wiring
+
+Closes the Meta WhatsApp template inventory on the Python side. Three
+pieces under one tag: the v6.3.21 part 1 full-inventory wiring (32
+constants → 36 of 36 entries bound), a v6.3.22a style normalisation
+that converted the 4 v6.3.18 constants from named to positional
+placeholders (so the file has one consistent convention across all
+constants), and a v6.3.21 part 2 follow-up that ships the runtime
+lookup helper (`resolve_template`) plus 4 newly-submitted Meta
+templates (Day-7 First-Insight + engagement give-up-nudge, both EN
+and HI, all 4 PENDING Meta approval). One small fix in the same
+release clears the v6.3.18 transition flag on the now-approved
+Hindi conflict-alert entry.
+
+### Added
 - **v6.3.21 part 2 — Runtime lookup helper + Day-7 / give-up-nudge wiring.**
   Two pieces folded into the v6.3.21 scope:
   1. **Runtime lookup helper.** New module
@@ -121,13 +154,37 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 -
 
 ### Fixed
--
+- **v6.3.21 — Cleared the v6.3.18 transition flag on the now-approved
+  Hindi conflict-alert entry.** Removed `"status": "draft_pending_meta_submission"`
+  from the `(zetaops_job_conflict_alert, hi)` entry in
+  `app/services/whatsapp_meta_templates.json`. Meta has approved the
+  Hindi sibling; the flag was a one-off transition guard from v6.3.18.
+  Deleted the two AC 23-AC8 tests in `tests/test_message_templates.py`
+  that asserted the flag's presence (they would now report the JSON as
+  broken) — replaced with a comment block explaining why they're gone
+  and pointing to AC 23-AC7 as the still-active placeholder-count
+  parity guard for the same entry. Updated two stale docstrings in
+  `app/services/message_formatters.py` and
+  `app/services/message_templates.py` that referenced the removed
+  flag. No production code path gated behaviour on this specific status
+  value — `scripts/merge_approved_templates.py` is the only consumer
+  and it treats the flag as a "clear me" marker rather than reading it
+  for routing decisions. Mock-mode dispatchers ignore status entirely.
+  Final pending flags in the JSON: 4 × `pending_meta_approval` (the
+  Day-7 + give-up-nudge entries from v6.3.21 part 2); 0 ×
+  `draft_pending_meta_submission`.
 
 ### Migration
--
+- None. Migration head unchanged at 034.
 
 ### Notes
--
+- Tag `v6.3.21` annotated, matching the v6.3.x series convention.
+- Doc-trinity status post-tag: SRS v6.6 is not refreshed in this
+  release (the v6.3.21 work doesn't change a spec section — it
+  finishes the v6.3.18 inventory wiring). CLAUDE.md "Current state in
+  one paragraph" still references v6.3.19.1 as the last shipped release
+  and would need updating to mention v6.3.20 + v6.3.21 — separate
+  narrative refresh, not a release blocker.
 
 ---
 
