@@ -40,19 +40,89 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ## [Unreleased]
 
 ### Added
--
+- **v6.3.22 — Channel-decision send helper (SRS §6.28.6).** New module
+  `backend/app/services/whatsapp_send_helper.py` ships
+  `send_with_window_decision()` + `SendOutcome` as the single outbound
+  entry point that respects Meta's 24-hour conversation window. The
+  helper reads `phone_tenant_map.last_seen_at`, picks free-form vs HSM
+  template per recipient, builds the Meta template POST body
+  (HEADER/BODY split via `META_TEMPLATES["components"]`), and writes
+  one of five new audit `event_type`s per outcome:
+  `whatsapp.freeform_sent`, `whatsapp.template_sent`,
+  `whatsapp.template_param_mismatch`, `whatsapp.window_expired_no_template`,
+  `whatsapp.template_rejected`. Mock mode emits a new `[MOCK TEMPLATE]`
+  breadcrumb that carries `event_template=`, `language=`, and `params=`
+  alongside the existing `[MOCK SEND]` / `[MOCK ALERT]` lines. No new
+  column or migration — the doc's proposed migration 035 +
+  `last_inbound_at` was dropped after audit confirmed `last_seen_at`
+  is written exclusively by `resolve_identity()` on inbound paths
+  (callsites: `whatsapp.py:388/678/726`). Migration head stays at 034.
+
+- **v6.3.22 — 5 dispatchers refactored through the helper.**
+  Four consolidated-briefing dispatchers
+  (`_dispatch_one` → morning + evening; `dispatch_delay_alert`;
+  `dispatch_conflict_alert` in `backend/app/services/consolidated_briefing.py`)
+  plus `send_invite_welcome` in `team_invite_whatsapp.py` now route
+  their per-recipient sends through `send_with_window_decision`.
+  Each callsite keeps its existing field-computation logic; only the
+  final wire-send step changes. `_render_morning_message` now returns
+  `(rendered_text, args_tuple)` so the same positional args drive both
+  the in-window free-form `.format()` call and the out-of-window
+  template path's `resolve_template`. New event names from v6.3.21's
+  `EVENT_ROUTING` used: `morning_briefing` (morning + evening dispatch
+  — evening template proper deferred to v6.4), `job_ending_soon` (delay
+  alert reuses the same template per v6.3.19.1 cutover note),
+  `job_conflict_alert`, `invite_team_member`. The `_send_alert` path
+  in `whatsapp_alerts.py` (and its 5 dependent callers
+  — machine_breakdown, manager_checkin, owner_briefing_from_checkin,
+  legacy briefings dispatcher, send_morning_briefing fallback) stays
+  on the free-form path for this iteration; Day-7 insight dispatcher
+  also stays on free-form because each detector's `SignalCandidate`
+  does not yet carry the 6 positional args the
+  `zetaops_owner_day7_insight` template expects (deferred alongside
+  v6.4.0 engagement-ladder work).
+
+- **v6.3.22 — Unit tests for the helper.**
+  `backend/tests/services/test_whatsapp_send_helper.py` adds 8 unit
+  tests covering the 5 channel-decision outcomes + mock-template log
+  format + content-equivalence between free-form and template render
+  paths + Hindi (no-fallback) happy path. The existing
+  `mock_meta_sender` fixture in
+  `tests/services/test_consolidated_briefing.py` was rebound to patch
+  the helper module's `_send_whatsapp_message` (previously patched the
+  source-module reference that the helper no longer holds), and
+  `_make_phone_map` now seeds `last_seen_at` to "now" by default so
+  the existing dispatcher tests stay on the free-form branch and the
+  recorder still captures the rendered text the original assertions
+  expect.
 
 ### Changed
--
+- **v6.3.22 — `_render_morning_message` signature.** Returns
+  `(rendered_text, args_tuple)` instead of `rendered_text`. Single
+  callsite (`_dispatch_one` in same file) updated; no tests reference
+  this function directly.
 
 ### Fixed
 -
 
 ### Migration
--
+- None. Migration head unchanged at 034. The v6.3.22 doc's proposed
+  migration 035 (`phone_tenant_map.last_inbound_at`) was dropped after
+  the inbound-only audit confirmed reuse of `last_seen_at` was safe.
 
 ### Notes
--
+- Mock-mode end-to-end: the new template wire path
+  (`_post_template_to_meta`) logs `[MOCK TEMPLATE]` and returns a
+  synthetic wamid in mock mode. The real-mode POST builds a
+  positional-component Meta payload using `_split_meta_params` to
+  divide `meta_params` into HEADER vs BODY component arrays — exercised
+  only after Meta Business portfolio approval flips
+  `WHATSAPP_MOCK_MODE=False`.
+- Unit-tier suite: **1187 passed, 3 skipped, 0 failed** (+8 from the
+  v6.3.21 baseline of 1179 — the 8 helper unit tests).
+- Verification gates: `npx tsc --noEmit` clean (no frontend touched),
+  `python -m py_compile app/` clean, `alembic heads` reports `034
+  (head)` single head.
 
 ---
 

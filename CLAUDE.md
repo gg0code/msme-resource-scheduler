@@ -162,12 +162,12 @@ CI. Run them manually before any release tag.
 
 Test suite baseline as of v6.3.0-whatsapp-industry: **332 passing**.
 Earlier baseline at v6.2.2-test-recovery: 199 passing. The jump came
-from v6.3 work, not new test infrastructure. **Current as of v6.3.19.1:**
-**1052 passing** unit-tier (`-m "not integration"`), **31 passing**
-integration-tier (`tests/integration/test_2d_dispatcher.py`),
-**0 xfailed** (v6.3.19's 13 detector xfails were closed in v6.3.19.1
-slice 3A via the `freezegun` anchor fixture + 90-day verification
-harness).
+from v6.3 work, not new test infrastructure. **Current as of v6.3.22
+(untagged):** **1187 passing** unit-tier (`-m "not integration"`),
+**31 passing** integration-tier (`tests/integration/test_2d_dispatcher.py`),
+**0 xfailed**. v6.3.22 added 8 channel-decision-helper unit tests; the
+v6.3.20–v6.3.21 work added the rest from the v6.3.19.1 baseline of
+1052.
 
 ---
 
@@ -214,7 +214,8 @@ Use with `WHATSAPP_MOCK_MODE=True`. SRS §22.
 
 ## Current state in one paragraph (as of 2026-05-13)
 
-**Shipped through v6.3.21 (Meta template inventory closure, tagged 2026-05-13).**
+**Shipped through v6.3.21 (Meta template inventory closure, tagged 2026-05-13);
+v6.3.22 landed untagged.**
 v6.3.0-whatsapp-industry fixed BUG-6 (industry attribution on
 `PhoneTenantMap`). v6.3.3 added the events audit table (migration 028).
 v6.3.4 landed the daily push briefing dispatcher. v6.3.5 consolidated
@@ -285,7 +286,33 @@ v6.4.0 engagement-ladder fallback — carry
 `status: pending_meta_approval` in the JSON until Meta review
 completes. New utility `scripts/merge_approved_templates.py` clears
 pending status flags post-approval (idempotent; handles both
-`draft_pending_meta_submission` and `pending_meta_approval`). The
+`draft_pending_meta_submission` and `pending_meta_approval`).
+**v6.3.22 wires the channel-decision send infrastructure** (SRS §6.28.6,
+untagged): new module `app/services/whatsapp_send_helper.py` ships
+`send_with_window_decision()` + `SendOutcome` as the single outbound
+entry point that respects Meta's 24h conversation window. Reads
+`phone_tenant_map.last_seen_at`, picks free-form vs HSM template per
+recipient, builds the Meta template POST body (HEADER/BODY split via
+`META_TEMPLATES["components"]`), and writes one of five new dotted
+audit `event_type`s — `whatsapp.freeform_sent` /
+`whatsapp.template_sent` / `whatsapp.template_param_mismatch` /
+`whatsapp.window_expired_no_template` / `whatsapp.template_rejected`.
+Mock mode emits a new `[MOCK TEMPLATE]` breadcrumb alongside the
+existing `[MOCK SEND]` / `[MOCK ALERT]` lines. Five send paths route
+through the helper: `_dispatch_one` (morning + evening) +
+`dispatch_delay_alert` + `dispatch_conflict_alert` in
+`consolidated_briefing.py`, and `send_invite_welcome` in
+`team_invite_whatsapp.py`. `_render_morning_message` returns
+`(rendered_text, args_tuple)` so the same positional args drive both
+the in-window `.format()` and the out-of-window `resolve_template`
+path. Day-7 insight dispatcher + the 5 `_send_alert` callsites in
+`whatsapp_alerts.py` stay on free-form for this iteration (each
+detector's `SignalCandidate` does not yet carry the 6 positional args
+the `zetaops_owner_day7_insight` template expects; deferred alongside
+v6.4.0). **No migration** — the doc's proposed migration 035 +
+`last_inbound_at` column was dropped after audit confirmed
+`last_seen_at` is written exclusively by `resolve_identity()` on
+inbound paths (call sites: `whatsapp.py:388/678/726`). The
 WhatsApp production cutover (originally planned as v5.11; shipped at
 v6.3.7 + v6.3.8 on 2026-05-03) is engineering-complete; **Meta
 Business portfolio approval** remains to flip `WHATSAPP_MOCK_MODE`

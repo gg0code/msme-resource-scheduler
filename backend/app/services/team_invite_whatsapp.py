@@ -45,6 +45,7 @@ from app.config import settings
 from app.models.auth import User
 from app.models.event import Event
 from app.services.whatsapp_send import _send_whatsapp_message
+from app.services.whatsapp_send_helper import send_with_window_decision
 
 
 logger = logging.getLogger(__name__)
@@ -141,7 +142,8 @@ def send_invite_welcome(
     if settings.WHATSAPP_MOCK_MODE:
         # Format MUST match whatsapp_alerts._send_alert so log-grep tests
         # share the same matcher. Truncate at 150 chars to mirror that
-        # function exactly.
+        # function exactly. Retained on the v6.3.22 helper-routed path
+        # so test_team_invite_v6_3_5.py continues to find the breadcrumb.
         logger.info(
             f"[MOCK ALERT] Type=invite_welcome "
             f"To=****{phone_e164[-4:]} "
@@ -154,9 +156,41 @@ def send_invite_welcome(
         )
         dispatch_mode = "dispatched"
 
+    # v6.3.22: compute the 5 positional args for INVITE_TEAM_MEMBER_EN/HI.
+    # Invite recipients by definition have never messaged us, so the
+    # helper's last_seen_at lookup returns None and the template path
+    # fires. The {0..4} slots are (invitee_name, inviter_name,
+    # tenant_name, role_label, what_they_receive).
+    inviter = db.get(User, actor_user_id)
+    # User has no first_name column today — use the local part of the
+    # email as a best-effort display (matches what the v6.4 plumbed
+    # inviter_name field will eventually carry).
+    inviter_email = getattr(inviter, "email", None) or ""
+    inviter_display = inviter_email.split("@", 1)[0] if inviter_email else "your team"
+    role_label = (getattr(user, "role", None) or "team member").replace(
+        "_", " "
+    ).title()
+    template_args: tuple[str, str, str, str, str] = (
+        invitee_name or "",
+        inviter_display,
+        tenant_name,
+        role_label,
+        "daily briefings",
+    )
+
     # Bridge sync->async. The team service runs in FastAPI's sync request
     # threadpool, which has no live event loop, so asyncio.run is safe.
-    asyncio.run(_send_whatsapp_message(phone_e164, message))
+    asyncio.run(send_with_window_decision(
+        db=db,
+        tenant_id=user.tenant_id,
+        phone_e164=phone_e164,
+        event="invite_team_member",
+        language="en_US",
+        args=template_args,
+        free_form_text=message,
+        alert_type="invite_welcome",
+        actor_user_id=actor_user_id,
+    ))
 
     # Always emit the audit row so the dashboard can surface "n invites
     # dispatched" alongside v6.3.3 user.invited rows. dispatch_mode

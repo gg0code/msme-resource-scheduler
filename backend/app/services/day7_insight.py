@@ -1093,6 +1093,16 @@ async def _default_send(phone_number: str, message: str, alert_type: str) -> Non
     keep the two send paths import-independent so the briefing
     dispatcher and the Day-7 gate can each be moved between modules
     without dragging the other along.
+
+    v6.3.22 deferral — this path stays free-form. The Day-7 owner
+    template (zetaops_owner_day7_insight) is still pending Meta
+    approval (CHANGELOG v6.3.21 §4) and the SignalCandidate dataclass
+    does not yet carry the 6 positional args the template expects
+    (week_label, owner_first_name, pattern, evidence_1, evidence_2,
+    action). Routing this caller through whatsapp_send_helper.send_with
+    _window_decision will require extending each detector to surface
+    its template args; tracked alongside the v6.4.0 engagement-ladder
+    work.
     """
     from app.services.whatsapp_alerts import _send_alert  # late: avoids cycle
     await _send_alert(

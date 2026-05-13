@@ -434,6 +434,9 @@ from app.models.whatsapp import PhoneTenantMap  # noqa: E402
 from app.services import message_formatters  # noqa: E402
 from app.services.push_config import resolve_push_config  # noqa: E402
 from app.services.whatsapp_send import _send_whatsapp_message  # noqa: E402
+from app.services.whatsapp_send_helper import (  # noqa: E402
+    send_with_window_decision,
+)
 
 # Private cross-module imports from briefing_intelligence: composer's
 # _run_detectors and _select_signals expose the detector pipeline
@@ -685,8 +688,14 @@ def _render_morning_message(
     now: datetime,
     db: "Session",  # type: ignore[name-defined]
     locale: str = _DEFAULT_LOCALE,
-) -> str:
+) -> tuple[str, tuple[str, str, str, str, str, str]]:
     """Render the MORNING_BRIEFING template for one tenant.
+
+    Returns (rendered_text, args_tuple) where args_tuple is the
+    positional args list that fed .format(). The dispatcher passes
+    args_tuple through to whatsapp_send_helper.send_with_window_decision
+    so the template path can resolve the same field values into a
+    Meta HSM template payload (v6.3.22 §6.28.6).
 
     Called by:    dispatch_morning, dispatch_evening (this file).
     Calls into:   _compute_jobs_starting / _compute_continuing /
@@ -731,14 +740,15 @@ def _render_morning_message(
         if locale == "hi_en"
         else message_formatters.MORNING_BRIEFING_EN
     )
-    return template.format(
-        today.strftime("%d %b"),  # {0} — was {date}
-        jobs_starting,            # {1} — was {jobs_starting}
-        continuing,               # {2} — was {continuing}
-        crew_expected,            # {3} — was {crew_expected}
-        flag,                     # {4} — was {flag}
-        next_step,                # {5} — was {next_step}
+    args: tuple[str, str, str, str, str, str] = (
+        today.strftime("%d %b"),  # {0} — date
+        str(jobs_starting),        # {1} — jobs_starting (int -> str for template parity)
+        str(continuing),           # {2} — continuing
+        str(crew_expected),        # {3} — crew_expected
+        str(flag),                 # {4} — flag
+        str(next_step),            # {5} — next_step
     )
+    return template.format(*args), args
 
 
 async def _dispatch_one(
@@ -898,17 +908,59 @@ async def _dispatch_one(
         )
 
     # Render. Slice 2C uses _DEFAULT_LOCALE for all recipients (A1).
-    rendered = _render_morning_message(tenant_id, now, db, locale=_DEFAULT_LOCALE)
+    # v6.3.22: rendered carries the free-form text (in-window path);
+    # args feeds the Meta HSM template (out-of-window path) via the
+    # channel-decision helper.
+    rendered, args = _render_morning_message(
+        tenant_id, now, db, locale=_DEFAULT_LOCALE,
+    )
+    # Translate dispatcher locale to whatsapp_templates language code:
+    # 'hi_en' (Hinglish content via MORNING_BRIEFING_HI) -> 'hi';
+    # 'en' -> 'en_US'.
+    template_language = "hi" if _DEFAULT_LOCALE == "hi_en" else "en_US"
+    # Slice 2C limitation: evening dispatches still use the morning
+    # template content. Until the v6.4 evening fields land, route
+    # evening's template path to the morning template too.
+    template_event = "morning_briefing"
 
-    # Send + per-recipient failure logging. One failure does not stop
-    # the loop — other recipients still attempt.
+    # Send + per-recipient failure logging. The channel-decision helper
+    # never raises; the try/except guards remain as defence-in-depth
+    # for unexpected DB or Meta SDK errors that escape the helper.
     sent_count = 0
     last_error: str | None = None
     for r in recipients:
         try:
-            await _send_whatsapp_message(r.phone_number, rendered)
-            sent_count += 1
-        except Exception as exc:  # noqa: BLE001 — Meta SDK raises many types
+            outcome = await send_with_window_decision(
+                db=db,
+                tenant_id=tenant_id,
+                phone_e164=r.phone_number,
+                event=template_event,
+                language=template_language,
+                args=args,
+                free_form_text=rendered,
+                alert_type=f"push_{kind}",
+            )
+            if outcome.success:
+                sent_count += 1
+            else:
+                last_error = outcome.error or "send_failed"
+                emit(
+                    "send_failed",
+                    {
+                        "scheduled_for_date": scheduled_for_str,
+                        "phone": r.phone_number,
+                        "error": last_error,
+                        "now": now_str,
+                        "outcome_path": outcome.path,
+                    },
+                )
+                _log.warning(
+                    "push.%s send_failed tenant=%s phone=****%s "
+                    "path=%s error=%s",
+                    kind, tenant_id, r.phone_number[-4:],
+                    outcome.path, last_error,
+                )
+        except Exception as exc:  # noqa: BLE001 — defence in depth
             last_error = str(exc) or exc.__class__.__name__
             emit(
                 "send_failed",
@@ -1694,20 +1746,55 @@ async def dispatch_delay_alert(
         )
 
     fields = _compute_delay_alert_fields(job, now, db)
-    rendered = message_formatters.DELAY_ALERT_EN.format(
-        fields["job_name"],        # {0} — was {job_name}
-        fields["customer"],        # {1} — was {customer}
-        fields["time_remaining"],  # {2} — was {time_remaining}
-        fields["progress"],        # {3} — was {progress}
-        fields["next_job"],        # {4} — was {next_job}
+    # v6.3.22: args feeds the Meta template path; rendered feeds the
+    # in-window free-form path. Both derive from the same field values.
+    args: tuple[str, str, str, str, str] = (
+        str(fields["job_name"]),       # {0}
+        str(fields["customer"]),       # {1}
+        str(fields["time_remaining"]), # {2}
+        str(fields["progress"]),       # {3}
+        str(fields["next_job"]),       # {4}
     )
+    rendered = message_formatters.DELAY_ALERT_EN.format(*args)
 
     sent_count = 0
     last_error: str | None = None
     for r in recipients:
         try:
-            await _send_whatsapp_message(r.phone_number, rendered)
-            sent_count += 1
+            outcome = await send_with_window_decision(
+                db=db,
+                tenant_id=tenant_id,
+                phone_e164=r.phone_number,
+                event="job_ending_soon",
+                language="en_US",
+                args=args,
+                free_form_text=rendered,
+                alert_type="push_delay",
+            )
+            if outcome.success:
+                sent_count += 1
+            else:
+                last_error = outcome.error or "send_failed"
+                row = _log_event(
+                    tenant_id=tenant_id,
+                    event_type=_EVENT_PUSH_DELAY_SEND_FAILED,
+                    payload={
+                        "scheduled_for_date": scheduled_for_str,
+                        "phone": r.phone_number,
+                        "error": last_error,
+                        "now": now_str,
+                        "job_id": job_id,
+                        "outcome_path": outcome.path,
+                    },
+                    db=db,
+                )
+                last_event_id = row.id
+                _log.warning(
+                    "push.delay send_failed tenant=%s phone=****%s "
+                    "path=%s error=%s",
+                    tenant_id, r.phone_number[-4:],
+                    outcome.path, last_error,
+                )
         except Exception as exc:  # noqa: BLE001
             last_error = str(exc) or exc.__class__.__name__
             row = _log_event(
@@ -1844,20 +1931,53 @@ async def dispatch_conflict_alert(
         )
 
     fields = _compute_conflict_alert_fields(conflict_payload)
-    rendered = message_formatters.CONFLICT_ALERT_EN.format(
-        fields["job_a"],      # {0} — was {job_a}
-        fields["job_b"],      # {1} — was {job_b}
-        fields["resource"],   # {2} — was {resource}
-        fields["window"],     # {3} — was {window}
-        fields["next_step"],  # {4} — was {next_step}
+    args: tuple[str, str, str, str, str] = (
+        str(fields["job_a"]),     # {0}
+        str(fields["job_b"]),     # {1}
+        str(fields["resource"]),  # {2}
+        str(fields["window"]),    # {3}
+        str(fields["next_step"]), # {4}
     )
+    rendered = message_formatters.CONFLICT_ALERT_EN.format(*args)
 
     sent_count = 0
     last_error: str | None = None
     for r in recipients:
         try:
-            await _send_whatsapp_message(r.phone_number, rendered)
-            sent_count += 1
+            outcome = await send_with_window_decision(
+                db=db,
+                tenant_id=tenant_id,
+                phone_e164=r.phone_number,
+                event="job_conflict_alert",
+                language="en_US",
+                args=args,
+                free_form_text=rendered,
+                alert_type="push_conflict",
+            )
+            if outcome.success:
+                sent_count += 1
+            else:
+                last_error = outcome.error or "send_failed"
+                row = _log_event(
+                    tenant_id=tenant_id,
+                    event_type=_EVENT_PUSH_CONFLICT_SEND_FAILED,
+                    payload={
+                        "scheduled_for_date": scheduled_for_str,
+                        "phone": r.phone_number,
+                        "error": last_error,
+                        "now": now_str,
+                        "conflict_payload": conflict_payload,
+                        "outcome_path": outcome.path,
+                    },
+                    db=db,
+                )
+                last_event_id = row.id
+                _log.warning(
+                    "push.conflict send_failed tenant=%s phone=****%s "
+                    "path=%s error=%s",
+                    tenant_id, r.phone_number[-4:],
+                    outcome.path, last_error,
+                )
         except Exception as exc:  # noqa: BLE001
             last_error = str(exc) or exc.__class__.__name__
             row = _log_event(

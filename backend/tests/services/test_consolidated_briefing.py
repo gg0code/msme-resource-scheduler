@@ -548,22 +548,30 @@ def patch_now_defaults_for_sqlite():
 
 @pytest.fixture
 def mock_meta_sender(monkeypatch):
-    """Replace _send_whatsapp_message in consolidated_briefing with a recorder.
+    """Replace the WhatsApp send transport with a recorder.
 
     Yields a list that accumulates one dict per call:
         {"phone": phone_e164, "message": rendered_string}
 
-    Tests assert against the recorded list. Patches the symbol in the
-    consolidated_briefing namespace specifically — patching the source
-    module would not affect already-imported references.
+    Tests assert against the recorded list.
+
+    v6.3.22 — v6.3.19's dispatcher used to call _send_whatsapp_message
+    directly. With the channel-decision helper in place the dispatcher
+    routes through send_with_window_decision instead. This fixture
+    patches the helper module's _send_whatsapp_message (the freeform
+    branch). Test phone-tenant-map rows seed last_seen_at to "now" so
+    the helper picks the freeform branch and the recorder captures
+    the rendered free-form text — preserving the pre-v6.3.22
+    assertion shape.
     """
     sent: list[dict] = []
 
-    async def fake_send(phone: str, message: str) -> None:
+    async def fake_send(phone: str, message: str) -> str:
         sent.append({"phone": phone, "message": message})
+        return "mock_wamid_fixture"
 
     monkeypatch.setattr(
-        "app.services.consolidated_briefing._send_whatsapp_message",
+        "app.services.whatsapp_send_helper._send_whatsapp_message",
         fake_send,
     )
     return sent
@@ -592,6 +600,7 @@ def _make_phone_map(
     db, *, tenant_id: int, user_id: int, phone: str,
     phone_role: str = "owner", is_active: bool = True,
     alert_preferences: dict | None = None,
+    last_seen_at: "datetime | None" = None,
 ) -> PhoneTenantMap:
     """Insert a PhoneTenantMap row with sensible defaults.
 
@@ -602,9 +611,18 @@ def _make_phone_map(
     The alert_preferences default is a dict with both push_morning and
     push_evening set to True so a tenant in the test DB receives both
     pushes by default. Override per-test for opt-out scenarios.
+
+    v6.3.22 — last_seen_at defaults to "now" (UTC) so the
+    whatsapp_send_helper picks the in-window free-form path during
+    these dispatcher tests, matching the pre-v6.3.22 wire behaviour
+    the rest of the assertions expect. Tests exercising out-of-window
+    behaviour set last_seen_at=None or a stale timestamp explicitly.
     """
     if alert_preferences is None:
         alert_preferences = {"push_morning": True, "push_evening": True}
+    if last_seen_at is None:
+        from datetime import datetime as _dt, timezone as _tz
+        last_seen_at = _dt.now(_tz.utc)
     m = PhoneTenantMap(
         tenant_id=tenant_id,
         user_id=user_id,
@@ -612,6 +630,7 @@ def _make_phone_map(
         is_active=is_active,
         phone_role=phone_role,
         alert_preferences=alert_preferences,
+        last_seen_at=last_seen_at,
     )
     db.add(m)
     db.flush()
@@ -798,11 +817,15 @@ async def test_dispatch_morning_meta_failure_does_not_raise(db, monkeypatch):
     returns DispatchResult with success=False — does not propagate."""
     t, _u, _p = _seed_tenant_with_owner(db)
 
-    async def boom(phone: str, message: str) -> None:
+    async def boom(phone: str, message: str) -> str:
         raise RuntimeError("Meta HTTP 500 — fake")
 
+    # v6.3.22 — the dispatcher routes through the channel-decision
+    # helper; the failure must surface from the helper's wire layer.
+    # _make_phone_map seeds last_seen_at to "now" by default, so the
+    # helper picks the free-form branch and calls _send_whatsapp_message.
     monkeypatch.setattr(
-        "app.services.consolidated_briefing._send_whatsapp_message",
+        "app.services.whatsapp_send_helper._send_whatsapp_message",
         boom,
     )
 
