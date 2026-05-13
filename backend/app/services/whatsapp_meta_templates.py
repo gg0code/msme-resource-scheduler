@@ -123,10 +123,53 @@ class MetaTemplate(TypedDict):
 # constant lands; the alignment audit will enforce placeholder parity on
 # the next test run.
 PYTHON_CONSTANT_BINDINGS: dict[tuple[str, str], str] = {
-    ("zetaops_morning_briefing",   "en_US"): "MORNING_BRIEFING_EN",
-    ("zetaops_morning_briefing",   "hi"):    "MORNING_BRIEFING_HI",
-    ("zetaops_job_conflict_alert", "en_US"): "CONFLICT_ALERT_EN",
-    ("zetaops_job_ending_soon",    "en_US"): "DELAY_ALERT_EN",
+    # --- v6.3.18 initial wiring (named-kwarg constants in Section 3) ---
+    ("zetaops_morning_briefing",            "en_US"): "MORNING_BRIEFING_EN",
+    ("zetaops_morning_briefing",            "hi"):    "MORNING_BRIEFING_HI",
+    ("zetaops_job_conflict_alert",          "en_US"): "CONFLICT_ALERT_EN",
+    ("zetaops_job_ending_soon",             "en_US"): "DELAY_ALERT_EN",
+    # --- v6.3.21 full inventory wiring (positional constants in Section 4) ---
+    # Onboarding & consent
+    ("zetaops_welcome_consent",             "en_US"): "WELCOME_CONSENT_EN",
+    ("zetaops_welcome_consent",             "hi"):    "WELCOME_CONSENT_HI",
+    ("zetaops_workspace_ready",             "en_US"): "WORKSPACE_READY_EN",
+    # Briefings
+    ("zetaops_evening_briefing",            "en_US"): "EVENING_BRIEFING_EN",
+    # Manager check-in
+    ("zetaops_manager_checkin",             "en_US"): "MANAGER_CHECKIN_EN",
+    ("zetaops_manager_checkin",             "hi"):    "MANAGER_CHECKIN_HI",
+    # Operational alerts
+    ("zetaops_machine_breakdown_alert",     "en_US"): "MACHINE_BREAKDOWN_ALERT_EN",
+    ("zetaops_job_conflict_alert",          "hi"):    "JOB_CONFLICT_ALERT_HI",
+    ("zetaops_attendance_flag",             "en_US"): "ATTENDANCE_FLAG_EN",
+    # Order intake
+    ("zetaops_order_confirmation_request",  "en_US"): "ORDER_CONFIRMATION_REQUEST_EN",
+    # Compliance
+    ("zetaops_compliance_reminder_t30",     "en_US"): "COMPLIANCE_REMINDER_T30_EN",
+    ("zetaops_compliance_reminder_t7",      "en_US"): "COMPLIANCE_REMINDER_T7_EN",
+    ("zetaops_compliance_reminder_t1",      "en_US"): "COMPLIANCE_REMINDER_T1_EN",
+    # Team invite
+    ("zetaops_invite_team_member",          "en_US"): "INVITE_TEAM_MEMBER_EN",
+    ("zetaops_invite_team_member",          "hi"):    "INVITE_TEAM_MEMBER_HI",
+    ("zetaops_manager_activated",           "en_US"): "MANAGER_ACTIVATED_EN",
+    ("zetaops_manager_activated",           "hi"):    "MANAGER_ACTIVATED_HI",
+    ("zetaops_manager_joined_owner_notice", "en_US"): "MANAGER_JOINED_OWNER_NOTICE_EN",
+    ("zetaops_manager_joined_owner_notice", "hi"):    "MANAGER_JOINED_OWNER_NOTICE_HI",
+    ("zetaops_invite_pending_owner_nudge",  "en_US"): "INVITE_PENDING_OWNER_NUDGE_EN",
+    ("zetaops_invite_pending_owner_nudge",  "hi"):    "INVITE_PENDING_OWNER_NUDGE_HI",
+    # Manager engagement ladder
+    ("zetaops_manager_input_acknowledged",  "en_US"): "MANAGER_INPUT_ACKNOWLEDGED_EN",
+    ("zetaops_manager_input_acknowledged",  "hi"):    "MANAGER_INPUT_ACKNOWLEDGED_HI",
+    ("zetaops_manager_reply_nudge",         "en_US"): "MANAGER_REPLY_NUDGE_EN",
+    ("zetaops_manager_reply_nudge",         "hi"):    "MANAGER_REPLY_NUDGE_HI",
+    ("zetaops_manager_day3_rhythm",         "en_US"): "MANAGER_DAY3_RHYTHM_EN",
+    ("zetaops_manager_day3_rhythm",         "hi"):    "MANAGER_DAY3_RHYTHM_HI",
+    ("zetaops_manager_day7_mirror",         "en_US"): "MANAGER_DAY7_MIRROR_EN",
+    ("zetaops_manager_day7_mirror",         "hi"):    "MANAGER_DAY7_MIRROR_HI",
+    # Performance & finance
+    ("zetaops_performance_summary_monthly", "en_US"): "PERFORMANCE_SUMMARY_MONTHLY_EN",
+    ("zetaops_performance_summary_monthly", "hi"):    "PERFORMANCE_SUMMARY_MONTHLY_HI",
+    ("zetaops_gst_einvoice_ready",          "en_US"): "GST_EINVOICE_READY_EN",
 }
 
 

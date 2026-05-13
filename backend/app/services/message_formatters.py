@@ -645,3 +645,339 @@ Placeholder map: a single named kwarg `first_name` — empty string is
 acceptable and renders as "Namaste ! 👋\\n" which the dispatcher should
 collapse via `_clean_extra_whitespace` before send.
 """
+
+
+# ===========================================================================
+# Section 4 — v6.3.21 full-inventory template wiring (32 constants)
+# ===========================================================================
+# Positional-placeholder convention (distinct from the named-kwarg style used
+# by the v6.3.18 constants above): HEADER {{1}}..{{H}} -> Python {0}..{H-1};
+# BODY {{1}}..{{B}} -> Python {H}..{H+B-1}; full string is HEADER + "\n\n" +
+# BODY (or BODY only when no HEADER). Each constant is paired 1:1 with the
+# matching Meta entry via PYTHON_CONSTANT_BINDINGS in
+# whatsapp_meta_templates.py. Slot-count parity with the JSON registry is
+# enforced by tests/test_message_templates.py::test_23_ac7_*.
+#
+# This iteration ships code-side wiring only. No Meta API submissions; no
+# runtime wiring into the dispatcher; no new feature flag. Hindi strings
+# preserve Devanagari + intentional Hinglish code-mixing byte-for-byte
+# (e.g. "kaam", "theek", "shukriya" inside Devanagari sentences).
+
+
+# ---------------------------------------------------------------------------
+# Onboarding & consent (3 constants)
+# ---------------------------------------------------------------------------
+
+WELCOME_CONSENT_EN = """Namaste {0}, welcome to ZetaOps Copilot.
+
+Reply YES to activate your shop's AI assistant. From tomorrow, you will receive a 7:30 AM briefing of the day's plan, attendance, and any blockers.
+
+Reply STOP anytime to opt out."""
+
+WELCOME_CONSENT_HI = """नमस्ते {0}, ZetaOps Copilot में आपका स्वागत है।
+
+अपने शॉप का AI assistant चालू करने के लिए YES भेजें। कल से, हर सुबह 7:30 बजे आपको दिन का प्लान, हाज़िरी और रुकावटों की जानकारी मिलेगी।
+
+कभी भी बंद करने के लिए STOP भेजें।"""
+
+WORKSPACE_READY_EN = """Connected. {0} is now active on ZetaOps Copilot.
+
+Your first morning briefing will arrive at {1} tomorrow.
+
+You can reply with questions anytime. Examples: kitna save hua is month, 5000 brochures ke liye kitna paper chahiye."""
+
+
+# ---------------------------------------------------------------------------
+# Evening briefing (1 constant; morning EN/HI already wired in Section 3)
+# ---------------------------------------------------------------------------
+
+EVENING_BRIEFING_EN = """Evening summary — {0}
+
+Today's actuals
+- Jobs completed: {1}
+- Hours logged: {2}
+- Attendance: {3}
+
+Blockers raised today: {4}
+
+For tomorrow: {5}
+
+Reply DETAIL to see the full report."""
+
+
+# ---------------------------------------------------------------------------
+# Manager check-in flow (2 constants)
+# ---------------------------------------------------------------------------
+
+MANAGER_CHECKIN_EN = """Good morning {0}. Quick check-in for {1}.
+
+1. Aaj kaun kaun aaya (who is in today)
+2. Machines theek hain (any downtime)
+3. Aaj ke main kaam (today's main jobs)
+
+Reply naturally. One message is fine."""
+
+MANAGER_CHECKIN_HI = """सुप्रभात {0}। {1} के लिए quick check-in।
+
+1. आज कौन कौन आया
+2. Machines ठीक हैं या कोई problem है
+3. आज के main काम क्या हैं
+
+सामान्य भाषा में जवाब दें। एक message काफी है।"""
+
+
+# ---------------------------------------------------------------------------
+# Operational alerts (3 constants; conflict EN + delay EN already wired)
+# ---------------------------------------------------------------------------
+
+MACHINE_BREAKDOWN_ALERT_EN = """Machine breakdown alert
+
+Hi, {0} is down. Reported by {1} at {2}.
+
+Issue: {3}
+Impact: {4}
+
+Options:
+1. Repair locally — {5}
+2. Move job to backup machine — {6}
+3. Inform customer, push delivery
+
+Reply 1, 2, or 3 to choose."""
+
+JOB_CONFLICT_ALERT_HI = """Schedule में conflict — action चाहिए
+
+दो Job एक ही समय पर एक ही Resource माँग रहे हैं।
+
+Job A: {0}
+Job B: {1}
+Resource: {2}
+Window: {3}
+
+सुझाव: {4}
+
+Apply करने के लिए YES या REVIEW भेजें।"""
+
+ATTENDANCE_FLAG_EN = """Attendance flag for {0}.
+
+{1} is absent today. Affected job: {2}
+
+Suggested cover: {3}
+
+Reply OK to apply the suggested cover, or NAME to assign someone else."""
+
+
+# ---------------------------------------------------------------------------
+# Order intake (1 constant)
+# ---------------------------------------------------------------------------
+
+ORDER_CONFIRMATION_REQUEST_EN = """New order — confirmation needed
+
+Hi, {0} — {1}.
+
+Raw material check: {2}
+Earliest start: {3}
+Estimated profit: {4}
+
+Reply CONFIRM to draft PO and block calendar, or HOLD to keep pending."""
+
+
+# ---------------------------------------------------------------------------
+# Compliance reminders (3 constants)
+# ---------------------------------------------------------------------------
+
+COMPLIANCE_REMINDER_T30_EN = """Compliance reminder — 30 days
+
+Hi, {0} is due in 30 days, on {1}.
+
+What to prepare: {2}
+
+Upload the document by replying with a photo or PDF. Reply REMIND to be reminded again in 7 days."""
+
+COMPLIANCE_REMINDER_T7_EN = """Compliance reminder — 7 days
+
+Hi, {0} is due in 7 days, on {1}.
+
+Status: {2}
+
+Upload the document by replying with a photo or PDF. Reply DONE if already filed offline."""
+
+COMPLIANCE_REMINDER_T1_EN = """Compliance reminder — due tomorrow
+
+Hi, {0} is due tomorrow, {1}.
+
+Status: {2}
+
+Upload the filed document by replying with a photo or PDF. Reply DONE if filed offline."""
+
+
+# ---------------------------------------------------------------------------
+# Team invite flow (8 constants)
+# ---------------------------------------------------------------------------
+
+INVITE_TEAM_MEMBER_EN = """Namaste {0}, {1} has added you to {2} on ZetaOps Copilot as {3}.
+
+Reply YES to activate your account. You will then receive {4}.
+
+Reply STOP anytime to opt out."""
+
+INVITE_TEAM_MEMBER_HI = """नमस्ते {0}, {1} ने आपको {2} में {3} के रूप में जोड़ा है (ZetaOps Copilot पर)।
+
+अपना account चालू करने के लिए YES भेजें। फिर आपको {4} मिलेगा।
+
+कभी भी बंद करने के लिए STOP भेजें।"""
+
+MANAGER_ACTIVATED_EN = """Welcome {0}. You are now connected to {1}.
+
+Tomorrow at {2}, I will message you 3 quick questions:
+1. Who is in today
+2. Any machine or equipment issues
+3. Today's main jobs or tasks
+
+You can reply in English, Hindi, or Hinglish. Typing names is fine. Voice notes also work.
+
+Your reply will become {3}'s morning briefing at {4}."""
+
+MANAGER_ACTIVATED_HI = """स्वागत है {0}। आप अब {1} से जुड़ गए हैं।
+
+कल सुबह {2} बजे मैं आपको 3 छोटे सवाल भेजूँगा:
+1. आज कौन कौन आया
+2. कोई machine या equipment problem है क्या
+3. आज के main काम क्या हैं
+
+आप English, हिंदी, या Hinglish — किसी में भी जवाब दे सकते हैं। नाम type करना ठीक है। Voice note भी चलेगा।
+
+आपका जवाब {3} की सुबह {4} बजे की briefing बनेगा।"""
+
+MANAGER_JOINED_OWNER_NOTICE_EN = """Update: {0} has accepted your invite and is now active as {1}.
+
+From tomorrow, your morning briefing at {2} will include their daily check-in: attendance, equipment status, and today's jobs.
+
+Reply HELP if you'd like to add another team member."""
+
+MANAGER_JOINED_OWNER_NOTICE_HI = """Update: {0} ने आपका invite accept कर लिया है। अब वो {1} के रूप में active हैं।
+
+कल से आपकी सुबह {2} बजे की briefing में उनकी daily check-in शामिल होगी — हाज़िरी, equipment की स्थिति, और आज के काम।
+
+और team member जोड़ने के लिए HELP भेजें।"""
+
+INVITE_PENDING_OWNER_NUDGE_EN = """Quick note: {0} hasn't replied YES to the invite yet. Sent {1}.
+
+If you want them onboard for tomorrow's briefing, a quick call or message from your side usually helps.
+
+Reply RESEND to send the invite again, or REMOVE to cancel."""
+
+INVITE_PENDING_OWNER_NUDGE_HI = """एक छोटी सी बात: {0} ने अभी तक invite का YES जवाब नहीं दिया है। {1} भेजा था।
+
+अगर कल की briefing में उन्हें शामिल करना है, तो आपकी तरफ से एक call या message आमतौर पर मदद करता है।
+
+Invite दुबारा भेजने के लिए RESEND, या cancel करने के लिए REMOVE भेजें।"""
+
+
+# ---------------------------------------------------------------------------
+# Manager engagement ladder (8 constants)
+# ---------------------------------------------------------------------------
+
+MANAGER_INPUT_ACKNOWLEDGED_EN = """Thanks {0}. Today's check-in is recorded:
+- {1}
+- {2}
+- {3}
+
+Your input went into {4}'s briefing this morning. Same 3 questions tomorrow at {5}.
+
+Reply CHANGE if any of today's info was wrong."""
+
+MANAGER_INPUT_ACKNOWLEDGED_HI = """Shukriya {0}। आज का check-in record हो गया:
+- {1}
+- {2}
+- {3}
+
+आपकी जानकारी {4} की आज सुबह की briefing में गई। कल भी यही 3 सवाल — सुबह {5} बजे।
+
+अगर आज की कोई जानकारी गलत थी, तो CHANGE भेजें।"""
+
+MANAGER_REPLY_NUDGE_EN = """Just a reminder {0}. The 3 quick questions are still open:
+1. Who is in today
+2. Any machine issues
+3. Today's main jobs
+
+Even a one-line reply works. {1} is waiting on this for the morning view.
+
+Reply LATER if you'll send it after {2}, or SKIP to skip today."""
+
+MANAGER_REPLY_NUDGE_HI = """एक छोटा सा reminder {0}। 3 सवाल अभी भी open हैं:
+1. आज कौन कौन आया
+2. Machine में कोई problem है
+3. आज के main काम
+
+एक-line का जवाब भी काफ़ी है। {1} सुबह की view के लिए इसका इंतज़ार कर रहे हैं।
+
+अगर {2} के बाद भेजेंगे तो LATER, और आज skip करना है तो SKIP भेजें।"""
+
+MANAGER_DAY3_RHYTHM_EN = """{0}, 3 days in. Quick note from my side:
+
+{1}
+
+Your check-ins are reaching {2} on time every morning. Keep going — by next week the system will start spotting patterns you might miss in the daily rush."""
+
+MANAGER_DAY3_RHYTHM_HI = """{0}, 3 दिन हो गए। एक छोटी सी बात:
+
+{1}
+
+आपकी check-in हर सुबह time पर {2} तक पहुँच रही है। ऐसे ही चलाते रहिए — अगले हफ़्ते से system ऐसे patterns दिखाने लगेगा जो रोज़ की भागदौड़ में miss हो जाते हैं।"""
+
+MANAGER_DAY7_MIRROR_EN = """1 week complete {0}. Here's what your check-ins made possible:
+
+- {1}
+- {2}
+- {3}
+
+{4} also got a deeper insight this morning based on the full week. If they ask you about it today, you'll know the context.
+
+Reply SUMMARY to see your week in one view."""
+
+MANAGER_DAY7_MIRROR_HI = """एक हफ़्ता पूरा हुआ {0}। आपकी check-ins से ये सब हो पाया:
+
+- {1}
+- {2}
+- {3}
+
+{4} को आज सुबह पूरे हफ़्ते का एक deeper insight भी मिला है। अगर वो आज इस बारे में पूछें, तो आपको context पता होगा।
+
+अपने हफ़्ते का summary देखने के लिए SUMMARY भेजें।"""
+
+
+# ---------------------------------------------------------------------------
+# Performance and finance (3 constants)
+# ---------------------------------------------------------------------------
+
+PERFORMANCE_SUMMARY_MONTHLY_EN = """Monthly performance summary — {0}
+
+Performance summary for {1}.
+
+Cost saved vs baseline: ₹{2}
+Hours saved: {3}
+Schedule conflicts prevented: {4}
+Jobs completed on time: {5}
+
+Reply DETAIL for the full breakdown."""
+
+PERFORMANCE_SUMMARY_MONTHLY_HI = """महीने का performance summary — {0}
+
+Hi, {1} के लिए performance summary।
+
+Baseline से कम लागत: ₹{2}
+बचे घंटे: {3}
+रोके गए schedule conflicts: {4}
+समय पर पूरे हुए जॉब्स: {5}
+
+पूरी detail के लिए DETAIL भेजें।"""
+
+GST_EINVOICE_READY_EN = """GST e-invoice ready
+
+E-invoice JSON for {0} is ready.
+
+Customer GSTIN: {1}
+Invoice value: ₹{2}
+File sent to: {3}
+
+Reply RESEND to receive the JSON file again on WhatsApp, or CHANGE if customer GSTIN was wrong."""

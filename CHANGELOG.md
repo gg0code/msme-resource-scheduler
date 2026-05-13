@@ -40,7 +40,22 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ## [Unreleased]
 
 ### Added
--
+- **v6.3.21 — Meta template constants wiring (full inventory).** 32 new
+  template constants appended to `app/services/message_formatters.py` in
+  a new Section 4 (onboarding & consent, evening briefing, manager
+  check-in, operational alerts, order intake, compliance reminders,
+  team invite, manager engagement ladder, performance & finance).
+  `PYTHON_CONSTANT_BINDINGS` in `app/services/whatsapp_meta_templates.py`
+  extended from 4 → 36 entries — full coverage of the Meta WhatsApp
+  inventory in `whatsapp_meta_templates.json`. AC 23-AC7
+  placeholder-parity audit now parametrises across all 36 entries (was
+  4); 58/58 cases pass in `tests/test_message_templates.py`. New
+  constants use positional `{0}, {1}, ...` slots (HEADER `{{1}}..{{H}}`
+  → `{0}..{H-1}`; BODY `{{1}}..{{B}}` → `{H}..{H+B-1}`), distinct from
+  the v6.3.18 named-kwarg style of the four already-wired constants
+  (kept unchanged per spec). Hindi / Hinglish strings preserved
+  byte-for-byte. No Meta API submissions, no dispatcher wiring, no new
+  feature flag — code-side wiring only. Migration head unchanged at 034.
 
 ### Changed
 -
