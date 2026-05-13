@@ -66,39 +66,42 @@ _EMOJI_RE = re.compile(
 # template `example` fields where available).
 # ---------------------------------------------------------------------------
 
-MORNING_BRIEFING_SAMPLE = {
-    "date":           "Tuesday, 30 April",
-    "jobs_starting":  "3",
-    "continuing":     "1 (Patel brochures)",
-    "crew_expected":  "10 of 11",
-    "flag":           "Rakesh on leave — Bhatia cards may slip 2 hrs",
-    "next_step":      "Confirm Bhatia paper before 9 AM, or move Ramesh to cover",
-}
+# Positional after v6.3.22a normalisation — tuples in Meta {{n}} slot
+# order. Inline-comment names preserve the v6.3.18 named-kwarg semantics
+# for grep / review readability.
+MORNING_BRIEFING_SAMPLE = (
+    "Tuesday, 30 April",                                                # {0} — date
+    "3",                                                                # {1} — jobs_starting
+    "1 (Patel brochures)",                                              # {2} — continuing
+    "10 of 11",                                                         # {3} — crew_expected
+    "Rakesh on leave — Bhatia cards may slip 2 hrs",                    # {4} — flag
+    "Confirm Bhatia paper before 9 AM, or move Ramesh to cover",        # {5} — next_step
+)
 
-MORNING_BRIEFING_HI_SAMPLE = {
-    "date":           "मंगलवार, 30 अप्रैल",
-    "jobs_starting": "3",
-    "continuing":    "1 (पटेल brochures)",
-    "crew_expected": "10 में से 11",
-    "flag":          "राकेश छुट्टी पर — भाटिया cards 2 घंटे लेट हो सकता है",
-    "next_step":     "9 बजे से पहले भाटिया का paper confirm करें, या रमेश को मोदी job से शिफ्ट करें",
-}
+MORNING_BRIEFING_HI_SAMPLE = (
+    "मंगलवार, 30 अप्रैल",                                                  # {0} — date
+    "3",                                                                # {1} — jobs_starting
+    "1 (पटेल brochures)",                                                # {2} — continuing
+    "10 में से 11",                                                       # {3} — crew_expected
+    "राकेश छुट्टी पर — भाटिया cards 2 घंटे लेट हो सकता है",                          # {4} — flag
+    "9 बजे से पहले भाटिया का paper confirm करें, या रमेश को मोदी job से शिफ्ट करें",     # {5} — next_step
+)
 
-CONFLICT_ALERT_SAMPLE = {
-    "job_a":     "Bhatia wedding cards",
-    "job_b":     "Reliance flyers",
-    "resource":  "Machine 2 (offset)",
-    "window":    "Tomorrow 10 AM — 1 PM",
-    "next_step": "Move Reliance to Machine 3, no impact on delivery",
-}
+CONFLICT_ALERT_SAMPLE = (
+    "Bhatia wedding cards",                                             # {0} — job_a
+    "Reliance flyers",                                                  # {1} — job_b
+    "Machine 2 (offset)",                                               # {2} — resource
+    "Tomorrow 10 AM — 1 PM",                                            # {3} — window
+    "Move Reliance to Machine 3, no impact on delivery",                # {4} — next_step
+)
 
-DELAY_ALERT_SAMPLE = {
-    "job_name":       "Wedding Card Run",
-    "customer":       "Royal Events",
-    "time_remaining": "about 45 minutes",
-    "progress":       "820 of 850 cards printed",
-    "next_job":       "Modi pamphlets — paper already loaded",
-}
+DELAY_ALERT_SAMPLE = (
+    "Wedding Card Run",                                                 # {0} — job_name
+    "Royal Events",                                                     # {1} — customer
+    "about 45 minutes",                                                 # {2} — time_remaining
+    "820 of 850 cards printed",                                         # {3} — progress
+    "Modi pamphlets — paper already loaded",                            # {4} — next_job
+)
 
 
 # ===========================================================================
@@ -156,9 +159,9 @@ _NAMED_TEMPLATES_WITH_ACTION_PROMPTS = [
 
 @pytest.mark.parametrize("name,template,sample,allowed_endings", _NAMED_TEMPLATES_WITH_ACTION_PROMPTS)
 def test_23_ac3_template_ends_with_action_prompt(
-    name: str, template: str, sample: dict, allowed_endings: list[str]
+    name: str, template: str, sample: tuple, allowed_endings: list[str]
 ) -> None:
-    rendered = template.format(**sample)
+    rendered = template.format(*sample)
     last_line = rendered.rstrip().split("\n")[-1].strip()
     assert last_line in allowed_endings, (
         f"{name} ends with {last_line!r}; expected one of {allowed_endings}"
@@ -224,6 +227,8 @@ _SNAP_DELAY_EN = (
 )
 
 _SNAP_CONFLICT_EN = (
+    "Schedule conflict — action needed\n"
+    "\n"
     "Two jobs need the same resource at the same time.\n"
     "\n"
     "Job A: Bhatia wedding cards\n"
@@ -240,19 +245,19 @@ _SNAP_AI_REPLY_HEADER = "Namaste Sharma ji! " + message_emoji.PROMPT_GREETING + 
 
 
 def test_23_ac4_morning_briefing_en_snapshot() -> None:
-    assert f.MORNING_BRIEFING_EN.format(**MORNING_BRIEFING_SAMPLE) == _SNAP_MORNING_EN
+    assert f.MORNING_BRIEFING_EN.format(*MORNING_BRIEFING_SAMPLE) == _SNAP_MORNING_EN
 
 
 def test_23_ac4_morning_briefing_hi_snapshot() -> None:
-    assert f.MORNING_BRIEFING_HI.format(**MORNING_BRIEFING_HI_SAMPLE) == _SNAP_MORNING_HI
+    assert f.MORNING_BRIEFING_HI.format(*MORNING_BRIEFING_HI_SAMPLE) == _SNAP_MORNING_HI
 
 
 def test_23_ac4_delay_alert_en_snapshot() -> None:
-    assert f.DELAY_ALERT_EN.format(**DELAY_ALERT_SAMPLE) == _SNAP_DELAY_EN
+    assert f.DELAY_ALERT_EN.format(*DELAY_ALERT_SAMPLE) == _SNAP_DELAY_EN
 
 
 def test_23_ac4_conflict_alert_en_snapshot() -> None:
-    assert f.CONFLICT_ALERT_EN.format(**CONFLICT_ALERT_SAMPLE) == _SNAP_CONFLICT_EN
+    assert f.CONFLICT_ALERT_EN.format(*CONFLICT_ALERT_SAMPLE) == _SNAP_CONFLICT_EN
 
 
 def test_23_ac4_ai_reply_header_snapshot() -> None:
@@ -272,14 +277,14 @@ _LENGTH_TARGETS = [
 
 
 @pytest.mark.parametrize("name,template,sample", _LENGTH_TARGETS)
-def test_23_ac5_rendered_length_under_hard_cap(name: str, template: str, sample: dict) -> None:
-    rendered = template.format(**sample)
+def test_23_ac5_rendered_length_under_hard_cap(name: str, template: str, sample: tuple) -> None:
+    rendered = template.format(*sample)
     assert len(rendered) <= 1000, f"{name} rendered to {len(rendered)} chars (hard cap 1000)"
 
 
 @pytest.mark.parametrize("name,template,sample", _LENGTH_TARGETS)
-def test_23_ac5_rendered_length_under_soft_target(name: str, template: str, sample: dict) -> None:
-    rendered = template.format(**sample)
+def test_23_ac5_rendered_length_under_soft_target(name: str, template: str, sample: tuple) -> None:
+    rendered = template.format(*sample)
     assert len(rendered) <= 800, f"{name} rendered to {len(rendered)} chars (soft target 800)"
 
 

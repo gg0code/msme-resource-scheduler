@@ -40,6 +40,28 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ## [Unreleased]
 
 ### Added
+- **v6.3.22a — Normalised the 4 v6.3.18 constants to positional placeholders.**
+  `MORNING_BRIEFING_EN`, `MORNING_BRIEFING_HI`, `CONFLICT_ALERT_EN`,
+  `DELAY_ALERT_EN` in `app/services/message_formatters.py` converted from
+  named (`{date}`, `{job_a}`, ...) to positional (`{0}`, `{1}`, ...) so
+  the entire file uses one consistent style across all 36 constants.
+  Slot order matches the v6.3.18 named-kwarg order; inline comments at
+  every callsite preserve the old key names for review readability.
+  Reconciled one latent v6.3.18 drift surfaced in the review:
+  `CONFLICT_ALERT_EN` now includes the Meta HEADER prefix (`Schedule
+  conflict — action needed`) that the Python constant had silently
+  dropped — mock-mode renders + audit logs now match what Meta actually
+  sends. Updated 3 production callsites in
+  `app/services/consolidated_briefing.py` (morning EN/HI shared call +
+  delay-alert + conflict-alert dispatchers), 4 callsites in
+  `scripts/preview_v6_3_18_templates.py`, and the test scaffolding in
+  `tests/test_message_templates.py` (4 sample dicts → tuples; 7
+  `format(**sample)` → `format(*sample)` rewrites; `_SNAP_CONFLICT_EN`
+  snapshot updated to include the new HEADER prefix). Full unit-tier
+  suite: 1140 passed, 0 failed, 0 regressions. Migration head unchanged
+  at 034. Unblocks the v6.3.22 lookup helper's
+  `template_string.format(*args)` rendering strategy.
+
 - **v6.3.21 — Meta template constants wiring (full inventory).** 32 new
   template constants appended to `app/services/message_formatters.py` in
   a new Section 4 (onboarding & consent, evening briefing, manager

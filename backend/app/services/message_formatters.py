@@ -516,118 +516,115 @@ def format_machine_status(machine: MachineLike) -> str:
 # string and the count of {{n}} placeholders across HEADER + BODY in
 # the Meta entry. See AC 23-AC7 in SRS §11.
 
-MORNING_BRIEFING_EN = (
-    "Morning briefing — {date}\n"
-    "\n"
-    "Today's plan\n"
-    "- Jobs starting: {jobs_starting}\n"
-    "- Continuing from yesterday: {continuing}\n"
-    "- Crew expected: {crew_expected}\n"
-    "\n"
-    "Flag: {flag}\n"
-    "\n"
-    "Suggested next step: {next_step}\n"
-    "\n"
-    "Reply OK to apply or HELP for options."
-)
+MORNING_BRIEFING_EN = """Morning briefing — {0}
+
+Today's plan
+- Jobs starting: {1}
+- Continuing from yesterday: {2}
+- Crew expected: {3}
+
+Flag: {4}
+
+Suggested next step: {5}
+
+Reply OK to apply or HELP for options."""
 """Maps to Meta template: zetaops_morning_briefing (en_US).
 
-Placeholder map (Meta {{n}} -> kwarg):
-    HEADER {{1}} = date
-    BODY   {{1}} = jobs_starting
-    BODY   {{2}} = continuing
-    BODY   {{3}} = crew_expected
-    BODY   {{4}} = flag
-    BODY   {{5}} = next_step
+Placeholder map (Meta {{n}} -> Python {N}):
+    HEADER {{1}} = {0}  (date)
+    BODY   {{1}} = {1}  (jobs_starting)
+    BODY   {{2}} = {2}  (continuing)
+    BODY   {{3}} = {3}  (crew_expected)
+    BODY   {{4}} = {4}  (flag)
+    BODY   {{5}} = {5}  (next_step)
 
-Total placeholder count = 6 across HEADER + BODY. The Python format
-string declares exactly 6 distinct named kwargs to satisfy AC 23-AC7.
+Normalised to positional in v6.3.22a so the entire file uses a single
+placeholder convention. Slot order matches the v6.3.18 named-kwarg
+order (date, jobs_starting, continuing, crew_expected, flag,
+next_step). Total placeholder count = 6 across HEADER + BODY.
 """
 
 
-MORNING_BRIEFING_HI = (
-    "सुबह की briefing — {date}\n"
-    "\n"
-    "आज का प्लान\n"
-    "- आज शुरू होने वाले काम: {jobs_starting}\n"
-    "- कल से जारी: {continuing}\n"
-    "- अपेक्षित crew: {crew_expected}\n"
-    "\n"
-    "ध्यान दें: {flag}\n"
-    "\n"
-    "सुझाव: {next_step}\n"
-    "\n"
-    "Apply करने के लिए OK या HELP भेजें।"
-)
+MORNING_BRIEFING_HI = """सुबह की briefing — {0}
+
+आज का प्लान
+- आज शुरू होने वाले काम: {1}
+- कल से जारी: {2}
+- अपेक्षित crew: {3}
+
+ध्यान दें: {4}
+
+सुझाव: {5}
+
+Apply करने के लिए OK या HELP भेजें।"""
 """Maps to Meta template: zetaops_morning_briefing (hi).
 
-Placeholder map (Meta {{n}} -> kwarg):
-    HEADER {{1}} = date
-    BODY   {{1}} = jobs_starting
-    BODY   {{2}} = continuing
-    BODY   {{3}} = crew_expected
-    BODY   {{4}} = flag
-    BODY   {{5}} = next_step
+Placeholder map identical to MORNING_BRIEFING_EN (date, jobs_starting,
+continuing, crew_expected, flag, next_step).
 
-Total placeholder count = 6. Code-mixing style: Devanagari sentences
-with English nouns for technical terms (briefing, crew, Apply, OK,
-HELP) — same convention as the existing `zetaops_welcome_consent` (hi)
-template. Strings are passed through verbatim by the formatter; the
-caller is responsible for selecting the locale upstream via
-`detect_language()`.
+Code-mixing style: Devanagari sentences with English nouns for
+technical terms (briefing, crew, Apply, OK, HELP) — same convention
+as the existing `zetaops_welcome_consent` (hi) template. Strings are
+passed through verbatim by the formatter; the caller is responsible
+for selecting the locale upstream via `detect_language()`.
 """
 
 
-DELAY_ALERT_EN = (
-    "Hi, {job_name} for {customer} is on track to finish in {time_remaining}.\n"
-    "\n"
-    "Progress: {progress}\n"
-    "Next job in queue: {next_job}\n"
-    "\n"
-    "Reply READY when packing is complete to mark this job done."
-)
+DELAY_ALERT_EN = """Hi, {0} for {1} is on track to finish in {2}.
+
+Progress: {3}
+Next job in queue: {4}
+
+Reply READY when packing is complete to mark this job done."""
 """Maps to Meta template: zetaops_job_ending_soon (en_US).
 
-Placeholder map (Meta {{n}} -> kwarg):
-    BODY {{1}} = job_name
-    BODY {{2}} = customer
-    BODY {{3}} = time_remaining
-    BODY {{4}} = progress
-    BODY {{5}} = next_job
+Placeholder map (Meta {{n}} -> Python {N}):
+    BODY {{1}} = {0}  (job_name)
+    BODY {{2}} = {1}  (customer)
+    BODY {{3}} = {2}  (time_remaining)
+    BODY {{4}} = {3}  (progress)
+    BODY {{5}} = {4}  (next_job)
 
 Total placeholder count = 5. Bound only in en_US; a Hindi translation
 is on the v6.3.19 backlog.
 """
 
 
-CONFLICT_ALERT_EN = (
-    "Two jobs need the same resource at the same time.\n"
-    "\n"
-    "Job A: {job_a}\n"
-    "Job B: {job_b}\n"
-    "Resource: {resource}\n"
-    "Window: {window}\n"
-    "\n"
-    "Suggested resolution: {next_step}\n"
-    "\n"
-    "Reply YES to apply or REVIEW to see other options."
-)
+CONFLICT_ALERT_EN = """Schedule conflict — action needed
+
+Two jobs need the same resource at the same time.
+
+Job A: {0}
+Job B: {1}
+Resource: {2}
+Window: {3}
+
+Suggested resolution: {4}
+
+Reply YES to apply or REVIEW to see other options."""
 """Maps to Meta template: zetaops_job_conflict_alert (en_US).
 
-Placeholder map (Meta {{n}} -> kwarg):
-    BODY {{1}} = job_a
-    BODY {{2}} = job_b
-    BODY {{3}} = resource
-    BODY {{4}} = window
-    BODY {{5}} = next_step
+Placeholder map (Meta {{n}} -> Python {N}):
+    HEADER (static "Schedule conflict — action needed", no placeholder)
+    BODY {{1}} = {0}  (job_a)
+    BODY {{2}} = {1}  (job_b)
+    BODY {{3}} = {2}  (resource)
+    BODY {{4}} = {3}  (window)
+    BODY {{5}} = {4}  (next_step)
+
+v6.3.22a reconciled the body text to include the Meta HEADER prefix
+("Schedule conflict — action needed") that v6.3.18 had silently
+dropped — the AC 23-AC7 audit only counts placeholders, so the static
+HEADER drift was invisible until the v6.3.22 lookup helper review
+surfaced it. Mock-mode renders + audit logs now match what Meta
+actually sends.
 
 Total placeholder count = 5. The Hindi sibling
 `zetaops_job_conflict_alert (hi)` exists as a draft in
 whatsapp_meta_templates.json with status
 'draft_pending_meta_submission' (added in v6.3.18); the corresponding
-Python constant CONFLICT_ALERT_HI is not yet wired up. Add it when
-Meta approves the Hindi entry — the alignment test (AC 23-AC7) will
-catch any drift.
+Python constant `JOB_CONFLICT_ALERT_HI` was wired in v6.3.21 — already
+positional, no normalisation needed.
 """
 
 

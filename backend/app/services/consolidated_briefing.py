@@ -732,12 +732,12 @@ def _render_morning_message(
         else message_formatters.MORNING_BRIEFING_EN
     )
     return template.format(
-        date=today.strftime("%d %b"),
-        jobs_starting=jobs_starting,
-        continuing=continuing,
-        crew_expected=crew_expected,
-        flag=flag,
-        next_step=next_step,
+        today.strftime("%d %b"),  # {0} — was {date}
+        jobs_starting,            # {1} — was {jobs_starting}
+        continuing,               # {2} — was {continuing}
+        crew_expected,            # {3} — was {crew_expected}
+        flag,                     # {4} — was {flag}
+        next_step,                # {5} — was {next_step}
     )
 
 
@@ -1694,7 +1694,13 @@ async def dispatch_delay_alert(
         )
 
     fields = _compute_delay_alert_fields(job, now, db)
-    rendered = message_formatters.DELAY_ALERT_EN.format(**fields)
+    rendered = message_formatters.DELAY_ALERT_EN.format(
+        fields["job_name"],        # {0} — was {job_name}
+        fields["customer"],        # {1} — was {customer}
+        fields["time_remaining"],  # {2} — was {time_remaining}
+        fields["progress"],        # {3} — was {progress}
+        fields["next_job"],        # {4} — was {next_job}
+    )
 
     sent_count = 0
     last_error: str | None = None
@@ -1838,7 +1844,13 @@ async def dispatch_conflict_alert(
         )
 
     fields = _compute_conflict_alert_fields(conflict_payload)
-    rendered = message_formatters.CONFLICT_ALERT_EN.format(**fields)
+    rendered = message_formatters.CONFLICT_ALERT_EN.format(
+        fields["job_a"],      # {0} — was {job_a}
+        fields["job_b"],      # {1} — was {job_b}
+        fields["resource"],   # {2} — was {resource}
+        fields["window"],     # {3} — was {window}
+        fields["next_step"],  # {4} — was {next_step}
+    )
 
     sent_count = 0
     last_error: str | None = None
