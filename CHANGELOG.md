@@ -40,6 +40,39 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 ## [Unreleased]
 
 ### Added
+-
+
+### Changed
+-
+
+### Fixed
+-
+
+### Migration
+-
+
+### Notes
+-
+
+---
+
+## [v6.3.20] — 2026-05-13
+**Branch:** v5-whatsapp
+**Spec:** SRS Section 6.28 (Daily Push Briefings) — NL extension
+
+WhatsApp natural-language pathway for top-tier owners to change
+push-briefing settings without leaving the chat. Three new AI tools
+(`update_push_setting` / `pause_push` / `get_push_settings`) backed
+by a strict server-side whitelist + validators, wired through the
+existing v5.6 confirmation flow. Schema columns added in v6.3.19
+slice 2A (migration 033) finally drive end-to-end behaviour from
+NL → write. Shipped across four commits on `v5-whatsapp` since the
+v6.3.19.1 cutover: backend foundations (part 1, `6aea025`), manual
+walkthrough runbook (`d45f9d3`), bridge plumbing (part 2, `93b900f`),
+release-blocker bug fix for the briefing-classifier intercept
+(`83d9d8c`).
+
+### Added
 - **v6.3.20 part 2 — bridge plumbing (actor_user_id + phone_number).**
   Plumbs the calling user's identity from
   `app/routers/whatsapp.py:_process_inbound_message` (which has it on
@@ -162,14 +195,22 @@ audit purposes; in the SRS they collapse into the parent version's entry.
   Migration head stays 034.
 
 ### Notes
-- **v6.3.20 part 2 landed in this same `[Unreleased]` window.** The
-  bridge plumbing called out as "deferred" in part 1 is now wired —
-  see the `v6.3.20 part 2` Added entry above. Tools are callable
-  end-to-end from WhatsApp; the only remaining v6.3.20 acceptance
-  step is the manual WhatsApp mock-mode walkthrough documented at
-  `docs/v6_3_20_manual_walkthrough.md`. Run that, then tag
-  `v6.3.20` and flip this `[Unreleased]` section to a tagged
-  `## [v6.3.20] — YYYY-MM-DD` block per the doc-trinity rule.
+- **All four v6.3.20 commits are tagged in this single release.**
+  Part 1 (backend foundations, `6aea025`) shipped the service module
+  + tools as a self-contained slice with the bridge plumbing
+  intentionally deferred. Part 2 (`93b900f`) wired the optional
+  `actor_user_id` + `phone_number` kwargs all the way from the
+  WhatsApp router through the bridge → `run_ai_chat` → `execute_tool`,
+  closing the security boundary so the v6.3.20 write tools stay
+  WhatsApp-channel-only (they refuse with
+  `tool_requires_whatsapp_channel` from the web-UI `ai_chat`
+  caller). Manual walkthrough doc (`d45f9d3`) covers nine acceptance
+  scenarios; live walkthrough on `WHATSAPP_MOCK_MODE=True` against
+  the test tenant signed off all nine before this tag. Bug fix
+  (`83d9d8c`) closed the briefing-classifier intercept that was
+  silently swallowing `"morning briefing 8 baje karo"` and routing
+  it to the v6.3.4 dispatcher instead of the new
+  `update_push_setting` tool.
 - **Steps 1 and 7 from the v6.3.20 prompt were already shipped in
   v6.3.19** (schema_context.py documents the three v6.3.19 columns
   at lines 107-116; `consolidated_briefing._dispatch_one:846-864`
@@ -177,6 +218,14 @@ audit purposes; in the SRS they collapse into the parent version's entry.
   `push.{kind}_skipped_paused`). The v6.3.20 prompt's pre-flight
   reconciliation commit was likewise pre-empted by the v6.3.19.1
   doc-trinity sync that landed under the amended v6.3.19.1 tag.
+- **Test count at tag:** 1108 unit-tier passing (+56 from v6.3.19.1's
+  1052 baseline: 26 service-module + 7 plumbing + 23 disambiguation).
+  Migration head unchanged at 034 (no schema this release).
+- **Deferred to v6.4.0 / future:** any system-prompt tightening for
+  the soft-fail path on step 6's `"8pm karo"` variant (LLM should
+  normalise "8pm" → "20:00"; if it passes raw, the validator catches
+  it but the user gets a re-ask instead of a confirmation prompt).
+  Not a blocker — the validator is the safety net.
 
 ---
 
