@@ -56,6 +56,173 @@ audit purposes; in the SRS they collapse into the parent version's entry.
 
 ---
 
+## [v6.3.23] — 2026-05-14
+**Branch:** v5-whatsapp
+**Spec:** SRS Section 6.29 (Brand Asset Library)
+
+Ships the v6.3.23 WhatsApp brand asset library — eight 640×335 PNG
+headers for HSM template IMAGE-header components, plus the runtime
+plumbing that picks the right asset per outbound template and the
+operator-driven submission script that uploads them to Meta. No new
+migration; head stays at **034**. No frontend changes. Test suite
+grows from 1187 → **1201 unit-tier passing** (+14: 7 ACs with AC3
+parametrised across the 8 assets).
+
+### Added
+- **v6.3.23 — Eight brand-header PNGs (SRS §6.29 AC1, AC2, AC3).**
+  New assets directory `backend/assets/whatsapp_headers/` ships
+  `morning_briefing.png` (#185FA5 sun "MORNING BRIEFING"),
+  `evening_summary.png` (#3C3489 moon "EVENING SUMMARY"),
+  `compliance_reminder.png` (#BA7517 document "COMPLIANCE"),
+  `savings_summary.png` (#0F6E56 trend-up "SAVINGS"),
+  `conflict_alert.png` (#A32D2D alert-triangle "ALERT"),
+  `team_invite.png` (#534AB7 user-plus "INVITE"),
+  `material_estimate.png` (#D85A30 calculator "ESTIMATE"), and
+  `day7_first_insight.png` (#1D9E75 check "DAY 7"). Each PNG is
+  640×335 px under 9 KB (Meta cap is 5 MB). SVG sources under
+  `_source/` for designer edits. README.md documents the design
+  tokens and the regeneration command.
+
+- **v6.3.23 — Asset generator script.** New
+  `backend/scripts/generate_brand_headers.py` renders all 8 PNGs and
+  SVGs from a single in-module `SPEC` table using Pillow. PIL-direct
+  rendering keeps the toolchain free of cairo/cairosvg system deps.
+  Font fallback chain: arialbd.ttf (Win) → DejaVuSans-Bold.ttf
+  (Linux) → Helvetica-Bold (Mac) → PIL bitmap default.
+
+- **v6.3.23 — Brand asset registry module.** New
+  `backend/app/services/whatsapp_template_assets.py` ships the
+  8-entry `REGISTRY: dict[str, BrandAsset]`, the
+  `_META_NAME_TO_BRAND_KEY` reverse map, and three accessors
+  consumed by the send helper and the asset endpoint:
+  `get_brand_asset(meta_template_name)`,
+  `get_header_image_handle(meta_template_name, language)`,
+  `is_known_asset_filename(filename)`. Decision recorded in the
+  module header: this is a **new** module, deliberately not folded
+  into the v6.3.21 `whatsapp_templates.py` whose single purpose is
+  internal-event → Meta-template routing. Single-purpose modules
+  stay grep-friendly.
+
+- **v6.3.23 — Meta handle sidecar JSON.** New
+  `backend/app/services/whatsapp_template_handles.json` carries one
+  slot per `<meta_template_name>::<language>` pair that uses a brand
+  asset. All values start `null` until Meta approves the IMAGE-header
+  re-submission for each (template, language). Committed to git on
+  purpose — handles are template-component IDs returned by Meta, not
+  secrets; team visibility outweighs the marginal "spreads to git
+  history" concern. Documented in the assets README.
+
+- **v6.3.23 — Asset-serving endpoint.** New
+  `GET /api/v1/whatsapp/assets/{filename}` on the existing
+  `whatsapp.py` router, registered at `/api/v1/whatsapp`. Returns
+  `FileResponse(media_type='image/png')` for whitelisted filenames
+  in `REGISTRY`; 404 for anything else, including FastAPI-path-
+  conversion residue from `..` attempts. No auth — brand chrome is
+  public and Meta needs to reach the URL when uploading the IMAGE
+  handle during template approval.
+
+- **v6.3.23 — Helper wiring (`_post_template_to_meta`).**
+  `whatsapp_send_helper.py` now resolves the brand asset and the
+  Meta handle for every template send. **Mock mode:** the existing
+  `[MOCK TEMPLATE]` log line carries two new fields,
+  `header_asset=<filename>` and `header_handle=<value-or-None>`.
+  Templates with a brand asset but no handle yet (the v6.3.23 ship
+  state for all 14 slots) also emit a `WARNING` log line naming the
+  asset filename and the `(name, language)` pair so an operator
+  grepping production logs sees exactly which Meta approval is still
+  outstanding. **Real mode:** when the handle is non-null, the
+  helper prepends an `{type: header, parameters: [{type: image,
+  image: {id: handle}}]}` component to the Meta POST body and skips
+  the TEXT header params (the META_TEMPLATES JSON will have been
+  updated to IMAGE-header form in the same submit-script run that
+  populated the handle). When the handle is null but a brand asset
+  exists, the helper logs the same WARNING and falls through to
+  TEXT-header behaviour — AC `6.3.23-AC5`.
+
+- **v6.3.23 — Meta submission helper script.** New
+  `backend/scripts/submit_whatsapp_templates.py` (idempotent;
+  `--dry-run` / `--apply`). Walks the handles JSON, skips any slot
+  whose handle is already populated (local idempotency check; no
+  GET-to-Meta round-trip per run), and for the remainder either
+  prints the would-submit plan (`--dry-run`) or POSTs each
+  asset to Meta and writes the returned handle back to the JSON
+  atomically via `os.replace` (`--apply`). `HttpxSubmitter.submit`
+  is intentionally a `NotImplementedError` placeholder until Meta
+  Business portfolio approval clears — operators run `--dry-run`
+  for the v6.3.23 acceptance and fill in the real POST when going
+  live. Pluggable `Submitter` Protocol lets the AC6 test inject a
+  stub.
+
+- **v6.3.23 — Config addition.** `app/config.py` now exposes
+  `WHATSAPP_ASSET_BASE_URL` (default
+  `http://localhost:8000/api/v1/whatsapp/assets`). Read only by the
+  submit script, not by the runtime send path.
+
+- **v6.3.23 — Seven new acceptance-criterion tests.** New
+  `backend/tests/test_whatsapp_branded_headers.py` covers
+  6.3.23-AC1..AC7. AC3 is parametrised across the 8 brand keys so a
+  size-spec regression for one asset points at exactly which PNG
+  drifted. Test fixture mirrors the v6.3.22 helper test's pattern
+  (SQLite StaticPool + manual `now()` server-default patch) but at
+  tests/ root rather than tests/services/ per the brief's deliverable
+  §6 placement. AC8 (no regression in existing WhatsApp tests) is
+  verified by the full suite — no new test for it.
+
+### Changed
+- **v6.3.23 — `whatsapp_send_helper._post_template_to_meta` adds a
+  brand-asset lookup.** Both mock and real branches now resolve the
+  brand asset and Meta handle up front. The IMAGE component is
+  prepended only when a non-null handle exists; the TEXT-header
+  fallthrough preserves v6.3.22 behaviour exactly when no brand
+  asset is registered for the template, so the five v6.5/v6.4
+  unrouted templates (machine_breakdown, manager_checkin, etc.)
+  continue to send identically.
+
+### Fixed
+-
+
+### Migration
+- **None.** This release adds no schema columns and no new index.
+  Migration head stays at **034** at start and end of v6.3.23 —
+  the invariant the brief specifies.
+
+### Notes
+- **Deferred wiring — four templates currently route through no
+  v6.3.22-helper dispatcher.** `compliance_reminder` (three Meta
+  template variants t30/t7/t1), `savings_summary` (monthly KPI),
+  `material_estimate` (v6.5 feature, no Meta template yet), and
+  `day7_first_insight` ship registry entries + asset files in
+  v6.3.23 but no caller invokes `send_with_window_decision` for
+  them today. The brand IMAGE header activates automatically when
+  each dispatcher lands and routes through the helper. Per the
+  user's two-point follow-up requirement:
+  1. Each new dispatcher commit MUST add its own AC test
+     (`test_6_X_Y_acN_..._brand_header_routes`) verifying the
+     IMAGE component appears in the Meta POST body when the
+     handle is populated.
+  2. The commit MUST also re-run the AC5 fall-through test for
+     its template — "asset registry already has the row" is
+     not a substitute for verifying the dispatcher honours the
+     null-handle case.
+  These obligations are captured in
+  `backend/assets/whatsapp_headers/README.md` and the SRS §6.29
+  stub.
+
+- **Meta approval still gates production cutover.** The 14
+  `pending_meta_approval` template re-submissions (one per
+  (Meta-template, language) slot in the handles JSON) all sit at
+  `null` until Meta Business portfolio review clears and the
+  operator runs `submit_whatsapp_templates.py --apply` with valid
+  `WHATSAPP_ACCESS_TOKEN`. In the meantime mock-mode dispatchers
+  exercise the WARNING-fallthrough path; nothing else changes.
+
+- **Pillow added as an explicit dependency.** `Pillow>=10,<13`
+  appended to `backend/requirements.txt`. Already pulled in
+  transitively on some platforms but listing it explicitly closes
+  the AC3 / generator dependency.
+
+---
+
 ## [v6.3.22] — 2026-05-13
 **Branch:** v5-whatsapp
 **Spec:** SRS Section 6.28.6 (Channel-Decision Send Helper)

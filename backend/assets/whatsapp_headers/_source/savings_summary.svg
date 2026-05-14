@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 335" width="640" height="335">
+  <!-- v6.3.23 brand header source. Re-run backend/scripts/generate_brand_headers.py to refresh the PNG. -->
+  <rect x="0" y="0" width="640" height="335" fill="#0F6E56"/>
+  <rect x="0" y="321" width="640" height="14" fill="#0a4d3c"/>
+  <line x1="110" y1="217" x2="230" y2="117" stroke="white" stroke-width="9" stroke-linecap="round"/>
+  <polygon points="230,117 200,112 225,147" fill="white"/>
+  <line x1="100" y1="227" x2="240" y2="227" stroke="white" stroke-width="5"/>
+  <text x="430" y="179" font-family="Arial, Helvetica, sans-serif"
+        font-weight="bold" font-size="52" fill="white" text-anchor="middle">SAVINGS</text>
+  <text x="430" y="303" font-family="Arial, Helvetica, sans-serif"
+        font-weight="bold" font-size="18" fill="white" fill-opacity="0.8" text-anchor="middle">ZetaOps</text>
+</svg>

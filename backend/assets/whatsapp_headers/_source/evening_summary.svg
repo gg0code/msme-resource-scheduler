@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 335" width="640" height="335">
+  <!-- v6.3.23 brand header source. Re-run backend/scripts/generate_brand_headers.py to refresh the PNG. -->
+  <rect x="0" y="0" width="640" height="335" fill="#3C3489"/>
+  <rect x="0" y="321" width="640" height="14" fill="#2a245f"/>
+  <circle cx="170" cy="167" r="60" fill="white"/>
+  <ellipse cx="208" cy="163" rx="60" ry="60" fill="#3C3489"/>
+  <text x="430" y="179" font-family="Arial, Helvetica, sans-serif"
+        font-weight="bold" font-size="52" fill="white" text-anchor="middle">EVENING SUMMARY</text>
+  <text x="430" y="303" font-family="Arial, Helvetica, sans-serif"
+        font-weight="bold" font-size="18" fill="white" fill-opacity="0.8" text-anchor="middle">ZetaOps</text>
+</svg>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 335" width="640" height="335">
+  <!-- v6.3.23 brand header source. Re-run backend/scripts/generate_brand_headers.py to refresh the PNG. -->
+  <rect x="0" y="0" width="640" height="335" fill="#1D9E75"/>
+  <rect x="0" y="321" width="640" height="14" fill="#146e51"/>
+  <circle cx="170" cy="167" r="70" fill="white"/>
+  <polyline points="140,172 162,197 205,145" fill="none" stroke="#1D9E75" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="430" y="179" font-family="Arial, Helvetica, sans-serif"
+        font-weight="bold" font-size="52" fill="white" text-anchor="middle">DAY 7</text>
+  <text x="430" y="303" font-family="Arial, Helvetica, sans-serif"
+        font-weight="bold" font-size="18" fill="white" fill-opacity="0.8" text-anchor="middle">ZetaOps</text>
+</svg>

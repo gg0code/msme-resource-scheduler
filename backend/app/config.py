@@ -130,6 +130,15 @@ class Settings(BaseSettings):
     # set DEBUG_DISPATCH_ENABLED=false in .env.
     DEBUG_DISPATCH_ENABLED: bool = True
 
+    # v6.3.23 brand asset library — public base URL the Meta submit
+    # script references when uploading template HEADER IMAGE handles.
+    # Dev default points at the local FastAPI asset endpoint
+    # (GET /api/v1/whatsapp/assets/{filename}). Production deployments
+    # MUST set this in .env to a URL Meta can reach (e.g. a CDN or a
+    # publicly-routable subdomain of the API host). The runtime send
+    # path does NOT read this — it only matters at template submission.
+    WHATSAPP_ASSET_BASE_URL: str = "http://localhost:8000/api/v1/whatsapp/assets"
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

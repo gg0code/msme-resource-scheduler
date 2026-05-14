@@ -83,6 +83,7 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -111,6 +112,10 @@ from app.services.whatsapp_intent import (
     PHONE_TOP_TIER_ROLES,
 )
 from app.services.whatsapp_whisper import transcribe_voice_note, transcribe_audio_bytes
+from app.services.whatsapp_template_assets import (
+    ASSETS_DIR as _BRAND_ASSETS_DIR,
+    is_known_asset_filename as _is_known_brand_asset,
+)
 from app.models.whatsapp import WhatsAppConversation, PhoneTenantMap
 from app.core.dependencies import get_current_user
 
@@ -181,6 +186,45 @@ def get_bot_number() -> dict:
     keeps the page snappy.
     """
     return {"bot_number": settings.WHATSAPP_BOT_NUMBER or ""}
+
+
+# ---------------------------------------------------------------------------
+# v6.3.23: brand asset serving for WhatsApp HSM template IMAGE headers
+# ---------------------------------------------------------------------------
+
+@router.get("/assets/{filename}")
+def get_brand_header_asset(filename: str):
+    """
+    GET /api/v1/whatsapp/assets/{filename} - serve a brand header PNG.
+
+    Called by: Meta during the template-submission flow (uploads the
+    HEADER IMAGE handle by fetching this URL) and by anyone visually
+    auditing the brand library. Whitelisted to the eight filenames in
+    whatsapp_template_assets.REGISTRY; anything else returns 404.
+
+    Calls into: app.services.whatsapp_template_assets.is_known_asset_filename
+    and ASSETS_DIR. Returns the bytes via FastAPI's FileResponse with
+    media_type='image/png'.
+
+    Security note: FastAPI's path conversion rejects "../" and "/"
+    embedded in the filename segment, but the registry whitelist is the
+    load-bearing defence regardless — an attacker who somehow slipped
+    a traversal past the conversion still only reaches files whose
+    basenames are explicitly listed in REGISTRY.
+
+    No auth: brand assets are public chrome. Meta must reach this URL
+    from outside our network during template submission, and the
+    headers carry no tenant data.
+    """
+    if not _is_known_brand_asset(filename):
+        raise HTTPException(status_code=404, detail="asset not in registry")
+    path = _BRAND_ASSETS_DIR / filename
+    if not path.is_file():
+        # Registry knows the filename but the file is missing from disk —
+        # a deployment / packaging bug. 404 plus an audit log line.
+        logger.error("Brand asset missing from disk: %s", path)
+        raise HTTPException(status_code=404, detail="asset file missing")
+    return FileResponse(path, media_type="image/png", filename=filename)
 
 
 # ---------------------------------------------------------------------------

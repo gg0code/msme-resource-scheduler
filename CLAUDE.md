@@ -162,12 +162,13 @@ CI. Run them manually before any release tag.
 
 Test suite baseline as of v6.3.0-whatsapp-industry: **332 passing**.
 Earlier baseline at v6.2.2-test-recovery: 199 passing. The jump came
-from v6.3 work, not new test infrastructure. **Current as of v6.3.22
-(untagged):** **1187 passing** unit-tier (`-m "not integration"`),
+from v6.3 work, not new test infrastructure. **Current as of v6.3.23
+(tagged 2026-05-14):** **1201 passing** unit-tier (`-m "not integration"`),
 **31 passing** integration-tier (`tests/integration/test_2d_dispatcher.py`),
-**0 xfailed**. v6.3.22 added 8 channel-decision-helper unit tests; the
-v6.3.20–v6.3.21 work added the rest from the v6.3.19.1 baseline of
-1052.
+**0 xfailed**. v6.3.23 added 14 brand-header tests (7 ACs with AC3
+parametrised across the 8 brand assets); v6.3.22 added 8 channel-
+decision-helper unit tests; the v6.3.20–v6.3.21 work added the rest
+from the v6.3.19.1 baseline of 1052.
 
 ---
 
@@ -212,9 +213,9 @@ Use with `WHATSAPP_MOCK_MODE=True`. SRS §22.
 
 ---
 
-## Current state in one paragraph (as of 2026-05-13)
+## Current state in one paragraph (as of 2026-05-14)
 
-**Shipped through v6.3.22 (channel-decision send helper, tagged 2026-05-13).**
+**Shipped through v6.3.23 (brand asset library, tagged 2026-05-14).**
 v6.3.0-whatsapp-industry fixed BUG-6 (industry attribution on
 `PhoneTenantMap`). v6.3.3 added the events audit table (migration 028).
 v6.3.4 landed the daily push briefing dispatcher. v6.3.5 consolidated
@@ -318,6 +319,34 @@ Business portfolio approval** remains to flip `WHATSAPP_MOCK_MODE`
 off, and **4 templates remain `pending_meta_approval` upstream** —
 both run through the same Meta-approval gate. The platform runs in
 mock mode end-to-end and is feature-complete behind that gate.
+**v6.3.23 ships the brand asset library** (SRS §6.29) — eight
+640×335 PNG headers (one per outbound category: morning_briefing,
+evening_summary, compliance_reminder, savings_summary, conflict_alert,
+team_invite, material_estimate, day7_first_insight) plus the runtime
+plumbing. New module `app/services/whatsapp_template_assets.py`
+ships `REGISTRY` + `get_brand_asset` / `get_header_image_handle` /
+`is_known_asset_filename`; new sidecar `whatsapp_template_handles.json`
+holds Meta-returned IMAGE handles (14 `<name>::<language>` slots, all
+`null` until Meta IMAGE-header re-submission approvals land). New
+`GET /api/v1/whatsapp/assets/{filename}` endpoint serves PNGs from
+`REGISTRY`-whitelisted filenames; 404 otherwise. `whatsapp_send_helper.
+_post_template_to_meta` extended: mock mode `[MOCK TEMPLATE]` log
+now includes `header_asset=` + `header_handle=`; real mode prepends
+an IMAGE HEADER component when a handle is non-null, falls through
+with a `WARNING` line otherwise. New script `scripts/submit_whatsapp_
+templates.py` (idempotent; `--dry-run` / `--apply`) handles Meta
+submission once portfolio approval clears — `HttpxSubmitter.submit`
+is a deliberate `NotImplementedError` placeholder today. Asset
+generator at `scripts/generate_brand_headers.py` renders all 8 PNGs
++ SVGs from a single in-module SPEC using Pillow (added explicitly
+to `requirements.txt`). **No migration** — head stays at 034. Four
+of the eight brand categories (compliance_reminder, savings_summary,
+material_estimate, day7_first_insight) ship registry entries +
+asset files but no dispatcher routes them through the helper yet;
+brand IMAGE header activates automatically when each dispatcher
+lands. Each new dispatcher commit must add its own brand-header AC
+test + re-run the AC5 null-handle fall-through test (recorded in
+SRS §6.29 and the assets README).
 
 **In progress.** v6.3 KPI Baseline + Monthly Savings Summary (SRS §6.24,
 migration not yet written).

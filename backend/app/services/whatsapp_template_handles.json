@@ -1,0 +1,17 @@
+{
+  "_comment": "v6.3.23 — Meta-returned HEADER IMAGE handles per (template_name, language). Keys use the '<name>::<language>' shape. NULL means the template has not yet been re-submitted to Meta with an IMAGE header — runtime sends fall through to body-only with a logged warning (AC 6.3.23-AC5). Populated by scripts/submit_whatsapp_templates.py once Meta approves each submission. Handles are template-component IDs, not secrets, so this file is committed.",
+  "zetaops_morning_briefing::en_US": null,
+  "zetaops_morning_briefing::hi": null,
+  "zetaops_evening_briefing::en_US": null,
+  "zetaops_compliance_reminder_t30::en_US": null,
+  "zetaops_compliance_reminder_t7::en_US": null,
+  "zetaops_compliance_reminder_t1::en_US": null,
+  "zetaops_performance_summary_monthly::en_US": null,
+  "zetaops_performance_summary_monthly::hi": null,
+  "zetaops_job_conflict_alert::en_US": null,
+  "zetaops_job_conflict_alert::hi": null,
+  "zetaops_invite_team_member::en_US": null,
+  "zetaops_invite_team_member::hi": null,
+  "zetaops_owner_day7_insight::en_US": null,
+  "zetaops_owner_day7_insight::hi": null
+}

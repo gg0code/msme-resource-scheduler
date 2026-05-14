@@ -78,6 +78,10 @@ from app.models.event import Event
 from app.models.whatsapp import PhoneTenantMap
 from app.services.whatsapp_meta_templates import META_TEMPLATES
 from app.services.whatsapp_send import _send_whatsapp_message
+from app.services.whatsapp_template_assets import (
+    get_brand_asset,
+    get_header_image_handle,
+)
 from app.services.whatsapp_templates import (
     ArgCountMismatchError,
     ResolvedTemplate,
@@ -248,15 +252,37 @@ async def _post_template_to_meta(
     Symmetrical to _send_whatsapp_message in whatsapp_send.py — never
     raises; transport errors come back as the error string.
     """
+    # v6.3.23 — resolve the brand asset for this template up front so both
+    # mock and real branches log the same artefact. brand_asset is None
+    # for templates not in the brand registry (e.g. the v5.10 manager_*
+    # templates that have never carried a header). header_handle is None
+    # until Meta approves the IMAGE-header re-submission for this
+    # (template, language) pair; that's the AC 6.3.23-AC5 fall-through.
+    brand_asset = get_brand_asset(resolved.meta_name)
+    header_handle = get_header_image_handle(
+        resolved.meta_name, resolved.meta_language,
+    )
+
     if settings.WHATSAPP_MOCK_MODE:
         synthetic_id = f"mock_wamid_{uuid.uuid4().hex[:16]}"
+        header_asset_filename = brand_asset.filename if brand_asset else None
         logger.info(
             f"[MOCK TEMPLATE] To=****{phone_e164[-4:]} "
             f"event_template={resolved.meta_name} "
             f"language={resolved.meta_language} "
             f"params={resolved.meta_params} "
+            f"header_asset={header_asset_filename} "
+            f"header_handle={header_handle} "
             f"wamid={synthetic_id}"
         )
+        if brand_asset is not None and header_handle is None:
+            logger.warning(
+                "WhatsApp template %r (%s) has brand asset %s but no "
+                "header_image_handle yet — would fall through to body-only "
+                "in real mode. Run scripts/submit_whatsapp_templates.py "
+                "after Meta approval.",
+                resolved.meta_name, resolved.meta_language, brand_asset.filename,
+            )
         return synthetic_id, None
 
     if not (settings.WHATSAPP_ACCESS_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID):
@@ -271,7 +297,30 @@ async def _post_template_to_meta(
         resolved.meta_name, resolved.meta_language, resolved.meta_params,
     )
     components: list[dict] = []
-    if header_params:
+    if header_handle is not None:
+        # v6.3.23 IMAGE-header path. After Meta approves the re-submission,
+        # META_TEMPLATES for this (name, language) entry will carry an
+        # IMAGE-typed HEADER with no {{n}} placeholders — so
+        # _split_meta_params returns header_params=[] above and the BODY
+        # path below covers the rest. If the registry is stale (handle
+        # present but META_TEMPLATES still says TEXT header) header_params
+        # is non-empty; drop those leftovers so the IMAGE component is
+        # what Meta sees.
+        components.append({
+            "type": "header",
+            "parameters": [
+                {"type": "image", "image": {"id": header_handle}},
+            ],
+        })
+    elif header_params:
+        if brand_asset is not None:
+            logger.warning(
+                "WhatsApp template %r (%s) has brand asset %s but no "
+                "header_image_handle yet — sending TEXT header from "
+                "meta_params. Re-run scripts/submit_whatsapp_templates.py "
+                "after Meta approval.",
+                resolved.meta_name, resolved.meta_language, brand_asset.filename,
+            )
         components.append({
             "type": "header",
             "parameters": [{"type": "text", "text": p} for p in header_params],
